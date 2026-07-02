@@ -1,0 +1,22 @@
+{
+  "name": "bomwiki-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The BOMwiki engine: a community-editable encyclopedia of bills of materials.",
+  "scripts": {
+    "migrate": "node --experimental-strip-types scripts/migrate.ts",
+    "export-graph": "npm exec --yes --package tsx -- tsx scripts/export-graph.mts",
+    "import": "node --experimental-strip-types scripts/import.ts",
+    "serve": "node --experimental-strip-types src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.0",
+    "typescript": "^5.8.0"
+  }
+}
