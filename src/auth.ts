@@ -114,10 +114,10 @@ export async function requestMagicLink(email: string, handle?: string): Promise<
   );
   const link = `/auth/${token}`;
   if (DEV_SHOW_MAGIC_LINK) return { sent: true, devLink: link };
-  // Production: hand off to the mailer. Until one is wired, the link is
-  // generated (so the account exists) but only its owner could ever receive
-  // it — it is deliberately never returned to the caller.
-  // TODO(milestone 5): sendMagicLinkEmail(email, link).
+  // Production: the link goes only to the account's own inbox, never back to
+  // the caller. An unconfigured mailer means sign-in is inert, not leaky.
+  const { sendMagicLinkEmail } = await import('./mailer.ts');
+  await sendMagicLinkEmail(normalized, link);
   return { sent: true };
 }
 

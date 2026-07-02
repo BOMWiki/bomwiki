@@ -1,0 +1,27 @@
+# systemd unit for the BOMwiki engine. Install:
+#   cp bomwiki-engine.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now bomwiki-engine
+[Unit]
+Description=BOMwiki engine
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=bomwiki
+Group=bomwiki
+WorkingDirectory=/opt/bomwiki/engine
+EnvironmentFile=/etc/bomwiki/engine.env
+ExecStart=/usr/bin/node --experimental-strip-types src/server.ts
+Restart=always
+RestartSec=3
+# The engine holds the 192k-node graph in memory (~500MB peak with headroom).
+MemoryMax=2G
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/bomwiki
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -197,6 +197,18 @@ export function nodeCount(): number {
   return byId.size;
 }
 
+/** Iterate every node in authored (pos) order. Read-only. */
+export function allNodes(): IterableIterator<NodeData> {
+  return byId.values();
+}
+
+/** All products in authored order. */
+export function productList(): NodeData[] {
+  const out: NodeData[] = [];
+  for (const n of byId.values()) if (n.kind === 'product') out.push(n);
+  return out;
+}
+
 export function getNode(id: string): NodeData | undefined {
   return byId.get(id);
 }

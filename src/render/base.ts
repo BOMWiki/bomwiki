@@ -68,10 +68,15 @@ export function page(opts: PageOpts): string {
         <span class="b-name">BOMwiki</span>
         <span class="b-sub">the bill-of-materials encyclopedia</span>
       </a>
-      <nav class="site-nav">
-        <a href="/changes">Recent changes</a>
-        <span id="bw-acct"><a href="/login">Sign in</a></span>
-      </nav>
+      <div class="site-mid">
+        <form class="hdr-search" method="get" action="/search">
+          <input type="search" name="q" placeholder="Search BOMwiki" aria-label="Search the catalog" autocomplete="off" />
+        </form>
+        <nav class="site-nav">
+          <a href="/changes">Recent changes</a>
+          <span id="bw-acct"><a href="/login">Sign in</a></span>
+        </nav>
+      </div>
       <a class="rev" href="/about/numbers/" title="How these are counted">${totalCatalogParts.toLocaleString()} parts mapped · ${nodeCount().toLocaleString()} items</a>
     </header>
     <script>

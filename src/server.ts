@@ -3,8 +3,14 @@
 // milestone 2. Auth is a single admin session until milestone 3.
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
-import { dirname, join } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PUBLIC_DIR } from './images.ts';
+import { DOMAINS } from './domains.ts';
+import { isIndexableNode } from './seo.ts';
+import { domainPage } from './render/domain.ts';
+import { homePage } from './render/home.ts';
+import { searchPage } from './render/search.ts';
 import {
   getSession,
   login,
@@ -47,9 +53,11 @@ import {
 import { pool } from './db.ts';
 import { esc } from './html.ts';
 import {
+  allNodes,
   getNode,
   loadGraph,
   nodeCount,
+  productsByDomain,
   searchNodes,
   setVerificationInMemory,
   totalCatalogParts,
@@ -158,9 +166,65 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   if (path === '/healthz') return sendJson(res, 200, { ok: true, nodes: nodeCount() });
 
+  // Public assets from the site's public dir: photos, thumbs, social cards,
+  // favicons. Prefix-allowlisted, path-normalized, GET only.
+  const publicPrefixes = ['/img/', '/og/', '/favicon.svg', '/favicon.png', '/og-card-v2.png'];
+  if (method === 'GET' && publicPrefixes.some((p) => path.startsWith(p))) {
+    const normalized = normalize(path.replace(/^\/+/, '')).replaceAll('\\', '/');
+    if (normalized.startsWith('..')) return notFound(res);
+    const types: Record<string, string> = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+      '.gif': 'image/gif',
+    };
+    const type = types[normalized.slice(normalized.lastIndexOf('.')).toLowerCase()];
+    if (!type) return notFound(res);
+    try {
+      const content = readFileSync(join(PUBLIC_DIR, normalized));
+      res.writeHead(200, { 'content-type': type, 'cache-control': 'public, max-age=86400' });
+      res.end(content);
+    } catch {
+      notFound(res);
+    }
+    return;
+  }
+
+  if (path === '/robots.txt') {
+    return send(
+      res,
+      200,
+      'text/plain; charset=utf-8',
+      'User-agent: *\nAllow: /\nDisallow: /review\nDisallow: /api/\nSitemap: https://bomwiki.com/sitemap.xml\n',
+    );
+  }
+
+  if (path === '/sitemap.xml') {
+    // Only earned URLs: home, domain hubs, and human-verified indexable pages.
+    const urls: string[] = ['https://bomwiki.com/'];
+    for (const d of DOMAINS) {
+      if (productsByDomain(d.slug).length > 0) urls.push(`https://bomwiki.com/domain/${d.slug}/`);
+    }
+    for (const node of allNodes()) {
+      if (isIndexableNode(node)) urls.push(`https://bomwiki.com/item/${node.id}/`);
+    }
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls
+      .map((u) => `  <url><loc>${u}</loc></url>`)
+      .join('\n')}\n</urlset>\n`;
+    res.writeHead(200, {
+      'content-type': 'application/xml; charset=utf-8',
+      'cache-control': 'public, max-age=3600',
+    });
+    res.end(xml);
+    return;
+  }
+
   if (path.startsWith('/static/')) {
-    const name = path.slice('/static/'.length);
-    if (name.includes('..') || name.includes('/')) return notFound(res);
+    const name = normalize(path.slice('/static/'.length)).replaceAll('\\', '/');
+    // Files directly in static/ plus the vendored client libs one level down.
+    if (name.includes('..') || !/^(?:vendor\/)?[A-Za-z0-9._-]+$/.test(name)) return notFound(res);
     const type = STATIC_TYPES[name.slice(name.lastIndexOf('.'))];
     if (!type) return notFound(res);
     try {
@@ -451,6 +515,18 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   // --- read path ---
+  const domain = path.match(/^\/domain\/([a-z0-9-]+)(\/?)$/);
+  if (domain) {
+    if (!domain[2]) return redirect(res, `/domain/${domain[1]}/`);
+    const html = domainPage(domain[1]);
+    if (!html) return notFound(res, domain[1]);
+    return sendCacheableHtml(res, html);
+  }
+
+  if (path === '/search') {
+    return sendHtml(res, searchPage(url.searchParams.get('q') ?? ''));
+  }
+
   const item = path.match(/^\/item\/([A-Za-z0-9._-]+)(\/?)$/);
   if (item) {
     const [, id, slash] = item;
@@ -461,16 +537,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (path === '/') {
-    return sendHtml(
-      res,
-      page({
-        title: 'BOMwiki: the bill-of-materials encyclopedia',
-        description: 'A public catalog of parts and the assemblies they roll up into.',
-        path: '/',
-        indexable: false,
-        body: `<p>BOMwiki engine. ${nodeCount().toLocaleString()} items served from the database, ${totalCatalogParts.toLocaleString()} parts mapped. Try <a href="/item/ev-car/">the electric car</a>, the <a href="/changes">recent changes</a>, or the <a href="/review">review queue</a>.</p>`,
-      }),
-    );
+    return sendCacheableHtml(res, homePage());
   }
 
   notFound(res);

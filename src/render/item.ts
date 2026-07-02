@@ -17,7 +17,10 @@ import {
   type NodeData,
 } from '../nodes.ts';
 import { snapshotOf } from '../changesets.ts';
+import { imageFor, ogCardPath } from '../images.ts';
 import { articleWordCount, renderArticle } from '../markdown.ts';
+import { graphSection } from './graph-section.ts';
+import { gallerySection, sourcingSection } from './item-extras.ts';
 import { isIndexableNode, seoDescription, seoTitle } from '../seo.ts';
 import { page } from './base.ts';
 import { rail } from './rail.ts';
@@ -152,6 +155,7 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
       </section>`;
 
   const railDomain = trail[0]?.kind === 'product' ? trail[0].domain : node.domain;
+  const heroImg = imageFor(node);
 
   const editData = historical
     ? ''
@@ -206,7 +210,14 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
         ${actions}
         <h1 class="wtitle">${esc(node.name)} <span class="htag ${node.kind}">${kindLabel}</span></h1>
         <aside class="infobox">
-          <svg class="ib-img ib-svg" viewBox="0 0 96 96" role="img" aria-label="${esc(node.name)}">${nodeIcon(node)}</svg>
+          ${
+            heroImg
+              ? `<a class="ib-imglink" href="${esc(heroImg.page ?? heroImg.url)}" target="_blank" rel="noopener" title="Photo: ${esc(heroImg.title)} (Wikimedia Commons)">
+            <img class="ib-img" src="${esc(heroImg.thumb ?? heroImg.url)}" alt="${esc(node.name)}" width="240" height="168" loading="eager" fetchpriority="high" decoding="async" />
+            <span class="ib-credit">${esc(heroImg.title)} · Commons ↗</span>
+          </a>`
+              : `<svg class="ib-img ib-svg" viewBox="0 0 96 96" role="img" aria-label="${esc(node.name)}">${nodeIcon(node)}</svg>`
+          }
           ${node.summary ? `<p class="ib-cap">${esc(node.summary)}</p>` : ''}
           <table class="ib-specs"><tbody>${specs}</tbody></table>
           ${verifyForm}
@@ -218,8 +229,11 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
               : `<p class="stub">${node.summary ? esc(node.summary) + ' ' : ''}A full specification article for this item is being written. Meanwhile its bill of materials and connections are below.</p>`
           }
         </div>
+        ${historical ? '' : gallerySection(node.id)}
+        ${historical ? '' : graphSection(node)}
         ${bomHtml}
         ${usedInHtml}
+        ${historical ? '' : sourcingSection(node)}
         ${node.article ? `<p class="wc">${articleWordCount(node.article).toLocaleString()}-word article</p>` : ''}
       </div>
     </div>`;
@@ -244,9 +258,10 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
     path: `/item/${node.id}/`,
     indexable: isIndexableNode(node),
     ogType: 'article',
+    ogImage: ogCardPath(node.id),
     jsonLd: historical ? [] : [breadcrumbLd],
     body,
     extraCss: ['/static/item.css', '/static/rail.css', '/static/edit.css'],
-    scripts: historical ? [] : ['/static/edit.js'],
+    scripts: historical ? [] : ['/static/edit.js', '/static/graph.js'],
   });
 }
