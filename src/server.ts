@@ -44,12 +44,14 @@ import {
 } from './community.ts';
 import {
   changesPage,
+  homepageAdminPage,
   profilePage,
   settingsPage,
   signinPage,
   talkPage,
   watchlistPage,
 } from './render/community.ts';
+import { getSetting, setSetting, settingMeta } from './site-settings.ts';
 import { pool } from './db.ts';
 import { esc } from './html.ts';
 import {
@@ -388,6 +390,41 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     );
   }
 
+  // --- homepage curation (reviewers) ---
+  if (path === '/admin/homepage') {
+    const session = await requireReviewer(req, res);
+    if (!session) return;
+    if (method === 'POST') {
+      const body = new URLSearchParams(await readBody(req));
+      const rawPool = (body.get('pool') ?? '')
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const unknown = rawPool.filter((id) => !getNode(id) || getNode(id)!.kind !== 'product');
+      const clean = rawPool.filter((id) => getNode(id)?.kind === 'product');
+      const facts = (body.get('facts') ?? '')
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 20);
+      if (clean.length) await setSetting('featured-pool', clean, session.userId);
+      await setSetting('did-you-know', facts, session.userId);
+      const notice = unknown.length
+        ? `Saved. Skipped ${unknown.length} id(s) that are not products: ${unknown.slice(0, 5).join(', ')}`
+        : 'Saved.';
+      return redirect(res, `/admin/homepage?m=${encodeURIComponent(notice)}`);
+    }
+    return sendHtml(
+      res,
+      homepageAdminPage({
+        pool: await getSetting<string[]>('featured-pool', []),
+        facts: await getSetting<string[]>('did-you-know', []),
+        meta: await settingMeta('featured-pool'),
+        notice: url.searchParams.get('m') ?? undefined,
+      }),
+    );
+  }
+
   // --- admin moderation actions ---
   const modAction = path.match(/^\/admin\/user\/([a-z0-9_-]+)\/(block|unblock|make-reviewer|make-contributor|mass-revert)$/);
   if (modAction && method === 'POST') {
@@ -537,7 +574,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (path === '/') {
-    return sendCacheableHtml(res, homePage());
+    return sendCacheableHtml(res, await homePage());
   }
 
   notFound(res);

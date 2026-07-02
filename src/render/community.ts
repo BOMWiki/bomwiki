@@ -206,6 +206,37 @@ export function talkPage(node: NodeData, topics: Topic[], signedIn: boolean, can
   });
 }
 
+export function homepageAdminPage(opts: {
+  pool: string[];
+  facts: string[];
+  meta: { updatedBy: string; updatedAt: string } | null;
+  notice?: string;
+}): string {
+  return page({
+    title: 'Curate the homepage | BOMwiki',
+    description: 'Featured pool and did-you-know facts.',
+    path: '/admin/homepage',
+    indexable: false,
+    body: `<div class="review"><h1>Curate the homepage</h1>
+      ${opts.notice ? `<p class="rv-notice">${esc(opts.notice)}</p>` : ''}
+      <p class="stub">Reviewers decide what the homepage features. The featured product rotates daily through the pool below; curated facts appear above the computed ones. ${
+        opts.meta
+          ? `Last edited by <a href="/user/${esc(opts.meta.updatedBy)}">${esc(opts.meta.updatedBy)}</a> · ${fmtWhen(opts.meta.updatedAt)}.`
+          : 'Currently using the launch seed.'
+      }</p>
+      <form method="post" action="/admin/homepage" class="settings-form">
+        <label>Featured pool (one product id per line)
+          <textarea name="pool" rows="8">${esc(opts.pool.join('\n'))}</textarea>
+        </label>
+        <label>Did-you-know facts (one per line, plain text; shown before the computed facts)
+          <textarea name="facts" rows="6">${esc(opts.facts.join('\n'))}</textarea>
+        </label>
+        <button>Save</button>
+      </form></div>`,
+    extraCss: ['/static/edit.css'],
+  });
+}
+
 export function watchlistPage(events: WatchEvent[]): string {
   return page({
     title: 'Watchlist | BOMwiki',

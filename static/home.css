@@ -93,3 +93,4 @@ body:not(.immersive) main { max-width: 1500px; padding-top: 24px; }
 @media (max-width: 420px) {
   .tiles { grid-template-columns: repeat(2, 1fr); }
 }
+.feat-meta { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; }

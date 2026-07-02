@@ -17,10 +17,13 @@ import {
   totalParts,
   type NodeData,
 } from '../nodes.ts';
+import { getSetting, settingMeta } from '../site-settings.ts';
 import { page } from './base.ts';
 
-// Featured product rotates by day so it varies without a redeploy.
-const FEATURED_POOL = [
+// Seed featured pool: used until reviewers curate their own via
+// /admin/homepage (site_settings 'featured-pool'). The pool is editorial
+// content with attribution, not code.
+const DEFAULT_FEATURED_POOL = [
   'airliner',
   'reusable-launch-vehicle',
   'excavator',
@@ -139,14 +142,22 @@ function homeStats(): HomeStats {
 
 const item = (id: string, name: string) => `<a href="/item/${id}/">${esc(name)}</a>`;
 
-export function homePage(): string {
+export async function homePage(): Promise<string> {
   const s = homeStats();
   const nc = nodeCount();
   const { products, groups } = s;
 
+  // Editorial content comes from site_settings, curated by reviewers with
+  // attribution; the hardcoded values are only the pre-curation seed.
+  const pool = await getSetting<string[]>('featured-pool', DEFAULT_FEATURED_POOL);
+  const curatedFacts = await getSetting<string[]>('did-you-know', []);
+  const poolMeta = await settingMeta('featured-pool');
+
   const featureDay = Math.floor(Date.now() / 86_400_000);
+  const poolIds = pool.filter((id) => s.byProductId.has(id));
   const featured =
-    s.byProductId.get(FEATURED_POOL[featureDay % FEATURED_POOL.length]) ?? products[0];
+    (poolIds.length ? s.byProductId.get(poolIds[featureDay % poolIds.length]) : undefined) ??
+    products[0];
   const featuredImg = featured ? imageFor(featured) : undefined;
   const featuredParts = featured ? totalParts(featured.id) : 0;
   const featuredLines = featured?.bom?.length ?? 0;
@@ -155,9 +166,10 @@ export function homePage(): string {
   const maxDepth = s.deepest[0]?.d ?? 0;
   const topReused = s.mostReused[0];
 
-  // Each fact is true and, where numeric, computed from the live graph. Facts
-  // that name specific items only appear when those items exist.
-  const didYouKnow: string[] = [];
+  // Curated facts (reviewer-edited, plain text) lead; computed facts follow.
+  // Each computed fact is true and, where numeric, derived from the live
+  // graph; facts naming specific items only appear when those items exist.
+  const didYouKnow: string[] = curatedFacts.map((f) => esc(f));
   if (getNode('airliner'))
     didYouKnow.push(
       `that a ${item('airliner', 'commercial airliner')} is built from roughly ${totalParts('airliner').toLocaleString()} individual parts, down to each rivet`,
@@ -193,6 +205,11 @@ export function homePage(): string {
             top-level assemblies, each explorable down to individual components.
             <a href="/item/${featured.id}/">Full bill of materials →</a>
           </p>
+          <p class="feat-meta">Rotates daily from a pool ${
+            poolMeta
+              ? `curated by <a href="/user/${esc(poolMeta.updatedBy)}">${esc(poolMeta.updatedBy)}</a>`
+              : 'seeded at launch'
+          } · <a href="/admin/homepage">curate</a></p>
         </div>
       </section>`
     : '';

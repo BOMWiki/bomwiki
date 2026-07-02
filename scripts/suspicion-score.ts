@@ -175,10 +175,26 @@ writeFileSync(
 console.log(`worklist -> ${OUT} (worst: ${worst[0]?.name} @ ${fmt(worst[0]?.total ?? 0)})`);
 
 if (MARK_CLEAN && cleanest.length) {
-  await pool.query(
-    "update nodes set verification = 'machine-checked' where id = any($1::text[]) and verification = 'unverified'",
-    [cleanest.map((s) => s.id)],
-  );
-  console.log(`marked ${cleanest.length} cleanest products machine-checked`);
+  // Machine actions have a face: every mark is attributed to the steward bot
+  // in verification_events, so the trail is inspectable and reversible.
+  const bot = await pool.query("select id from users where handle = 'steward-bot'");
+  if (!bot.rows.length) {
+    console.error('steward-bot account missing (run migrations); not marking');
+  } else {
+    const marked = await pool.query(
+      "update nodes set verification = 'machine-checked' where id = any($1::text[]) and verification = 'unverified' returning id",
+      [cleanest.map((s) => s.id)],
+    );
+    const ids = marked.rows.map((r) => r.id);
+    if (ids.length) {
+      await pool.query(
+        `insert into verification_events (node_id, status, user_id, note)
+         select id, 'machine-checked', $2, 'Catalog triage: consistency signals clean (suspicion score < 0.15)'
+         from unnest($1::text[]) as t (id)`,
+        [ids, Number(bot.rows[0].id)],
+      );
+    }
+    console.log(`marked ${ids.length} cleanest products machine-checked (attributed to steward-bot)`);
+  }
 }
 await pool.end();
