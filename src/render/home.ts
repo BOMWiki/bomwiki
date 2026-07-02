@@ -209,7 +209,7 @@ export async function homePage(): Promise<string> {
             poolMeta
               ? `curated by <a href="/user/${esc(poolMeta.updatedBy)}">${esc(poolMeta.updatedBy)}</a>`
               : 'seeded at launch'
-          } · <a href="/admin/homepage">curate</a></p>
+          } · <a href="/admin/homepage">curate</a> · <a href="/home/talk">discuss this page</a></p>
         </div>
       </section>`
     : '';

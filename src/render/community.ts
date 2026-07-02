@@ -156,18 +156,43 @@ export function settingsPage(user: PublicUser, saved = false): string {
   });
 }
 
-export function talkPage(node: NodeData, topics: Topic[], signedIn: boolean, canModerate: boolean): string {
+export interface TalkSubject {
+  /** Comment-table subject key: a node id, or a reserved page key like 'home'. */
+  key: string;
+  title: string;
+  backHref: string;
+  /** Where the post/reply forms submit and resolve redirects return. */
+  talkPath: string;
+}
+
+export function talkSubjectForNode(node: NodeData): TalkSubject {
+  return {
+    key: node.id,
+    title: node.name,
+    backHref: `/item/${node.id}/`,
+    talkPath: `/item/${node.id}/talk`,
+  };
+}
+
+export const HOME_TALK: TalkSubject = {
+  key: 'home',
+  title: 'Homepage',
+  backHref: '/',
+  talkPath: '/home/talk',
+};
+
+export function talkPage(subject: TalkSubject, topics: Topic[], signedIn: boolean, canModerate: boolean): string {
   return page({
-    title: `Discussion: ${node.name} | BOMwiki`,
-    description: `Discussion about ${node.name}.`,
-    path: `/item/${node.id}/talk`,
+    title: `Discussion: ${subject.title} | BOMwiki`,
+    description: `Discussion about ${subject.title}.`,
+    path: subject.talkPath,
     indexable: false,
     body: `<div class="review">
-      <nav class="trail"><a href="/item/${node.id}/">${esc(node.name)}</a><span class="sep">›</span><span class="cur">Discussion</span></nav>
-      <h1>Discussion: ${esc(node.name)}</h1>
+      <nav class="trail"><a href="${esc(subject.backHref)}">${esc(subject.title)}</a><span class="sep">›</span><span class="cur">Discussion</span></nav>
+      <h1>Discussion: ${esc(subject.title)}</h1>
       ${
         signedIn
-          ? `<form method="post" action="/item/${node.id}/talk" class="talk-form">
+          ? `<form method="post" action="${esc(subject.talkPath)}" class="talk-form">
         <textarea name="body" rows="3" placeholder="Start a topic — disagreements about this page's structure or facts go here." required></textarea>
         <button>Post topic</button>
       </form>`
@@ -191,7 +216,7 @@ export function talkPage(node: NodeData, topics: Topic[], signedIn: boolean, can
           .join('')}
         ${
           signedIn && !t.resolved
-            ? `<form method="post" action="/item/${node.id}/talk" class="talk-form t-replyform">
+            ? `<form method="post" action="${esc(subject.talkPath)}" class="talk-form t-replyform">
           <input type="hidden" name="parent_id" value="${t.id}" />
           <textarea name="body" rows="2" placeholder="Reply…" required></textarea>
           <div class="rv-actions"><button>Reply</button></div>

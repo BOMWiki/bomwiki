@@ -44,12 +44,15 @@ import {
 } from './community.ts';
 import {
   changesPage,
+  HOME_TALK,
   homepageAdminPage,
   profilePage,
   settingsPage,
   signinPage,
   talkPage,
+  talkSubjectForNode,
   watchlistPage,
+  type TalkSubject,
 } from './render/community.ts';
 import { getSetting, setSetting, settingMeta } from './site-settings.ts';
 import { pool } from './db.ts';
@@ -478,10 +481,18 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return sendHtml(res, settingsPage(user!, url.searchParams.has('saved')));
   }
 
+  // Talk subjects: any node, plus reserved page discussions (the homepage).
   const talk = path.match(/^\/item\/([A-Za-z0-9._-]+)\/talk$/);
-  if (talk) {
-    const node = getNode(talk[1]);
-    if (!node) return notFound(res, talk[1]);
+  const pageTalk = path === '/home/talk';
+  if (talk || pageTalk) {
+    let subject: TalkSubject;
+    if (pageTalk) {
+      subject = HOME_TALK;
+    } else {
+      const node = getNode(talk![1]);
+      if (!node) return notFound(res, talk![1]);
+      subject = talkSubjectForNode(node);
+    }
     const session = await getSession(req);
     if (method === 'POST') {
       if (!session) return redirect(res, '/login');
@@ -494,26 +505,29 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       }
       const trusted = await isAutoconfirmed(session.userId, session.role);
       const result = await addComment(
-        node.id,
+        subject.key,
         session.userId,
         body.get('body') ?? '',
         parentId,
         trusted,
       );
       if (result.error) return sendJson(res, 422, result);
-      return redirect(res, `/item/${node.id}/talk`);
+      return redirect(res, subject.talkPath);
     }
     const canModerate = session?.role === 'admin' || session?.role === 'reviewer';
-    return sendHtml(res, talkPage(node, await topicsFor(node.id), Boolean(session), canModerate));
+    return sendHtml(
+      res,
+      talkPage(subject, await topicsFor(subject.key), Boolean(session), canModerate),
+    );
   }
 
   const resolve = path.match(/^\/talk\/(\d+)\/resolve$/);
   if (resolve && method === 'POST') {
     const session = await requireReviewer(req, res);
     if (!session) return;
-    const nodeId = await setTopicResolved(Number(resolve[1]), true);
-    if (!nodeId) return notFound(res);
-    return redirect(res, `/item/${nodeId}/talk`);
+    const subjectKey = await setTopicResolved(Number(resolve[1]), true);
+    if (!subjectKey) return notFound(res);
+    return redirect(res, subjectKey === 'home' ? '/home/talk' : `/item/${subjectKey}/talk`);
   }
 
   const verify = path.match(/^\/item\/([A-Za-z0-9._-]+)\/verify$/);
