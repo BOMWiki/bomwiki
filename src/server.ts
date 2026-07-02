@@ -15,7 +15,9 @@ import {
 } from './auth.ts';
 import {
   decideChangeset,
+  isAutoconfirmed,
   listPending,
+  massRevert,
   proposeChangeset,
   revertNode,
   type ProposedEdit,
@@ -26,6 +28,8 @@ import {
   contributionStats,
   getUserByHandle,
   recentChanges,
+  setBlocked,
+  setRole,
   setTopicResolved,
   toggleWatch,
   topicsFor,
@@ -299,13 +303,54 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (path === '/changes') return sendHtml(res, changesPage(await recentChanges()));
 
   const profile = path.match(/^\/user\/([a-z0-9_-]+)$/);
-  if (profile) {
+  if (profile && method === 'GET') {
     const user = await getUserByHandle(profile[1]);
     if (!user) return notFound(res, profile[1]);
+    const session = await getSession(req);
     return sendHtml(
       res,
-      profilePage(user, await contributionStats(user.id), await contributionsOf(user.id)),
+      profilePage(user, await contributionStats(user.id), await contributionsOf(user.id), {
+        adminView: session?.role === 'admin',
+        notice: url.searchParams.get('m') ?? undefined,
+      }),
     );
+  }
+
+  // --- admin moderation actions ---
+  const modAction = path.match(/^\/admin\/user\/([a-z0-9_-]+)\/(block|unblock|make-reviewer|make-contributor|mass-revert)$/);
+  if (modAction && method === 'POST') {
+    const session = await getSession(req);
+    if (!session || session.role !== 'admin') return redirect(res, '/login');
+    const target = await getUserByHandle(modAction[1]);
+    if (!target) return notFound(res, modAction[1]);
+    if (target.role === 'admin' || target.role === 'system') {
+      return redirect(res, `/user/${target.handle}?m=${encodeURIComponent('Admins cannot be moderated from here.')}`);
+    }
+    let message = '';
+    switch (modAction[2]) {
+      case 'block':
+        await setBlocked(target.id, true);
+        message = 'Account blocked; sessions ended, pending changes rejected.';
+        break;
+      case 'unblock':
+        await setBlocked(target.id, false);
+        message = 'Account unblocked.';
+        break;
+      case 'make-reviewer':
+        await setRole(target.id, 'reviewer');
+        message = 'Promoted to reviewer.';
+        break;
+      case 'make-contributor':
+        await setRole(target.id, 'contributor');
+        message = 'Set to contributor.';
+        break;
+      case 'mass-revert': {
+        const result = await massRevert(target.id, session.userId);
+        message = `Mass revert: ${result.reverted.length} page(s) restored${result.skipped.length ? `, ${result.skipped.length} skipped (no earlier revision by someone else)` : ''}.`;
+        break;
+      }
+    }
+    return redirect(res, `/user/${target.handle}?m=${encodeURIComponent(message)}`);
   }
 
   if (path === '/settings') {
@@ -338,7 +383,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         parentId = Number.parseInt(parentRaw, 10);
         if (!Number.isInteger(parentId)) return sendJson(res, 422, { error: 'invalid parent_id' });
       }
-      const result = await addComment(node.id, session.userId, body.get('body') ?? '', parentId);
+      const trusted = await isAutoconfirmed(session.userId, session.role);
+      const result = await addComment(
+        node.id,
+        session.userId,
+        body.get('body') ?? '',
+        parentId,
+        trusted,
+      );
       if (result.error) return sendJson(res, 422, result);
       return redirect(res, `/item/${node.id}/talk`);
     }

@@ -90,15 +90,37 @@ export function profilePage(
   user: PublicUser,
   stats: ContributionStats,
   rows: ChangeRow[],
+  opts: { adminView?: boolean; notice?: string } = {},
 ): string {
   const name = user.displayName ? `${esc(user.displayName)} (${esc(user.handle)})` : esc(user.handle);
+  const modControls =
+    opts.adminView && user.role !== 'admin' && user.role !== 'system'
+      ? `<section class="rv-cs mod-panel">
+        <p class="rv-an-h">Moderation (admins only)</p>
+        <div class="rv-actions">
+          ${
+            user.blocked
+              ? `<form method="post" action="/admin/user/${esc(user.handle)}/unblock"><button>Unblock</button></form>`
+              : `<form method="post" action="/admin/user/${esc(user.handle)}/block"><button class="mod-danger">Block account</button></form>`
+          }
+          <form method="post" action="/admin/user/${esc(user.handle)}/mass-revert"><button class="mod-danger">Revert all their live edits</button></form>
+          ${
+            user.role === 'reviewer'
+              ? `<form method="post" action="/admin/user/${esc(user.handle)}/make-contributor"><button>Remove reviewer</button></form>`
+              : `<form method="post" action="/admin/user/${esc(user.handle)}/make-reviewer"><button>Make reviewer</button></form>`
+          }
+        </div>
+      </section>`
+      : '';
   return page({
     title: `${user.handle} | BOMwiki`,
     description: `Contributions of ${user.handle} on BOMwiki.`,
     path: `/user/${user.handle}`,
     indexable: false,
     body: `<div class="review">
-      <h1>${name}${user.role !== 'contributor' ? ` <span class="htag">${esc(user.role)}</span>` : ''}</h1>
+      ${opts.notice ? `<p class="rv-notice">${esc(opts.notice)}</p>` : ''}
+      <h1>${name}${user.role !== 'contributor' ? ` <span class="htag">${esc(user.role)}</span>` : ''}${user.blocked ? ' <span class="htag mod-blocked">blocked</span>' : ''}</h1>
+      ${modControls}
       <p class="stub">${user.affiliation ? esc(user.affiliation) + ' · ' : ''}joined ${esc(user.joined.slice(0, 10))}</p>
       ${user.bio ? `<p>${esc(user.bio)}</p>` : ''}
       <section class="rv-cs"><div class="pf-stats">

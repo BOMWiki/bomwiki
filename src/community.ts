@@ -6,6 +6,7 @@ export interface PublicUser {
   id: number;
   handle: string;
   role: string;
+  blocked: boolean;
   displayName?: string;
   affiliation?: string;
   bio?: string;
@@ -42,6 +43,7 @@ function mapUser(r: any): PublicUser {
     id: Number(r.id),
     handle: r.handle,
     role: r.role,
+    blocked: Boolean(r.blocked),
     displayName: r.display_name ?? undefined,
     affiliation: r.affiliation ?? undefined,
     bio: r.bio ?? undefined,
@@ -51,10 +53,35 @@ function mapUser(r: any): PublicUser {
 
 export async function getUserByHandle(handle: string): Promise<PublicUser | null> {
   const res = await pool.query(
-    'select id, handle, role, display_name, affiliation, bio, created_at from users where handle = $1',
+    'select id, handle, role, blocked, display_name, affiliation, bio, created_at from users where handle = $1',
     [handle],
   );
   return res.rows.length ? mapUser(res.rows[0]) : null;
+}
+
+/** Block or unblock an account. Blocking kills its sessions and pending
+ *  changesets in one motion; unblocking restores nothing automatically. */
+export async function setBlocked(userId: number, blocked: boolean): Promise<void> {
+  await pool.query('update users set blocked = $2 where id = $1', [userId, blocked]);
+  if (blocked) {
+    await pool.query('delete from sessions where user_id = $1', [userId]);
+    await pool.query(
+      "update changesets set status = 'rejected', decided_at = now() where author_id = $1 and status = 'pending'",
+      [userId],
+    );
+  }
+}
+
+export async function setRole(
+  userId: number,
+  role: 'contributor' | 'reviewer' | 'admin',
+): Promise<void> {
+  await pool.query("update users set role = $2 where id = $1 and role <> 'system'", [userId, role]);
+}
+
+export async function isBlocked(userId: number): Promise<boolean> {
+  const res = await pool.query('select blocked from users where id = $1', [userId]);
+  return Boolean(res.rows[0]?.blocked);
 }
 
 export async function updateProfile(
@@ -143,15 +170,35 @@ export async function topicsFor(nodeId: string): Promise<Topic[]> {
   return [...topics.values()].reverse();
 }
 
+const MAX_COMMENTS_PER_HOUR = 10;
+const MAX_COMMENTS_PER_HOUR_TRUSTED = 60;
+const MAX_LINKS_UNTRUSTED = 2;
+
 export async function addComment(
   nodeId: string,
   authorId: number,
   body: string,
-  parentId?: number,
+  parentId: number | undefined,
+  trusted: boolean,
 ): Promise<{ error?: string }> {
   const text = body.trim();
   if (!text) return { error: 'empty comment' };
   if (text.length > 5000) return { error: 'comment too long' };
+  // Link caps and rate limits: discussions publish instantly, so they are the
+  // natural first target for link spam. New accounts get tight caps.
+  if (!trusted) {
+    const links = text.match(/https?:\/\//gi)?.length ?? 0;
+    if (links > MAX_LINKS_UNTRUSTED) {
+      return { error: `new accounts may include at most ${MAX_LINKS_UNTRUSTED} links per comment` };
+    }
+  }
+  const recent = await pool.query(
+    "select count(*)::int as c from comments where author_id = $1 and created_at > now() - interval '1 hour'",
+    [authorId],
+  );
+  if (recent.rows[0].c >= (trusted ? MAX_COMMENTS_PER_HOUR_TRUSTED : MAX_COMMENTS_PER_HOUR)) {
+    return { error: 'rate limit: too many comments in the last hour' };
+  }
   if (parentId) {
     const parent = await pool.query(
       'select 1 from comments where id = $1 and node_id = $2 and parent_id is null',

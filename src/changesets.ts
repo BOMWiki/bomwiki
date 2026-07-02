@@ -160,19 +160,27 @@ export function validateEdits(edits: ProposedEdit[]): string[] {
 }
 
 const AUTOCONFIRM_EDITS = Number(process.env.AUTOCONFIRM_EDITS ?? 4);
+// Days an account must exist before autoconfirm. 0 by default so local dev
+// and the smoke suites exercise the crossing; production sets 3+ (see the
+// env checklist) so edit-farming an afternoon of typo fixes earns nothing.
+const AUTOCONFIRM_DAYS = Number(process.env.AUTOCONFIRM_DAYS ?? 0);
 const MAX_PENDING_PER_USER = 10;
 const MAX_PROPOSALS_PER_HOUR = 20;
 const MAX_PROPOSALS_PER_HOUR_AUTOCONFIRMED = 120;
 
 /** The trust ladder: admins and reviewers always publish directly; a
- *  contributor earns it after enough accepted changesets. */
+ *  contributor earns it with enough accepted changesets AND account age.
+ *  Both are required — edits alone can be farmed in an afternoon, age alone
+ *  proves nothing. */
 export async function isAutoconfirmed(userId: number, role: string): Promise<boolean> {
   if (role === 'admin' || role === 'reviewer') return true;
   const res = await pool.query(
-    "select count(*)::int as c from changesets where author_id = $1 and status = 'accepted'",
-    [userId],
+    `select
+       (select count(*)::int from changesets where author_id = $1 and status = 'accepted') as accepted,
+       (select created_at < now() - make_interval(days => $2) from users where id = $1) as aged`,
+    [userId, AUTOCONFIRM_DAYS],
   );
-  return res.rows[0].c >= AUTOCONFIRM_EDITS;
+  return res.rows[0].accepted >= AUTOCONFIRM_EDITS && res.rows[0].aged === true;
 }
 
 /** Rate limits scale with trust: new contributors get the tight caps, the
@@ -477,7 +485,16 @@ export async function decideChangeset(
   // Patch the in-memory graph in place: an edit that touched two nodes costs
   // two map updates, not a 192k-row reload. (Full loadGraph remains only for
   // boot.)
-  if (decision === 'accepted') applyAcceptedEdits(applied);
+  if (decision === 'accepted') {
+    applyAcceptedEdits(applied);
+    // Re-analyze what actually shipped: a three-way merge can differ from the
+    // proposal the sidecar saw, so the stored findings must describe the
+    // applied content. Detached, best-effort, same as at propose.
+    void attachAnalysis(
+      id,
+      applied.map((a) => ({ op: a.op, nodeId: a.nodeId, data: a.data as Snapshot })),
+    );
+  }
   return { ok: true };
 }
 
@@ -502,6 +519,40 @@ export async function proposeChangeset(
     return { id: created.id, applied: applied.ok, applyError: applied.error };
   }
   return { id: created.id, applied: false };
+}
+
+/** Rollback: revert every node whose CURRENT revision was authored by the
+ *  given user, restoring each to its newest revision by someone else. The
+ *  vandal-cleanup tool — one action undoes a spree. Returns per-node results;
+ *  nodes whose only revision is the target author's are reported, not
+ *  deleted (deletion is not yet a supported operation). */
+export async function massRevert(
+  targetUserId: number,
+  reviewerId: number,
+): Promise<{ reverted: string[]; skipped: string[] }> {
+  const rows = await pool.query(
+    `select n.id as node_id,
+            (select r2.rev from revisions r2
+              join changesets c2 on c2.id = r2.changeset_id
+              where r2.node_id = n.id and c2.author_id <> $1
+              order by r2.rev desc limit 1) as restore_rev
+     from nodes n
+     join revisions r on r.rev = n.current_rev
+     join changesets c on c.id = r.changeset_id
+     where c.author_id = $1 and not n.deleted`,
+    [targetUserId],
+  );
+  const reverted: string[] = [];
+  const skipped: string[] = [];
+  for (const row of rows.rows) {
+    if (!row.restore_rev) {
+      skipped.push(row.node_id);
+      continue;
+    }
+    const result = await revertNode(row.node_id, Number(row.restore_rev), reviewerId);
+    (result.ok ? reverted : skipped).push(row.node_id);
+  }
+  return { reverted, skipped };
 }
 
 /** Restore a node to an old revision via an auto-accepted changeset. */

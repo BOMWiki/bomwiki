@@ -30,6 +30,7 @@ the link is shown on the page instead of mailed.
 | `ADMIN_TOKEN` | `dev-admin` | operator sign-in token |
 | `ADMIN_HANDLE` | `sd` | handle for the token account |
 | `AUTOCONFIRM_EDITS` | `4` | accepted changesets before edits publish instantly |
+| `AUTOCONFIRM_DAYS` | `0` | account age also required for autoconfirm (production: 3+) |
 | `INTEL_URL` | `http://127.0.0.1:8799` | bomwiki-intelligence sidecar |
 | `INTEL_TIMEOUT_MS` | `4000` | sidecar timeout per analysis |
 

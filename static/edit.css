@@ -113,3 +113,8 @@
 .rv-an-h { font-weight: 600; font-size: 12px; font-family: var(--sans); margin: 0 0 4px; color: var(--muted); }
 .an-note { color: #ac6600; }
 .t-resolveform { margin: 6px 0 0; }
+
+/* Moderation */
+.mod-panel { border-left: 3px solid var(--warn); }
+.mod-danger { color: var(--warn); border-color: var(--warn) !important; }
+.mod-blocked { color: #fff; background: var(--warn); border-color: var(--warn); }

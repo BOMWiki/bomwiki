@@ -160,8 +160,29 @@ await alice.req(`/item/${NODE}/watch`, { method: 'POST' });
 const watchHtml = await (await alice.req('/watchlist')).text();
 check('watchlist shows watched node revisions', watchHtml.includes(`/item/${NODE}/`) && watchHtml.includes('note updated'));
 
-// --- pending cap for a fresh account ---
+// --- comment spam controls for a fresh account ---
 const bob = await signup(`bob-${stamp}@example.com`, `bob-${stamp}`);
+const spamComment = await bob.req(`/item/${NODE}/talk`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/x-www-form-urlencoded' },
+  body: `body=${encodeURIComponent('buy https://a.example https://b.example https://c.example')}`,
+});
+check('new-account comment with 3 links refused', spamComment.status === 422);
+let commentCapped = false;
+for (let i = 0; i < 11; i++) {
+  const c = await bob.req(`/item/${NODE}/talk`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: `body=${encodeURIComponent('comment pass ' + i)}`,
+  });
+  if (c.status === 422) {
+    commentCapped = (await c.json()).error?.includes('rate limit');
+    break;
+  }
+}
+check('comment hourly cap enforced', commentCapped);
+
+// --- pending cap for a fresh account ---
 const pendingIds: number[] = [];
 let capped = false;
 for (let i = 0; i < 11; i++) {
@@ -173,15 +194,27 @@ for (let i = 0; i < 11; i++) {
   pendingIds.push(p.body.id);
 }
 check('pending cap enforced at 10', capped && pendingIds.length === 10, `${pendingIds.length} pending`);
-for (const id of pendingIds) await admin.req(`/review/${id}/reject`, { method: 'POST' });
 
-// --- restore original state ---
-const cur = await pageData(admin, NODE);
-const restore = JSON.parse(JSON.stringify(cur.data));
-if (origNote) restore.bom[0].note = origNote;
-else delete restore.bom[0].note;
-const fix = await propose(admin, [{ op: 'edit', nodeId: NODE, baseRev: cur.rev, data: restore }]);
-check('state restored', fix.status === 201 && fix.body.applied === true);
+// --- block: bob's session dies, his pending queue empties ---
+const blockRes = await admin.req(`/admin/user/bob-${stamp}/block`, { method: 'POST' });
+check('admin blocks account', blockRes.status === 303);
+const bobSession = await (await bob.req('/api/session')).json();
+check('blocked session is dead', !bobSession.handle);
+const queueAfterBlock = await (await admin.req('/review')).text();
+check(
+  'blocking rejected the pending queue entries',
+  !pendingIds.some((id) => queueAfterBlock.includes(`Change #${id}`)),
+);
+const profileHtml3 = await (await admin.req(`/user/bob-${stamp}`)).text();
+check('profile shows blocked badge', profileHtml3.includes('blocked'));
+
+// --- mass-revert: one action undoes alice's live edits ---
+const beforeRevert = await pageData(admin, NODE);
+check('alice edit is live before mass-revert', beforeRevert.data.bom[0].note === 'community smoke pass 99');
+const mr = await admin.req(`/admin/user/alice-${stamp}/mass-revert`, { method: 'POST' });
+check('mass-revert redirects', mr.status === 303);
+const afterRevert = await pageData(admin, NODE);
+check('mass-revert restored pre-alice content', (afterRevert.data.bom[0].note ?? '') === origNote);
 const end = await pageData(admin, NODE);
 check('note back to original', (end.data.bom[0].note ?? '') === origNote);
 

@@ -51,9 +51,10 @@ export function sessionCookie(req: http.IncomingMessage): string | null {
 export async function getSession(req: http.IncomingMessage): Promise<Session | null> {
   const token = sessionCookie(req);
   if (!token) return null;
+  // Blocked accounts lose their sessions immediately, not at next login.
   const res = await pool.query(
     `select u.id, u.handle, u.role from sessions s join users u on u.id = s.user_id
-     where s.token = $1 and s.expires_at > now()`,
+     where s.token = $1 and s.expires_at > now() and not u.blocked`,
     [token],
   );
   if (res.rows.length === 0) return null;
@@ -85,9 +86,12 @@ export async function requestMagicLink(email: string, handle?: string): Promise<
   const normalized = email.trim().toLowerCase();
   if (!EMAIL_RE.test(normalized)) return { error: 'Enter a valid email address.' };
 
-  const existing = await pool.query('select id from users where email = $1', [normalized]);
+  const existing = await pool.query('select id, blocked from users where email = $1', [normalized]);
   let userId: number;
   if (existing.rows.length) {
+    // A blocked account gets the same "sent" response as everyone else (no
+    // probing which emails are blocked), but no link is created.
+    if (existing.rows[0].blocked) return { sent: true };
     userId = existing.rows[0].id;
   } else {
     const wanted = (handle ?? '').trim().toLowerCase();
