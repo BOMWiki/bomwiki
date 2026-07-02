@@ -175,8 +175,8 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
     : verification === 'human-verified'
       ? ''
       : verification === 'machine-checked'
-        ? `<p class="vf-banner vf-machine">Machine-checked by <a href="/user/steward-bot">steward-bot</a>, not yet human-verified: consistency checks pass, but a person hasn't confirmed it against the real thing. <a href="/item/${node.id}/talk">Discuss</a> or verify it below if you know this hardware.</p>`
-        : `<p class="vf-banner vf-none">This page is machine-generated and unverified. Treat details as provisional. If you know this hardware, <a href="/item/${node.id}/talk">weigh in</a> — or correct it directly with Edit.</p>`;
+        ? `<p class="vf-banner vf-machine">Machine-checked by <a href="/user/steward-bot">steward-bot</a>, not yet human-verified: consistency checks pass, but a person hasn't confirmed it against the real thing (<a href="/about/verification">what this means</a>). <a href="/item/${node.id}/talk">Discuss</a> or verify it below if you know this hardware.</p>`
+        : `<p class="vf-banner vf-none">This page is machine-generated and unverified (<a href="/about/verification">what this means</a>). Treat details as provisional. If you know this hardware, <a href="/item/${node.id}/talk">weigh in</a> — or correct it directly with Edit.</p>`;
   const verifyForm = historical
     ? ''
     : `<form method="post" action="/item/${node.id}/verify" class="vf-form" id="bw-verify-form" hidden>
@@ -209,13 +209,15 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
         <nav class="trail"><a href="/">Products</a>${trailHtml}</nav>
         ${actions}
         <h1 class="wtitle">${esc(node.name)} <span class="htag ${node.kind}">${kindLabel}</span></h1>
+        ${node.aliases?.length ? `<p class="aka">Also known as: ${node.aliases.map((a) => esc(a)).join(', ')}</p>` : ''}
         <aside class="infobox">
           ${
             heroImg
               ? `<a class="ib-imglink" href="${esc(heroImg.page ?? heroImg.url)}" target="_blank" rel="noopener" title="Photo: ${esc(heroImg.title)} (Wikimedia Commons)">
             <img class="ib-img" src="${esc(heroImg.thumb ?? heroImg.url)}" alt="${esc(node.name)}" width="240" height="168" loading="eager" fetchpriority="high" decoding="async" />
             <span class="ib-credit">${esc(heroImg.title)} · Commons ↗</span>
-          </a>`
+          </a>
+          <a class="ib-report" href="/item/${node.id}/talk?topic=photo">Report photo</a>`
               : `<svg class="ib-img ib-svg" viewBox="0 0 96 96" role="img" aria-label="${esc(node.name)}">${nodeIcon(node)}</svg>`
           }
           ${node.summary ? `<p class="ib-cap">${esc(node.summary)}</p>` : ''}

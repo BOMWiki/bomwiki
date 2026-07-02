@@ -22,6 +22,8 @@ export interface Snapshot {
   bom?: BomLine[];
   article?: string;
   specs?: [string, string][];
+  /** Alternative names ("also known as"); searchable. */
+  aliases?: string[];
 }
 
 export interface ProposedEdit {
@@ -80,6 +82,11 @@ export function semanticDiff(base: Snapshot | null, next: Snapshot): string[] {
     if (a !== b) {
       lines.push(a && b ? `${field} changed to "${b}"` : b ? `${field} set to "${b}"` : `${field} removed`);
     }
+  }
+  if ((base.aliases ?? []).join('|') !== (next.aliases ?? []).join('|')) {
+    lines.push(
+      next.aliases?.length ? `Aliases changed to "${next.aliases.join(', ')}"` : 'Aliases removed',
+    );
   }
   if ((base.article ?? '') !== (next.article ?? '')) {
     const delta = wordCount(next.article ?? '') - wordCount(base.article ?? '');
@@ -196,6 +203,16 @@ const MAX_PENDING_PER_USER = 10;
 const MAX_PROPOSALS_PER_HOUR = 20;
 const MAX_PROPOSALS_PER_HOUR_AUTOCONFIRMED = 120;
 
+/** The live trust-ladder values, exported so /policies renders what the
+ *  server actually enforces — the page can't drift from the code. */
+export const TRUST_POLICY = {
+  autoconfirmEdits: AUTOCONFIRM_EDITS,
+  autoconfirmDays: AUTOCONFIRM_DAYS,
+  maxPending: MAX_PENDING_PER_USER,
+  hourlyNew: MAX_PROPOSALS_PER_HOUR,
+  hourlyTrusted: MAX_PROPOSALS_PER_HOUR_AUTOCONFIRMED,
+};
+
 /** The trust ladder: admins and reviewers always publish directly; a
  *  contributor earns it with enough accepted changesets AND account age.
  *  Both are required — edits alone can be farmed in an afternoon, age alone
@@ -255,6 +272,22 @@ export function mergeSnapshots(
       else delete target[f];
     } else {
       conflicts.push(`${f}: you and a newer revision changed it differently`);
+    }
+  }
+
+  // Aliases merge as a whole field (like the article): concurrent different
+  // edits to the list conflict rather than interleave.
+  {
+    const b = (base.aliases ?? []).join('|');
+    const m = (mine.aliases ?? []).join('|');
+    const c = (current.aliases ?? []).join('|');
+    if (m !== b) {
+      if (c === b || c === m) {
+        if (mine.aliases?.length) merged.aliases = mine.aliases;
+        else delete merged.aliases;
+      } else {
+        conflicts.push('aliases: you and a newer revision changed them differently');
+      }
     }
   }
 

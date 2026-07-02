@@ -8,9 +8,11 @@ import { writeFileSync } from 'node:fs';
 // import must preserve exactly that order in the pos column.
 import { authoringNodes } from '../../src/lib/tree';
 import { CONTENT } from '../../src/data/content';
+import { ALIASES } from '../../src/data/aliases';
 
 const out = authoringNodes.map((n) => {
   const content = CONTENT[n.id];
+  const aliases = ALIASES[n.id];
   return {
     id: n.id,
     name: n.n,
@@ -24,6 +26,7 @@ const out = authoringNodes.map((n) => {
       : {}),
     ...(content?.body ? { article: content.body } : {}),
     ...(content?.specs?.length ? { specs: content.specs } : {}),
+    ...(aliases?.length ? { aliases } : {}),
   };
 });
 

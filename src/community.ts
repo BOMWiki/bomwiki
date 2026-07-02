@@ -174,6 +174,13 @@ const MAX_COMMENTS_PER_HOUR = 10;
 const MAX_COMMENTS_PER_HOUR_TRUSTED = 60;
 const MAX_LINKS_UNTRUSTED = 2;
 
+/** Live comment limits, exported for the /policies page. */
+export const COMMENT_POLICY = {
+  hourlyNew: MAX_COMMENTS_PER_HOUR,
+  hourlyTrusted: MAX_COMMENTS_PER_HOUR_TRUSTED,
+  linksUntrusted: MAX_LINKS_UNTRUSTED,
+};
+
 export async function addComment(
   nodeId: string,
   authorId: number,

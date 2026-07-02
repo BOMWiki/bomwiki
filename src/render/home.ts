@@ -145,13 +145,24 @@ const item = (id: string, name: string) => `<a href="/item/${id}/">${esc(name)}<
 export async function homePage(): Promise<string> {
   const s = homeStats();
   const nc = nodeCount();
-  const { products, groups } = s;
+  const { products } = s;
+  // Groups come fresh each render (not from the stats cache) so domain
+  // curation at /admin/domains shows up immediately; the expensive
+  // graph-wide stats stay cached.
+  const groups = DOMAINS.map((d) => ({ ...d, ps: productsByDomain(d.slug) })).filter(
+    (d) => d.ps.length > 0,
+  );
 
   // Editorial content comes from site_settings, curated by reviewers with
   // attribution; the hardcoded values are only the pre-curation seed.
   const pool = await getSetting<string[]>('featured-pool', DEFAULT_FEATURED_POOL);
   const curatedFacts = await getSetting<string[]>('did-you-know', []);
   const poolMeta = await settingMeta('featured-pool');
+  const welcome = await getSetting<{ title: string; subtitle: string }>('welcome', {
+    title: 'Everything is BOM',
+    subtitle:
+      'Every product is exploded into the parts it is built from, down to individual screws, bearings, and cells.',
+  });
 
   const featureDay = Math.floor(Date.now() / 86_400_000);
   const poolIds = pool.filter((id) => s.byProductId.has(id));
@@ -236,11 +247,10 @@ export async function homePage(): Promise<string> {
 
       <div class="pane">
         <div class="welcome">
-          <p class="wtitle">Everything is BOM</p>
+          <p class="wtitle">${esc(welcome.title)}</p>
           <p class="wsub">
             <strong>BOMwiki</strong> is the free <a href="/about/">bill-of-materials encyclopedia</a>.
-            Every product is exploded into the parts it is built from, down to individual screws,
-            bearings, and cells.
+            ${esc(welcome.subtitle)}
           </p>
           <p class="wcounts">
             ${products.length.toLocaleString()} products · ${totalCatalogParts.toLocaleString()} parts mapped ·

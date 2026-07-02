@@ -23,6 +23,8 @@ export interface NodeData {
   article?: string;
   /** Infobox key/value rows authored with the article. */
   specs?: [string, string][];
+  /** Alternative names ("also known as"); searchable. */
+  aliases?: string[];
 }
 
 export interface Child {
@@ -46,9 +48,10 @@ const byId = new Map<string, NodeData>();
 const parentsOf = new Map<string, NodeData[]>();
 const partsMemo = new Map<string, number>();
 const revOf = new Map<string, number>();
-// Precomputed lowercased names so the per-keystroke search scan doesn't
-// allocate 192k fresh strings every call.
+// Precomputed lowercased names (and joined aliases) so the per-keystroke
+// search scan doesn't allocate 192k fresh strings every call.
 const lowerName = new Map<string, string>();
+const lowerAliases = new Map<string, string>();
 // Verification status lives on the nodes row, NOT in revision snapshots:
 // it's confidence metadata about the page, changed by reviewer action.
 const verificationOf = new Map<string, string>();
@@ -94,11 +97,15 @@ async function doLoadGraph(databaseUrl: string): Promise<void> {
   partsMemo.clear();
   revOf.clear();
   lowerName.clear();
+  lowerAliases.clear();
   verificationOf.clear();
   for (const row of res.rows) {
     byId.set(row.id, { id: row.id, ...row.data });
     revOf.set(row.id, Number(row.current_rev));
     lowerName.set(row.id, (row.data.name ?? '').toLowerCase());
+    if (row.data.aliases?.length) {
+      lowerAliases.set(row.id, row.data.aliases.join(' | ').toLowerCase());
+    }
     verificationOf.set(row.id, row.verification);
   }
   for (const node of byId.values()) {
@@ -143,6 +150,8 @@ export function applyAcceptedEdits(edits: AppliedEdit[]): void {
     }
     revOf.set(e.nodeId, e.rev);
     lowerName.set(e.nodeId, (e.data.name ?? '').toLowerCase());
+    if (e.data.aliases?.length) lowerAliases.set(e.nodeId, e.data.aliases.join(' | ').toLowerCase());
+    else lowerAliases.delete(e.nodeId);
 
     // Reconcile the reverse index for edges this edit added or removed.
     const newIds = new Set((e.data.bom ?? []).map((l) => l.id));
@@ -232,6 +241,7 @@ export function searchNodes(q: string, limit = 8): SearchHit[] {
     let rank = -1;
     if (name.startsWith(needle)) rank = 0;
     else if (name.includes(needle)) rank = 1;
+    else if (lowerAliases.get(node.id)?.includes(needle)) rank = 1;
     else if (node.id.includes(needle)) rank = 2;
     if (rank < 0) continue;
     hits.push({ id: node.id, name: node.name, kind: node.kind, usedIn: parents(node.id).length, rank });

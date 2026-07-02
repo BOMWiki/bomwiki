@@ -181,7 +181,13 @@ export const HOME_TALK: TalkSubject = {
   talkPath: '/home/talk',
 };
 
-export function talkPage(subject: TalkSubject, topics: Topic[], signedIn: boolean, canModerate: boolean): string {
+export function talkPage(
+  subject: TalkSubject,
+  topics: Topic[],
+  signedIn: boolean,
+  canModerate: boolean,
+  prefill = '',
+): string {
   return page({
     title: `Discussion: ${subject.title} | BOMwiki`,
     description: `Discussion about ${subject.title}.`,
@@ -193,7 +199,7 @@ export function talkPage(subject: TalkSubject, topics: Topic[], signedIn: boolea
       ${
         signedIn
           ? `<form method="post" action="${esc(subject.talkPath)}" class="talk-form">
-        <textarea name="body" rows="3" placeholder="Start a topic — disagreements about this page's structure or facts go here." required></textarea>
+        <textarea name="body" rows="3" placeholder="Start a topic — disagreements about this page's structure or facts go here." required>${esc(prefill)}</textarea>
         <button>Post topic</button>
       </form>`
           : `<p class="stub"><a href="/login">Sign in</a> to join the discussion.</p>`
@@ -234,6 +240,7 @@ export function talkPage(subject: TalkSubject, topics: Topic[], signedIn: boolea
 export function homepageAdminPage(opts: {
   pool: string[];
   facts: string[];
+  welcome: { title: string; subtitle: string };
   meta: { updatedBy: string; updatedAt: string } | null;
   notice?: string;
 }): string {
@@ -250,6 +257,12 @@ export function homepageAdminPage(opts: {
           : 'Currently using the launch seed.'
       }</p>
       <form method="post" action="/admin/homepage" class="settings-form">
+        <label>Welcome banner title
+          <input type="text" name="welcomeTitle" maxlength="60" value="${esc(opts.welcome.title)}" />
+        </label>
+        <label>Welcome banner subtitle
+          <textarea name="welcomeSubtitle" rows="2" maxlength="300">${esc(opts.welcome.subtitle)}</textarea>
+        </label>
         <label>Featured pool (one product id per line)
           <textarea name="pool" rows="8">${esc(opts.pool.join('\n'))}</textarea>
         </label>

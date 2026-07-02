@@ -52,6 +52,9 @@
       var b = work[f] || '';
       if (a !== b) lines.push(b ? f + ' changed to "' + b + '"' : f + ' removed');
     });
+    if ((orig.aliases || []).join('|') !== (work.aliases || []).join('|')) {
+      lines.push((work.aliases || []).length ? 'Aliases changed to "' + work.aliases.join(', ') + '"' : 'Aliases removed');
+    }
     if ((orig.article || '') !== (work.article || '')) {
       var d = words(work.article || '') - words(orig.article || '');
       lines.push(work.article ? 'Article updated (' + (d > 0 ? '+' : '') + d + ' words)' : 'Article removed');
@@ -297,11 +300,21 @@
       }),
     ]);
 
+    var aliasInput = el('input', {
+      type: 'text', value: (work.aliases || []).join(', '), placeholder: 'Comma-separated alternative names',
+      oninput: function () {
+        var list = aliasInput.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        if (list.length) work.aliases = list; else delete work.aliases;
+        renderChangeBar();
+      },
+    });
+
     editorEl = el('section', { class: 'editor' }, [
       el('p', { class: 'ed-h', text: 'Editing: fields, article, specs, and bill of materials' }),
       textField('Summary', 'summary'),
       textField('Material', 'material'),
       textField('Standard', 'standard'),
+      el('label', { class: 'ed-field' }, [el('span', { text: 'Aliases' }), aliasInput]),
       el('p', { class: 'ed-sub', text: 'Article (markdown, [[part-id]] links)' }),
       articleBox,
       el('p', { class: 'ed-sub', text: 'Specs (infobox rows)' }),

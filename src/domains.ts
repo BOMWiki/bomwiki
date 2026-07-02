@@ -1,5 +1,21 @@
 // The ~50 product domains shown in the left rail and on domain hub pages.
-// Ported from src/lib/tree.ts; becomes database content in a later slice.
+// The list below is the seed; if reviewers have curated domains via
+// /admin/domains, initDomains() replaces it at boot (and setDomains() applies
+// edits live). Renames only affect display — nodes reference domain slugs.
+export interface Domain {
+  slug: string;
+  name: string;
+}
+
+export function initDomains(curated: Domain[] | null): void {
+  if (curated?.length) setDomains(curated);
+}
+
+export function setDomains(next: Domain[]): void {
+  DOMAINS.length = 0;
+  DOMAINS.push(...next);
+}
+
 export const DOMAINS: { slug: string; name: string }[] = [
   { slug: 'automobiles', name: 'Automobiles' },
   { slug: 'two-wheelers', name: 'Two-Wheelers & Mobility' },

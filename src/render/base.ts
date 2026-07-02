@@ -90,7 +90,7 @@ export function page(opts: PageOpts): string {
 ${opts.body}
     </main>
     <footer class="site">
-      <span>BOMwiki · made by <a href="https://x.com/protosphinx" rel="me noopener">@protosphinx</a> on NEO · runs on <a href="https://ffsdb.com" rel="noopener">FFS</a> · <a href="/about/">about</a>.</span>
+      <span>BOMwiki · made by <a href="https://x.com/protosphinx" rel="me noopener">@protosphinx</a> on NEO · runs on <a href="https://ffsdb.com" rel="noopener">FFS</a> · <a href="/about/">about</a> · <a href="/about/verification">verification</a> · <a href="/policies">policies</a>.</span>
     </footer>
     ${(opts.scripts ?? []).map((src) => `<script src="${src}" defer></script>`).join('\n    ')}
   </body>

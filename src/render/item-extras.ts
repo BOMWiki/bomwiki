@@ -53,8 +53,8 @@ export function sourcingSection(node: NodeData): string {
   const band = priceBand(node);
   return `<section class="sourcing">
         <div class="src-head">
-          <h2>Sourcing: likely vendors</h2>
-          <span class="src-note">Companies that make this · indicative price <b>${esc(band)}</b> · MOQ &amp; lead are typical</span>
+          <h2>Sourcing: possible vendors</h2>
+          <span class="src-note"><b>Prices, MOQ, and lead times are algorithmic estimates</b> — not quotes, and not claims about these companies. Company mappings are curated by keyword; est. price band ${esc(band)}. <a href="/about/verification">How estimates work</a></span>
         </div>
         <div class="src-scroll">
           <table class="src-table">
@@ -66,8 +66,8 @@ export function sourcingSection(node: NodeData): string {
                 .map(
                   (v) => `<tr>
                 <td class="v-cell">
-                  <div class="v-top"><span class="v-flag">${v.flag}</span><a class="v-name" href="https://${esc(v.url)}" target="_blank" rel="noopener">${esc(v.name)}</a></div>
-                  <a class="v-url" href="https://${esc(v.url)}" target="_blank" rel="noopener">${esc(v.url)} ↗</a>
+                  <div class="v-top"><span class="v-flag">${v.flag}</span><a class="v-name" href="https://${esc(v.url)}" target="_blank" rel="nofollow noopener">${esc(v.name)}</a></div>
+                  <a class="v-url" href="https://${esc(v.url)}" target="_blank" rel="nofollow noopener">${esc(v.url)} ↗</a>
                 </td>
                 <td>${esc(v.hq)}</td>
                 <td class="v-type">${esc(v.type)}</td>

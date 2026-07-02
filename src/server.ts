@@ -6,11 +6,12 @@ import http from 'node:http';
 import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PUBLIC_DIR } from './images.ts';
-import { DOMAINS } from './domains.ts';
+import { DOMAINS, initDomains, setDomains, type Domain } from './domains.ts';
 import { isIndexableNode } from './seo.ts';
 import { domainPage } from './render/domain.ts';
 import { homePage } from './render/home.ts';
 import { searchPage } from './render/search.ts';
+import { aboutPage, policiesPage, verificationPage } from './render/static-pages.ts';
 import {
   getSession,
   login,
@@ -393,6 +394,47 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     );
   }
 
+  // --- domain taxonomy curation (reviewers) ---
+  if (path === '/admin/domains') {
+    const session = await requireReviewer(req, res);
+    if (!session) return;
+    if (method === 'POST') {
+      const body = new URLSearchParams(await readBody(req));
+      const parsed = (body.get('domains') ?? '')
+        .split('\n')
+        .map((line) => line.split('|').map((s) => s.trim()))
+        .filter((p) => p.length === 2 && /^[a-z0-9-]{2,40}$/.test(p[0]) && p[1])
+        .map(([slug, name]) => ({ slug, name }));
+      if (parsed.length < 5) {
+        return redirect(res, `/admin/domains?m=${encodeURIComponent('Not saved: need at least 5 valid "slug | Name" lines.')}`);
+      }
+      await setSetting('domains', parsed, session.userId);
+      setDomains(parsed);
+      return redirect(res, `/admin/domains?m=${encodeURIComponent(`Saved ${parsed.length} domains.`)}`);
+    }
+    const meta = await settingMeta('domains');
+    const notice = url.searchParams.get('m');
+    return sendHtml(
+      res,
+      page({
+        title: 'Curate domains | BOMwiki',
+        description: 'The domain taxonomy.',
+        path: '/admin/domains',
+        indexable: false,
+        body: `<div class="review"><h1>Curate domains</h1>
+          ${notice ? `<p class="rv-notice">${esc(notice)}</p>` : ''}
+          <p class="stub">One per line, as <code>slug | Display Name</code>. Renames change display only; products keep their domain slug, so removing a slug hides that hub rather than deleting anything. ${
+            meta ? `Last edited by <a href="/user/${esc(meta.updatedBy)}">${esc(meta.updatedBy)}</a>.` : 'Currently the launch seed.'
+          }</p>
+          <form method="post" action="/admin/domains" class="settings-form">
+            <label>Domains <textarea name="domains" rows="20">${esc(DOMAINS.map((d) => `${d.slug} | ${d.name}`).join('\n'))}</textarea></label>
+            <button>Save</button>
+          </form></div>`,
+        extraCss: ['/static/edit.css'],
+      }),
+    );
+  }
+
   // --- homepage curation (reviewers) ---
   if (path === '/admin/homepage') {
     const session = await requireReviewer(req, res);
@@ -412,6 +454,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         .slice(0, 20);
       if (clean.length) await setSetting('featured-pool', clean, session.userId);
       await setSetting('did-you-know', facts, session.userId);
+      const welcomeTitle = body.get('welcomeTitle')?.trim().slice(0, 60);
+      const welcomeSubtitle = body.get('welcomeSubtitle')?.trim().slice(0, 300);
+      if (welcomeTitle && welcomeSubtitle) {
+        await setSetting('welcome', { title: welcomeTitle, subtitle: welcomeSubtitle }, session.userId);
+      }
       const notice = unknown.length
         ? `Saved. Skipped ${unknown.length} id(s) that are not products: ${unknown.slice(0, 5).join(', ')}`
         : 'Saved.';
@@ -422,6 +469,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       homepageAdminPage({
         pool: await getSetting<string[]>('featured-pool', []),
         facts: await getSetting<string[]>('did-you-know', []),
+        welcome: await getSetting('welcome', {
+          title: 'Everything is BOM',
+          subtitle:
+            'Every product is exploded into the parts it is built from, down to individual screws, bearings, and cells.',
+        }),
         meta: await settingMeta('featured-pool'),
         notice: url.searchParams.get('m') ?? undefined,
       }),
@@ -515,9 +567,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return redirect(res, subject.talkPath);
     }
     const canModerate = session?.role === 'admin' || session?.role === 'reviewer';
+    const prefill =
+      url.searchParams.get('topic') === 'photo'
+        ? 'The photo on this page looks wrong or mismatched for this item. What it shows instead: '
+        : '';
     return sendHtml(
       res,
-      talkPage(subject, await topicsFor(subject.key), Boolean(session), canModerate),
+      talkPage(subject, await topicsFor(subject.key), Boolean(session), canModerate, prefill),
     );
   }
 
@@ -566,6 +622,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   // --- read path ---
+  if (path === '/about' || path === '/about/') return sendCacheableHtml(res, aboutPage());
+  if (path === '/about/verification') return sendCacheableHtml(res, verificationPage());
+  if (path === '/about/numbers' || path === '/about/numbers/') return redirect(res, '/about/');
+  if (path === '/policies') return sendCacheableHtml(res, policiesPage());
+
   const domain = path.match(/^\/domain\/([a-z0-9-]+)(\/?)$/);
   if (domain) {
     if (!domain[2]) return redirect(res, `/domain/${domain[1]}/`);
@@ -596,6 +657,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
 const t0 = performance.now();
 await loadGraph(DATABASE_URL);
+initDomains(await getSetting<Domain[] | null>('domains', null));
 console.log(
   `graph loaded: ${nodeCount().toLocaleString()} nodes, ${totalCatalogParts.toLocaleString()} catalog parts in ${Math.round(performance.now() - t0)}ms`,
 );
