@@ -41,21 +41,35 @@ export interface BomRow {
 const byId = new Map<string, NodeData>();
 const parentsOf = new Map<string, NodeData[]>();
 const partsMemo = new Map<string, number>();
+const revOf = new Map<string, number>();
+let databaseUrlInUse = '';
 export let totalCatalogParts = 0;
 
+export function loadedDatabaseUrl(): string {
+  return databaseUrlInUse;
+}
+
+/** Current revision number of a node (what an edit must be based on). */
+export function currentRev(id: string): number | undefined {
+  return revOf.get(id);
+}
+
 export async function loadGraph(databaseUrl: string): Promise<void> {
+  databaseUrlInUse = databaseUrl;
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   const res = await client.query(
-    'select n.id, r.data from nodes n join revisions r on r.rev = n.current_rev where not n.deleted order by n.pos',
+    'select n.id, n.current_rev, r.data from nodes n join revisions r on r.rev = n.current_rev where not n.deleted order by n.pos',
   );
   await client.end();
 
   byId.clear();
   parentsOf.clear();
   partsMemo.clear();
+  revOf.clear();
   for (const row of res.rows) {
     byId.set(row.id, { id: row.id, ...row.data });
+    revOf.set(row.id, Number(row.current_rev));
   }
   for (const node of byId.values()) {
     for (const line of node.bom ?? []) {
@@ -76,6 +90,33 @@ export function nodeCount(): number {
 
 export function getNode(id: string): NodeData | undefined {
   return byId.get(id);
+}
+
+export interface SearchHit {
+  id: string;
+  name: string;
+  kind: string;
+  usedIn: number;
+}
+
+/** Substring search over names and ids for the part picker. Prefix matches
+ *  rank first, then more-used parts. Linear scan of the in-memory graph —
+ *  a few milliseconds at 192k nodes, fine until it isn't. */
+export function searchNodes(q: string, limit = 8): SearchHit[] {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return [];
+  const hits: (SearchHit & { rank: number })[] = [];
+  for (const node of byId.values()) {
+    const name = node.name.toLowerCase();
+    let rank = -1;
+    if (name.startsWith(needle)) rank = 0;
+    else if (name.includes(needle)) rank = 1;
+    else if (node.id.includes(needle)) rank = 2;
+    if (rank < 0) continue;
+    hits.push({ id: node.id, name: node.name, kind: node.kind, usedIn: parents(node.id).length, rank });
+  }
+  hits.sort((a, b) => a.rank - b.rank || b.usedIn - a.usedIn || a.name.localeCompare(b.name));
+  return hits.slice(0, limit).map(({ rank, ...h }) => h);
 }
 
 /** Products in a domain, alphabetical by name (matches the site's rail). */

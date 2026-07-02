@@ -8,6 +8,7 @@ export interface PageOpts {
   indexable: boolean;
   body: string;
   extraCss?: string[];
+  scripts?: string[];
 }
 
 // The site shell, ported from src/layouts/Base.astro. Same markup and class
@@ -44,6 +45,7 @@ ${opts.body}
     <footer class="site">
       <span>BOMwiki · made by <a href="https://x.com/protosphinx" rel="me noopener">@protosphinx</a> on NEO · runs on <a href="https://ffsdb.com" rel="noopener">FFS</a> · <a href="/about/">about</a>.</span>
     </footer>
+    ${(opts.scripts ?? []).map((src) => `<script src="${src}" defer></script>`).join('\n    ')}
   </body>
 </html>
 `;

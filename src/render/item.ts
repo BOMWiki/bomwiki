@@ -5,6 +5,7 @@
 import { esc } from '../html.ts';
 import { nodeIcon } from '../icons.ts';
 import {
+  currentRev,
   flattenBom,
   lineCount,
   parents,
@@ -18,7 +19,12 @@ import { rail } from './rail.ts';
 
 const KIND_LABEL = { product: 'Product', assembly: 'Assembly', part: 'Part' } as const;
 
-export function itemPage(node: NodeData): string {
+export interface ItemPageOpts {
+  /** Render a historical revision read-only with a banner. */
+  asOfRev?: number;
+}
+
+export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
   const kindLabel = KIND_LABEL[node.kind];
   const trail = primaryPath(node.id);
   const lines = lineCount(node.id);
@@ -112,10 +118,31 @@ export function itemPage(node: NodeData): string {
 
   const railDomain = trail[0]?.kind === 'product' ? trail[0].domain : node.domain;
 
+  const historical = opts.asOfRev !== undefined;
+  const editData = historical
+    ? ''
+    : `<script type="application/json" id="bw-edit-data">${JSON.stringify({
+        id: node.id,
+        rev: currentRev(node.id),
+        data: (({ id, ...data }) => data)(node),
+      }).replaceAll('<', '\\u003c')}</script>`;
+  const banner = historical
+    ? `<p class="rev-banner">You are viewing r${opts.asOfRev} of this page, not the current version. <a href="/item/${node.id}/">Go to current</a> · <a href="/item/${node.id}/history">history</a></p>`
+    : '';
+  const actions = historical
+    ? ''
+    : `<div class="page-actions">
+          <a class="pa-btn" href="/item/${node.id}/history">History</a>
+          <button class="pa-btn" type="button" id="bw-edit-btn" hidden>Edit this page</button>
+        </div>`;
+
   const body = `      <div class="explorer">
       ${rail(node.kind === 'product' ? node.id : undefined, railDomain)}
       <div class="pane">
+        ${editData}
+        ${banner}
         <nav class="trail"><a href="/">Products</a>${trailHtml}</nav>
+        ${actions}
         <h1 class="wtitle">${esc(node.name)} <span class="htag ${node.kind}">${kindLabel}</span></h1>
         <aside class="infobox">
           <svg class="ib-img ib-svg" viewBox="0 0 96 96" role="img" aria-label="${esc(node.name)}">${nodeIcon(node)}</svg>
@@ -136,6 +163,7 @@ export function itemPage(node: NodeData): string {
     path: `/item/${node.id}/`,
     indexable: isIndexableNode(node),
     body,
-    extraCss: ['/static/item.css', '/static/rail.css'],
+    extraCss: ['/static/item.css', '/static/rail.css', '/static/edit.css'],
+    scripts: historical ? [] : ['/static/edit.js'],
   });
 }
