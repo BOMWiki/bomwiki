@@ -11,7 +11,13 @@ import { isIndexableNode } from './seo.ts';
 import { domainPage } from './render/domain.ts';
 import { homePage } from './render/home.ts';
 import { searchPage } from './render/search.ts';
-import { aboutPage, policiesPage, verificationPage } from './render/static-pages.ts';
+import {
+  aboutPage,
+  governancePage,
+  intelligencePage,
+  policiesPage,
+  verificationPage,
+} from './render/static-pages.ts';
 import {
   getSession,
   login,
@@ -624,6 +630,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   // --- read path ---
   if (path === '/about' || path === '/about/') return sendCacheableHtml(res, aboutPage());
   if (path === '/about/verification') return sendCacheableHtml(res, verificationPage());
+  if (path === '/about/governance') return sendCacheableHtml(res, governancePage());
+  if (path === '/intelligence') return sendCacheableHtml(res, intelligencePage());
   if (path === '/about/numbers' || path === '/about/numbers/') return redirect(res, '/about/');
   if (path === '/policies') return sendCacheableHtml(res, policiesPage());
 
