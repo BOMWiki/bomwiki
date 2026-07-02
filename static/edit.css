@@ -130,3 +130,11 @@
 .vf-form .vf-h { font-size: 11.5px; font-weight: 600; color: var(--muted); font-family: var(--sans); }
 .vf-form select, .vf-form input { font: inherit; font-size: 12px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 2px; }
 .vf-form button { align-self: flex-start; font: inherit; font-size: 12px; padding: 4px 12px; border: 1px solid var(--rule); border-radius: 2px; background: var(--bg); cursor: pointer; }
+
+/* Article + specs editing */
+.ed-article { font: inherit; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; padding: 8px 10px; border: 1px solid var(--line); border-radius: 2px; width: 100%; box-sizing: border-box; background: var(--bg); color: var(--ink); resize: vertical; }
+.ed-article:focus { outline: 0; border-color: var(--link); box-shadow: 0 0 0 1px var(--link); }
+.ed-spec-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 30px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.ed-spec-row .ed-name { font-size: 12.5px; font-weight: 600; }
+.ed-spec-add input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 2px; }
+a.redlink { color: var(--warn); }

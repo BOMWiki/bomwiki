@@ -20,6 +20,8 @@ export interface Snapshot {
   standard?: string;
   material?: string;
   bom?: BomLine[];
+  article?: string;
+  specs?: [string, string][];
 }
 
 export interface ProposedEdit {
@@ -50,8 +52,14 @@ export function snapshotOf(node: NodeData): Snapshot {
 
 // The scalar (non-BOM) fields of a snapshot, in one place so the diff and the
 // merge agree on exactly which fields to compare. Add a field here and both
-// the change summary and three-way merge pick it up.
-const SCALAR_FIELDS = ['name', 'kind', 'domain', 'summary', 'standard', 'material'] as const;
+// the change summary and three-way merge pick it up. The article merges as a
+// whole field too (concurrent article edits conflict rather than interleave);
+// its diff line is summarized as a word delta instead of dumping the text.
+const SCALAR_FIELDS = ['name', 'kind', 'domain', 'summary', 'standard', 'material', 'article'] as const;
+
+function wordCount(md: string): number {
+  return (md.match(/\b\w+\b/g) ?? []).length;
+}
 
 /** Plain-language lines describing base -> next; one vocabulary for the
  *  change bar, the review queue, and history. */
@@ -66,11 +74,31 @@ export function semanticDiff(base: Snapshot | null, next: Snapshot): string[] {
     return lines;
   }
   for (const field of SCALAR_FIELDS) {
+    if (field === 'article') continue; // summarized below, never dumped
     const a = base[field] ?? '';
     const b = next[field] ?? '';
     if (a !== b) {
       lines.push(a && b ? `${field} changed to "${b}"` : b ? `${field} set to "${b}"` : `${field} removed`);
     }
+  }
+  if ((base.article ?? '') !== (next.article ?? '')) {
+    const delta = wordCount(next.article ?? '') - wordCount(base.article ?? '');
+    const sign = delta > 0 ? `+${delta}` : `${delta}`;
+    lines.push(
+      next.article
+        ? `Article updated (${sign} words)`
+        : 'Article removed',
+    );
+  }
+  const baseSpecs = new Map(base.specs ?? []);
+  const nextSpecs = new Map(next.specs ?? []);
+  for (const [k, v] of nextSpecs) {
+    const old = baseSpecs.get(k);
+    if (old === undefined) lines.push(`Spec ${k} added: "${v}"`);
+    else if (old !== v) lines.push(`Spec ${k} changed to "${v}"`);
+  }
+  for (const [k] of baseSpecs) {
+    if (!nextSpecs.has(k)) lines.push(`Spec ${k} removed`);
   }
   const baseLines = new Map((base.bom ?? []).map((l) => [l.id, l]));
   const nextLines = new Map((next.bom ?? []).map((l) => [l.id, l]));
@@ -230,7 +258,30 @@ export function mergeSnapshots(
     }
   }
 
-  const key = (l: BomLine) => `${l.qty} ${l.note ?? ''}`;
+  // Specs merge per row, keyed by label — same rules as BOM lines.
+  const sB = new Map(base.specs ?? []);
+  const sM = new Map(mine.specs ?? []);
+  const sC = new Map(current.specs ?? []);
+  const specKeys = [...new Set([...sC.keys(), ...sM.keys(), ...sB.keys()])];
+  const specsOut: [string, string][] = [];
+  for (const k of specKeys) {
+    const b = sB.get(k);
+    const m = sM.get(k);
+    const c = sC.get(k);
+    const mineChanged = m !== b;
+    const curChanged = c !== b;
+    if (!mineChanged) {
+      if (c !== undefined) specsOut.push([k, c]);
+    } else if (!curChanged || m === c) {
+      if (m !== undefined) specsOut.push([k, m]);
+    } else {
+      conflicts.push(`spec ${k}: you and a newer revision changed it differently`);
+    }
+  }
+  if (specsOut.length) merged.specs = specsOut;
+  else delete merged.specs;
+
+  const key = (l: BomLine) => `${l.qty} ${l.note ?? ''}`;
   const bBom = new Map((base.bom ?? []).map((l) => [l.id, l]));
   const mBom = new Map((mine.bom ?? []).map((l) => [l.id, l]));
   const cBom = new Map((current.bom ?? []).map((l) => [l.id, l]));

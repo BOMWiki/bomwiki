@@ -19,6 +19,10 @@ export interface NodeData {
   standard?: string;
   material?: string;
   bom?: BomLine[];
+  /** Written article, markdown with [[node-id]] wiki-links. */
+  article?: string;
+  /** Infobox key/value rows authored with the article. */
+  specs?: [string, string][];
 }
 
 export interface Child {

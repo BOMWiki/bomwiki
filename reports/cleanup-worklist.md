@@ -46,12 +46,12 @@ Cleanest tier (score < 0.15): 4547 products — marked machine-checked.
 | 39 | Paper Rewinder (`paper-rewinder`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
 | 40 | Paper Sheeter (`paper-sheeter`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
 | 41 | Push-Around Vertical Lift (`push-around-lift`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| 42 | Iron Ore Fines (`raw-iron-ore-fines`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| 43 | Bauxite Ore (`raw-bauxite-ore`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| 44 | Copper Concentrate (`raw-copper-concentrate`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| 45 | Nickel Laterite Ore (`raw-nickel-laterite-ore`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| 46 | Spodumene Concentrate (`raw-spodumene-concentrate`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
+| 42 | Bauxite Ore (`raw-bauxite-ore`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
+| 43 | Iron Ore Fines (`raw-iron-ore-fines`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
+| 44 | Nickel Laterite Ore (`raw-nickel-laterite-ore`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
+| 45 | Spodumene Concentrate (`raw-spodumene-concentrate`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
+| 46 | Copper Concentrate (`raw-copper-concentrate`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
 | 47 | Lithium Brine Concentrate (`raw-lithium-brine`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| 48 | Cobalt Hydroxide Intermediate (`raw-cobalt-hydroxide`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| 49 | Manganese Ore (`raw-manganese-ore`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| 50 | Ilmenite Concentrate (`raw-ilmenite-concentrate`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
+| 48 | Manganese Ore (`raw-manganese-ore`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
+| 49 | Cobalt Hydroxide Intermediate (`raw-cobalt-hydroxide`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |
+| 50 | Chromite Ore (`raw-chromite-ore`) | 0.25 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 |

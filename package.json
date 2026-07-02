@@ -12,11 +12,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "pg": "^8.16.0"
+    "marked": "^18.0.5",
+    "pg": "^8.16.0",
+    "sanitize-html": "^2.17.5"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "@types/pg": "^8.15.0",
+    "@types/sanitize-html": "^2.16.1",
     "typescript": "^5.8.0"
   }
 }

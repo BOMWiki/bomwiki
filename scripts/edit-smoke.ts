@@ -125,6 +125,36 @@ check('conflicting change waits in queue', queueHtml.includes(`Change #${c.body.
 const rejectRes = await req(`/review/${c.body.id}/reject`, { method: 'POST' });
 check('conflict rejected', rejectRes.status === 303);
 
+// --- articles and specs ---
+const ART = 'airliner';
+const artPage = await (await req(`/item/${ART}/`)).text();
+check('article renders as prose', artPage.includes('class="prose"'));
+check('wiki-links resolve to item pages', /href="\/item\/airliner-[a-z-]+\/"/.test(artPage));
+{
+  const prose = artPage.match(/<div class="prose">([\s\S]*?)<\/div>/)?.[1] ?? '';
+  const externals = [...prose.matchAll(/<a [^>]*href="https?:\/\/[^"]*"[^>]*>/g)].map((m) => m[0]);
+  check(
+    'external article links are nofollow ugc',
+    externals.every((a) => a.includes('nofollow') && a.includes('ugc')),
+    `${externals.length} external link(s)`,
+  );
+}
+const artData = await pageData(ART);
+const artEdit = JSON.parse(JSON.stringify(artData.data));
+artEdit.article = (artEdit.article ?? '') + '\n\nSmoke test sentence for the article loop.';
+artEdit.specs = [...(artEdit.specs ?? []), ['Smoke spec', '42 units']];
+const artRes = await propose([{ op: 'edit', nodeId: ART, baseRev: artData.rev, data: artEdit }]);
+check('article edit applies', artRes.status === 201 && artRes.body.applied === true, JSON.stringify(artRes.body));
+const artAfter = await (await req(`/item/${ART}/`)).text();
+check('page shows the article addition', artAfter.includes('Smoke test sentence for the article loop.'));
+check('infobox shows the new spec', artAfter.includes('Smoke spec') && artAfter.includes('42 units'));
+const artHist = await (await req(`/item/${ART}/history`)).text();
+check('history summarizes article as word delta', /Article updated \(\+\d+ words\)/.test(artHist));
+check('history lists the spec addition', artHist.includes('Spec Smoke spec added'));
+await req(`/item/${ART}/revert/${artData.rev}`, { method: 'POST' });
+const artReset = await pageData(ART);
+check('article edit reverted', !(artReset.data.article ?? '').includes('Smoke test sentence'));
+
 // --- verification: banner, reviewer flow, earned indexability ---
 const PRODUCT = 'ev-car';
 const prodBefore = await (await req(`/item/${PRODUCT}/`)).text();

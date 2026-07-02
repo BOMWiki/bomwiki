@@ -17,6 +17,7 @@ import {
   type NodeData,
 } from '../nodes.ts';
 import { snapshotOf } from '../changesets.ts';
+import { articleWordCount, renderArticle } from '../markdown.ts';
 import { isIndexableNode, seoDescription, seoTitle } from '../seo.ts';
 import { page } from './base.ts';
 import { rail } from './rail.ts';
@@ -65,6 +66,7 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
     .join('');
 
   const specs = [
+    ...(node.specs ?? []).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`),
     ...(lines > 0 ? [`<tr><th>Direct parts</th><td>${lines}</td></tr>`] : []),
     ...(!historical && node.kind !== 'part'
       ? [`<tr><th>Total parts</th><td>${tp.toLocaleString()}</td></tr>`]
@@ -210,10 +212,15 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
           ${verifyForm}
         </aside>
         <div class="article">
-          <p class="stub">${node.summary ? esc(node.summary) + ' ' : ''}A full specification article for this item is being written. Meanwhile its bill of materials and connections are below.</p>
+          ${
+            node.article
+              ? `<div class="prose">${renderArticle(node.article)}</div>`
+              : `<p class="stub">${node.summary ? esc(node.summary) + ' ' : ''}A full specification article for this item is being written. Meanwhile its bill of materials and connections are below.</p>`
+          }
         </div>
         ${bomHtml}
         ${usedInHtml}
+        ${node.article ? `<p class="wc">${articleWordCount(node.article).toLocaleString()}-word article</p>` : ''}
       </div>
     </div>`;
 

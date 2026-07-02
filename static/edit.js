@@ -43,12 +43,29 @@
     return names[id] || id;
   }
 
+  function words(s) { return (s.match(/\b\w+\b/g) || []).length; }
+
   function diffLines() {
     var lines = [];
     ['summary', 'material', 'standard'].forEach(function (f) {
       var a = orig[f] || '';
       var b = work[f] || '';
       if (a !== b) lines.push(b ? f + ' changed to "' + b + '"' : f + ' removed');
+    });
+    if ((orig.article || '') !== (work.article || '')) {
+      var d = words(work.article || '') - words(orig.article || '');
+      lines.push(work.article ? 'Article updated (' + (d > 0 ? '+' : '') + d + ' words)' : 'Article removed');
+    }
+    var origSpecs = {};
+    (orig.specs || []).forEach(function (s) { origSpecs[s[0]] = s[1]; });
+    var workKeys = {};
+    (work.specs || []).forEach(function (s) {
+      workKeys[s[0]] = true;
+      if (!(s[0] in origSpecs)) lines.push('Spec ' + s[0] + ' added: "' + s[1] + '"');
+      else if (origSpecs[s[0]] !== s[1]) lines.push('Spec ' + s[0] + ' changed to "' + s[1] + '"');
+    });
+    (orig.specs || []).forEach(function (s) {
+      if (!workKeys[s[0]]) lines.push('Spec ' + s[0] + ' removed');
     });
     var baseMap = {};
     (orig.bom || []).forEach(function (l) { baseMap[l.id] = l; });
@@ -226,11 +243,70 @@
     var rows = el('div', { class: 'ed-rows' });
     (work.bom || []).forEach(function (l) { rows.appendChild(bomRow(l)); });
 
+    var articleBox = el('textarea', {
+      class: 'ed-article', rows: '14',
+      placeholder: 'Write the article in markdown. Link parts with [[part-id]] or [[part-id|Label]].',
+      oninput: function () {
+        if (articleBox.value.trim()) work.article = articleBox.value;
+        else delete work.article;
+        renderChangeBar();
+      },
+    });
+    articleBox.value = work.article || '';
+
+    var specRows = el('div', { class: 'ed-rows' });
+    function specRow(pair) {
+      var val = el('input', {
+        type: 'text', value: pair[1],
+        oninput: function () { pair[1] = val.value; renderChangeBar(); },
+      });
+      var row = el('div', { class: 'ed-spec-row' }, [
+        el('span', { class: 'ed-name', text: pair[0] }),
+        val,
+        el('button', {
+          type: 'button', class: 'ed-del', 'aria-label': 'Remove spec ' + pair[0], text: '×',
+          onclick: function () {
+            work.specs = (work.specs || []).filter(function (p) { return p !== pair; });
+            row.remove();
+            renderChangeBar();
+          },
+        }),
+      ]);
+      return row;
+    }
+    (work.specs || []).forEach(function (p) { specRows.appendChild(specRow(p)); });
+    var newSpecKey = el('input', { type: 'text', placeholder: 'New spec name (e.g. Voltage)' });
+    var newSpecVal = el('input', { type: 'text', placeholder: 'Value' });
+    var addSpec = el('div', { class: 'ed-spec-row ed-spec-add' }, [
+      newSpecKey,
+      newSpecVal,
+      el('button', {
+        type: 'button', class: 'ed-del', 'aria-label': 'Add spec', text: '+',
+        onclick: function () {
+          var k = newSpecKey.value.trim();
+          if (!k || !newSpecVal.value.trim()) return;
+          if ((work.specs || []).some(function (p) { return p[0] === k; })) return;
+          var pair = [k, newSpecVal.value.trim()];
+          work.specs = work.specs || [];
+          work.specs.push(pair);
+          specRows.appendChild(specRow(pair));
+          newSpecKey.value = '';
+          newSpecVal.value = '';
+          renderChangeBar();
+        },
+      }),
+    ]);
+
     editorEl = el('section', { class: 'editor' }, [
-      el('p', { class: 'ed-h', text: 'Editing: fields and bill of materials' }),
+      el('p', { class: 'ed-h', text: 'Editing: fields, article, specs, and bill of materials' }),
       textField('Summary', 'summary'),
       textField('Material', 'material'),
       textField('Standard', 'standard'),
+      el('p', { class: 'ed-sub', text: 'Article (markdown, [[part-id]] links)' }),
+      articleBox,
+      el('p', { class: 'ed-sub', text: 'Specs (infobox rows)' }),
+      specRows,
+      addSpec,
       el('p', { class: 'ed-sub', text: 'Bill of materials' }),
       rows,
       picker(),
