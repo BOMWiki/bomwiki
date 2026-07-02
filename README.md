@@ -1,25 +1,74 @@
 # BOMwiki engine
 
-The community wiki behind bomwiki.com: nodes (products, assemblies, parts)
-live in Postgres, every edit is a full-snapshot revision grouped into
-changesets, and the site is rendered server-side with no framework —
-`node:http`, TypeScript template functions, plain CSS, one runtime
-dependency (`pg`).
+The software behind [bomwiki.com](https://bomwiki.com): an openly editable,
+versioned encyclopedia of bills of materials. Products, assemblies, and parts
+are nodes in one shared graph. Every edit is a full-snapshot revision grouped
+into a changeset, reviewed before it goes live (or published directly once a
+contributor has earned trust), and reversible forever.
 
-## Run it locally
+Built deliberately small: Node.js with no web framework, plain TypeScript
+template functions, plain CSS, Postgres, and three runtime dependencies
+(`pg`, `marked`, `sanitize-html`). Anyone who knows the web platform can
+patch it.
+
+## Features
+
+- Node-level wiki: every part, assembly, and product is a page with history,
+  diff, revert, and a discussion tab
+- Edit-in-place: the page you are reading becomes the editor, with a part
+  picker that cannot produce dangling references
+- Changesets with plain-language summaries ("Battery Module quantity 8 to
+  10") shown identically in the change bar, review queue, and history
+- Trust ladder: new accounts' edits wait for review; contributors earn
+  direct publishing with accepted edits and account age
+- Three-way merge for concurrent edits, field by field and BOM line by line
+- Structural guarantees on every edit: no cycles, no dangling references,
+  no duplicate lines, integer quantities
+- Verification statuses (unverified, machine-checked, human-verified) with
+  search-engine indexability earned through human verification
+- Articles in markdown with `[[wiki-links]]`, infobox specs, aliases
+- Moderation: blocks, mass-revert per account, rate limits, nofollow on
+  contributed external links
+- Optional analysis sidecar over a small HTTP contract (see below)
+- Magic-link email sign-in (Resend-compatible HTTP API), sessions in Postgres
+
+## Quickstart
+
+Requires Node 22+ and Postgres 15+.
 
 ```bash
 createdb bomwiki_dev
 npm install
-npm run migrate        # applies schema/*.sql in order
-npm run export-graph   # dumps the static site's graph (one-time)
-npm run import         # loads it as revision 1 of every node
-npm run serve          # http://localhost:4400
+npm run migrate                 # applies schema/*.sql in order
+node --experimental-strip-types scripts/import.ts graph.json   # optional seed
+npm run serve                   # http://localhost:4400
 ```
 
 Sign in at `/login` with the admin token (`ADMIN_TOKEN`, default
-`dev-admin`), or create an account via email magic link — in development
-the link is shown on the page instead of mailed.
+`dev-admin`), or create an account with the email flow. In development the
+magic link is shown on screen; in production it is emailed.
+
+### Seeding a catalog
+
+`scripts/import.ts` loads a JSON array of nodes as revision 1 of each page:
+
+```json
+{
+  "id": "coffee-table",
+  "name": "Coffee Table",
+  "kind": "product",
+  "domain": "furniture",
+  "summary": "A low living-room table.",
+  "bom": [{ "id": "coffee-table-top", "qty": 1, "note": "Tabletop assembly" }],
+  "article": "## Overview\n\nMarkdown with [[coffee-table-top]] links.",
+  "specs": [["Material", "Oak"]],
+  "aliases": ["cocktail table"]
+}
+```
+
+`kind` is `product`, `assembly`, or `part`. The importer refuses dangling
+BOM references and non-empty databases. Starting with an empty database and
+creating pages through the editor also works.
 
 ## Environment
 
@@ -30,33 +79,43 @@ the link is shown on the page instead of mailed.
 | `ADMIN_TOKEN` | `dev-admin` | operator sign-in token |
 | `ADMIN_HANDLE` | `sd` | handle for the token account |
 | `AUTOCONFIRM_EDITS` | `4` | accepted changesets before edits publish instantly |
-| `AUTOCONFIRM_DAYS` | `0` | account age also required for autoconfirm (production: 3+) |
-| `INTEL_URL` | `http://127.0.0.1:8799` | bomwiki-intelligence sidecar |
-| `INTEL_TIMEOUT_MS` | `4000` | sidecar timeout per analysis |
+| `AUTOCONFIRM_DAYS` | `0` | account age also required (production: 3+) |
+| `DEV_SHOW_MAGIC_LINK` | on outside production | shows sign-in links on screen; must be off in production |
+| `MAIL_API_KEY` | empty | Resend-compatible key; empty disables email sign-in |
+| `MAIL_FROM` | `BOMwiki <signin@bomwiki.com>` | sender for magic links |
+| `SITE_ORIGIN` | `https://bomwiki.com` | absolute origin used in emails |
+| `PUBLIC_DIR` | `../public` | static assets (photos, favicons) |
+| `IMAGES_JSON`, `GALLERIES_JSON` | see `src/images.ts` | photo mappings |
+| `INTEL_URL` | `http://127.0.0.1:8799` | analysis sidecar (optional) |
 
-## How editing works
+`deploy/` contains a systemd unit, a production env template, and a runbook.
 
-Propose → validate (references, quantities, cycles) → pending changeset →
-review (`/review`) → accept applies each edit as a new revision. Trusted
-users (reviewers, admins, and contributors past the autoconfirm threshold)
-publish directly. Concurrent edits merge field-by-field and BOM-line-by-line;
-only overlapping changes are conflicts. Every node has History (view any
-revision, revert) and Discussion tabs; site-wide surfaces are `/changes`,
-`/user/:handle`, `/watchlist`.
+## The analysis sidecar
 
-## The machine patroller
+The engine optionally sends every proposed changeset to an analyzer:
+`POST {INTEL_URL}/api/analyze?product=<root-id>` with a JSON body of
+`items` (`{id, name, description, item_type}`), `products`
+(`{id, name, root_item_id}`), and `bom_lines`
+(`{parent_id, child_id, quantity}`). The response's `bom_review` object is
+turned into findings shown in the review queue. Without a sidecar the
+engine runs normally and shows no findings.
 
-If the [bomwiki-intelligence](https://github.com/erphq/bomwiki-intelligence)
-sidecar is running (`cargo run --release -- serve --addr 127.0.0.1:8799`),
-every proposed changeset gets machine findings attached in the review queue.
-Without it, everything works; there are just no findings.
+bomwiki.com runs a closed-source analyzer behind this contract
+([what it does](https://bomwiki.com/intelligence)). Implement the contract
+with your own analyzer and the review queue picks it up.
 
 ## Tests
 
 ```bash
 npm run typecheck
-node --experimental-strip-types scripts/edit-smoke.ts       # 23 checks, needs a running server
-node --experimental-strip-types scripts/community-smoke.ts  # 29 checks
-node --experimental-strip-types scripts/parity.ts <ids…>    # vs the Astro site on :4321
-node --experimental-strip-types scripts/catalog-audit.ts    # sidecar audit -> reports/
+node --experimental-strip-types scripts/edit-smoke.ts       # needs a running server
+node --experimental-strip-types scripts/community-smoke.ts
+node --experimental-strip-types scripts/multiuser-smoke.ts
 ```
+
+## License
+
+AGPL-3.0. If you run a modified version of this engine as a public service,
+you must publish your modifications under the same terms. Content on
+bomwiki.com is licensed separately; see
+[bomwiki.com/about/governance](https://bomwiki.com/about/governance).

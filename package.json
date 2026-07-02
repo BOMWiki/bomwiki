@@ -1,9 +1,8 @@
 {
   "name": "bomwiki-engine",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "The BOMwiki engine: a community-editable encyclopedia of bills of materials.",
+  "description": "The engine behind bomwiki.com: an openly editable, versioned encyclopedia of bills of materials.",
   "scripts": {
     "migrate": "node --experimental-strip-types scripts/migrate.ts",
     "export-graph": "npm exec --yes --package tsx -- tsx scripts/export-graph.mts",
@@ -21,5 +20,10 @@
     "@types/pg": "^8.15.0",
     "@types/sanitize-html": "^2.16.1",
     "typescript": "^5.8.0"
+  },
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BOMWiki/bomwiki.git"
   }
 }
