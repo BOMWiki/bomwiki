@@ -1,0 +1,99 @@
+# Steward content pass
+
+Scanned every node. Fixable defects on 83 nodes; 83 fixed via steward-bot changesets.
+
+## Fixed (or fixable) counts by defect
+
+- duplicate-line: 66
+- quantity: 7
+- self-reference: 4
+- duplicate-spec: 2
+- whitespace:note: 2
+- whitespace:summary: 2
+
+## Flags needing human judgment
+
+- Red links (article references to nonexistent nodes): 526
+  - aggregate-chip-box -> [[aggregate-chip-box-hydraulic-system]]
+  - annealing-oven-glass -> [[glossblowing-furnace]]
+  - anodizing-line -> [[anodizing-line-ammeter]]
+  - anodizing-line -> [[anodizing-line-acid-circulation-sensor]]
+  - anodizing-line -> [[anodizing-line-ammeter]]
+  - asphalt-tack-sprayer -> [[asphalt-tack-sprayer-immersion-burner]]
+  - asphalt-tack-sprayer -> [[asphalt-tack-sprayer-pump-system]]
+  - audiology-booth -> [[audiology-booth-door-hinge]]
+  - auger-drill-rig -> [[auger-drill-rig-diesel-engine]]
+  - autocue-display-unit -> [[autocue-display-unit-display-module]]
+  - autocue-display-unit -> [[autocue-display-unit-display-module]]
+  - autocue-display-unit -> [[autocue-display-unit-display-module]]
+  - automated-parking-system -> [[automated-parking-system-energy-storage]]
+  - automated-public-toilet -> [[automated-public-toilet-controller]]
+  - automated-public-toilet -> [[automated-public-toilet-controller]]
+  - automatic-chain-oiler -> [[automatic-chain-chain-oiler-controller]]
+  - automatic-flue-damper -> [[automatic-flue-damper-torque-limiting-clutch]]
+  - automatic-pool-cover -> [[pool-pump-reel-bearings]]
+  - autopsy-table -> [[autopsy-table-base-frame]]
+  - autorack-wagon -> [[autorack-wagon-pneumatic-brake]]
+  - baby-walker -> [[baby-walker-cross-brace]]
+  - bagpipes -> [[bagpipes-bag-hide]]
+  - ballast-cleaning-machine -> [[ballast-cleaning-machine-swarf-hopper]]
+  - ballast-cleaning-machine -> [[ballast-cleaning-machine-hydraulic-system]]
+  - ballast-cleaning-machine -> [[ballast-cleaning-machine-load-cell]]
+  - ballast-cleaning-machine -> [[ballast-cleaning-machine-load-cell]]
+  - ballast-cleaning-machine -> [[ballast-cleaning-machine-discharge-chute]]
+  - ballast-undercutter -> [[ballast-undercutter-cyclone-separator]]
+  - ballast-undercutter -> [[ballast-undercutter-main-pump]]
+  - ballast-undercutter -> [[ballast-undercutter-reservoir]]
+- Orphan assemblies/parts (no parents, unreachable by browsing): 165
+  - `animal-mri-rf-shielding-room`
+  - `atv-frame-tube`
+  - `atv-engine-block`
+  - `atv-carburetor`
+  - `atv-cdi-module`
+  - `bandsaw-mill-front-clamp`
+  - `bandsaw-mill-rear-clamp`
+  - `bandsaw-mill-clamp-lever`
+  - `cd-duplicator-user-interface`
+  - `colorimeter-temperature-monitor`
+  - `colorimeter-interface-connector`
+  - `cst-seal-face-set`
+  - `ccm-indicator`
+  - `debarker-drum-bark-removal`
+  - `dragline-drag-rope`
+  - `dragline-hoist-rope`
+  - `dragline-rigging-chain`
+  - `dragline-dump-block`
+  - `dragline-spreader-bar`
+  - `drum-machine-housing`
+  - `ebike-station-power-supply`
+  - `edh-sheet-cover`
+  - `engine-stand-accessories`
+  - `fetal-doppler-gel-dispenser`
+  - `fetal-doppler-probe-cleaner`
+  - `fetal-doppler-user-manual`
+  - `food-dehydrator-stackable-accessory-tray`
+  - `frl-unit-inlet-port`
+  - `gds-seal-face-set`
+  - `gloss-angle-detection`
+- Boilerplate summaries (identical text on 5+ nodes): 163 distinct strings
+  - (42×) component of the drive through teller unit.
+  - (34×) component of the time delay safe.
+  - (32×) component of the night depository.
+  - (30×) component of the teller cash recycler.
+  - (29×) component of the cash deposit machine.
+  - (28×) component of the banknote fitness sorter.
+  - (28×) component of the rotary deposit safe.
+  - (27×) component of the coin counting kiosk.
+  - (27×) component of the safe deposit system.
+  - (24×) component of the coin wrapping machine.
+  - (24×) component of the frozen food vending machine.
+  - (23×) component of the fresh food vending machine.
+  - (21×) component of the photo print kiosk.
+  - (18×) component of the refrigerated grocery locker.
+  - (16×) exhaust-driven turbo boosting intake air.
+- Dangling references: 0
+- Cycle edges: 4
+  - deck-crane-marine-load-cell -> deck-crane-marine-load-cell
+  - di-box-ground-lift-switch -> di-box-ground-lift-switch
+  - dust-collector-fan-motor -> dust-collector-fan-motor
+  - sidewalk-tractor-pto-shaft -> sidewalk-tractor-pto-shaft
