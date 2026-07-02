@@ -19,7 +19,11 @@
 
   fetch('/api/session')
     .then(function (r) { return r.json(); })
-    .then(function (s) { if (s.handle) editBtn.hidden = false; });
+    .then(function (s) {
+      if (s.handle) editBtn.hidden = false;
+      var vf = document.getElementById('bw-verify-form');
+      if (vf && (s.role === 'admin' || s.role === 'reviewer')) vf.hidden = false;
+    });
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
 

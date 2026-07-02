@@ -46,7 +46,15 @@ import {
 } from './render/community.ts';
 import { pool } from './db.ts';
 import { esc } from './html.ts';
-import { getNode, loadGraph, nodeCount, searchNodes, totalCatalogParts } from './nodes.ts';
+import {
+  getNode,
+  loadGraph,
+  nodeCount,
+  searchNodes,
+  setVerificationInMemory,
+  totalCatalogParts,
+  type Verification,
+} from './nodes.ts';
 import { page } from './render/base.ts';
 import { historyPage, type RevisionRow } from './render/history.ts';
 import { itemPage } from './render/item.ts';
@@ -405,6 +413,26 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const nodeId = await setTopicResolved(Number(resolve[1]), true);
     if (!nodeId) return notFound(res);
     return redirect(res, `/item/${nodeId}/talk`);
+  }
+
+  const verify = path.match(/^\/item\/([A-Za-z0-9._-]+)\/verify$/);
+  if (verify && method === 'POST') {
+    const session = await requireReviewer(req, res);
+    if (!session) return;
+    const node = getNode(verify[1]);
+    if (!node) return notFound(res, verify[1]);
+    const body = new URLSearchParams(await readBody(req));
+    const status = body.get('status') ?? '';
+    if (!['unverified', 'machine-checked', 'human-verified'].includes(status)) {
+      return sendJson(res, 422, { error: 'invalid status' });
+    }
+    await pool.query('update nodes set verification = $2 where id = $1', [node.id, status]);
+    await pool.query(
+      'insert into verification_events (node_id, status, user_id, note) values ($1, $2, $3, $4)',
+      [node.id, status, session.userId, body.get('note')?.trim().slice(0, 500) || null],
+    );
+    setVerificationInMemory(node.id, status as Verification);
+    return redirect(res, `/item/${node.id}/`);
   }
 
   const watch = path.match(/^\/item\/([A-Za-z0-9._-]+)\/watch$/);

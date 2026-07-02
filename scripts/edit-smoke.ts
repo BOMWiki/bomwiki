@@ -125,6 +125,30 @@ check('conflicting change waits in queue', queueHtml.includes(`Change #${c.body.
 const rejectRes = await req(`/review/${c.body.id}/reject`, { method: 'POST' });
 check('conflict rejected', rejectRes.status === 303);
 
+// --- verification: banner, reviewer flow, earned indexability ---
+const PRODUCT = 'ev-car';
+const prodBefore = await (await req(`/item/${PRODUCT}/`)).text();
+const wasVerification = prodBefore.match(/vf-tag vf-([a-z-]+)/)?.[1] ?? 'unverified';
+check('unverified/machine-checked page shows banner', prodBefore.includes('vf-banner'));
+check('page is noindex before human verification', prodBefore.includes('noindex'));
+const verifyRes = await req(`/item/${PRODUCT}/verify`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/x-www-form-urlencoded' },
+  body: 'status=human-verified&note=smoke%20test%20verification',
+});
+check('reviewer sets human-verified', verifyRes.status === 303);
+const prodAfter = await (await req(`/item/${PRODUCT}/`)).text();
+check('verified page drops the banner', !prodAfter.includes('vf-banner'));
+check('verified product becomes indexable', !prodAfter.includes('noindex'));
+check('infobox shows verified status', prodAfter.includes('vf-human-verified'));
+await req(`/item/${PRODUCT}/verify`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/x-www-form-urlencoded' },
+  body: `status=${wasVerification}&note=smoke%20reset`,
+});
+const prodReset = await (await req(`/item/${PRODUCT}/`)).text();
+check('verification reset', prodReset.includes(`vf-${wasVerification}`));
+
 // --- revert restores the original state ---
 const revertRes = await req(`/item/${NODE}/revert/${before.rev}`, { method: 'POST' });
 check('revert redirects', revertRes.status === 303);

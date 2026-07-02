@@ -45,6 +45,9 @@ const revOf = new Map<string, number>();
 // Precomputed lowercased names so the per-keystroke search scan doesn't
 // allocate 192k fresh strings every call.
 const lowerName = new Map<string, string>();
+// Verification status lives on the nodes row, NOT in revision snapshots:
+// it's confidence metadata about the page, changed by reviewer action.
+const verificationOf = new Map<string, string>();
 let databaseUrlInUse = '';
 export let totalCatalogParts = 0;
 
@@ -78,7 +81,7 @@ async function doLoadGraph(databaseUrl: string): Promise<void> {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   const res = await client.query(
-    'select n.id, n.current_rev, r.data from nodes n join revisions r on r.rev = n.current_rev where not n.deleted order by n.pos',
+    'select n.id, n.current_rev, n.verification, r.data from nodes n join revisions r on r.rev = n.current_rev where not n.deleted order by n.pos',
   );
   await client.end();
 
@@ -87,10 +90,12 @@ async function doLoadGraph(databaseUrl: string): Promise<void> {
   partsMemo.clear();
   revOf.clear();
   lowerName.clear();
+  verificationOf.clear();
   for (const row of res.rows) {
     byId.set(row.id, { id: row.id, ...row.data });
     revOf.set(row.id, Number(row.current_rev));
     lowerName.set(row.id, (row.data.name ?? '').toLowerCase());
+    verificationOf.set(row.id, row.verification);
   }
   for (const node of byId.values()) {
     for (const line of node.bom ?? []) {
@@ -172,6 +177,16 @@ export function applyAcceptedEdits(edits: AppliedEdit[]): void {
   for (const node of byId.values()) {
     if (node.kind === 'product') totalCatalogParts += totalParts(node.id);
   }
+}
+
+export type Verification = 'unverified' | 'machine-checked' | 'human-verified';
+
+export function verificationOfNode(id: string): Verification {
+  return (verificationOf.get(id) as Verification) ?? 'unverified';
+}
+
+export function setVerificationInMemory(id: string, status: Verification): void {
+  verificationOf.set(id, status);
 }
 
 export function nodeCount(): number {

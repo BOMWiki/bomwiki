@@ -1,10 +1,14 @@
-// Ported from src/lib/seo.ts so engine pages present identically in search.
-import { lineCount, totalParts, type NodeData } from './nodes.ts';
+// Ported from src/lib/seo.ts so engine pages present identically in search —
+// with one wiki-era addition: indexability is earned. A page reaches search
+// engines only when its tier allows AND a human has verified it, so the
+// machine-generated backlog never rides the domain's reputation.
+import { lineCount, totalParts, verificationOfNode, type NodeData } from './nodes.ts';
 
 export const INDEX_TIER = 1;
 export const SITE = 'https://bomwiki.com';
 
 export function isIndexableNode(node: NodeData): boolean {
+  if (verificationOfNode(node.id) !== 'human-verified') return false;
   if (node.kind === 'product') return INDEX_TIER >= 1;
   if (node.kind === 'assembly') return INDEX_TIER >= 2;
   return INDEX_TIER >= 3;

@@ -12,6 +12,7 @@ import {
   parents,
   primaryPath,
   totalParts,
+  verificationOfNode,
   type BomRow,
   type NodeData,
 } from '../nodes.ts';
@@ -76,6 +77,11 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
         ]
       : []),
     `<tr><th>Class</th><td>${kindLabel}</td></tr>`,
+    ...(!historical
+      ? [
+          `<tr><th>Status</th><td><span class="vf-tag vf-${verificationOfNode(node.id)}">${verificationOfNode(node.id)}</span></td></tr>`,
+        ]
+      : []),
   ].join('');
 
   const bomHtml =
@@ -157,9 +163,29 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
           (node.bom ?? []).map((line) => [line.id, getNode(line.id)?.name ?? line.id]),
         ),
       }).replaceAll('<', '\\u003c')}</script>`;
+  const verification = verificationOfNode(node.id);
+  const verifyBanner = historical
+    ? ''
+    : verification === 'human-verified'
+      ? ''
+      : verification === 'machine-checked'
+        ? `<p class="vf-banner vf-machine">Machine-checked, not yet human-verified. Consistency checks pass; a person hasn't confirmed it against the real thing. <a href="/item/${node.id}/talk">Discuss</a> or verify it below if you know this hardware.</p>`
+        : `<p class="vf-banner vf-none">This page is machine-generated and unverified. Treat details as provisional. If you know this hardware, <a href="/item/${node.id}/talk">weigh in</a> — or correct it directly with Edit.</p>`;
+  const verifyForm = historical
+    ? ''
+    : `<form method="post" action="/item/${node.id}/verify" class="vf-form" id="bw-verify-form" hidden>
+        <span class="vf-h">Set verification (reviewers)</span>
+        <select name="status">
+          <option value="human-verified">human-verified</option>
+          <option value="machine-checked">machine-checked</option>
+          <option value="unverified">unverified</option>
+        </select>
+        <input type="text" name="note" placeholder="Evidence: standard, teardown, source URL…" />
+        <button>Save</button>
+      </form>`;
   const banner = historical
     ? `<p class="rev-banner">You are viewing r${opts.asOfRev} of this page, not the current version. <a href="/item/${node.id}/">Go to current</a> · <a href="/item/${node.id}/history">history</a></p>`
-    : '';
+    : verifyBanner;
   const actions = historical
     ? ''
     : `<div class="page-actions">
@@ -181,6 +207,7 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
           <svg class="ib-img ib-svg" viewBox="0 0 96 96" role="img" aria-label="${esc(node.name)}">${nodeIcon(node)}</svg>
           ${node.summary ? `<p class="ib-cap">${esc(node.summary)}</p>` : ''}
           <table class="ib-specs"><tbody>${specs}</tbody></table>
+          ${verifyForm}
         </aside>
         <div class="article">
           <p class="stub">${node.summary ? esc(node.summary) + ' ' : ''}A full specification article for this item is being written. Meanwhile its bill of materials and connections are below.</p>

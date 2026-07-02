@@ -118,3 +118,15 @@
 .mod-panel { border-left: 3px solid var(--warn); }
 .mod-danger { color: var(--warn); border-color: var(--warn) !important; }
 .mod-blocked { color: #fff; background: var(--warn); border-color: var(--warn); }
+
+/* Verification */
+.vf-banner { clear: both; border-radius: 2px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px; }
+.vf-none { background: #fef6e7; border: 1px solid #ac6600; }
+.vf-machine { background: var(--hl); border: 1px solid var(--link); }
+.vf-tag { font-size: 11px; padding: 1px 7px; border-radius: 2px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+.vf-tag.vf-human-verified { border-color: var(--ok); color: var(--ok); }
+.vf-tag.vf-machine-checked { border-color: var(--link); color: var(--link); }
+.vf-form { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.vf-form .vf-h { font-size: 11.5px; font-weight: 600; color: var(--muted); font-family: var(--sans); }
+.vf-form select, .vf-form input { font: inherit; font-size: 12px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 2px; }
+.vf-form button { align-self: flex-start; font: inherit; font-size: 12px; padding: 4px 12px; border: 1px solid var(--rule); border-radius: 2px; background: var(--bg); cursor: pointer; }
