@@ -107,3 +107,8 @@
 .t-reply { border-left: 2px solid var(--line); padding-left: 12px; margin: 10px 0; }
 .t-replyform { margin: 8px 0 0; }
 .t-resolved { opacity: 0.75; background: var(--panel); }
+
+/* Machine findings */
+.rv-analysis { margin-top: 10px; border: 1px solid var(--line); border-left: 3px solid var(--link); border-radius: 2px; background: var(--panel); padding: 8px 12px; }
+.rv-an-h { font-weight: 600; font-size: 12px; font-family: var(--sans); margin: 0 0 4px; color: var(--muted); }
+.an-note { color: #ac6600; }

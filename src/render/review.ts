@@ -30,6 +30,16 @@ export function reviewPage(pending: PendingChangeset[], notice?: string): string
       </div>`,
         )
         .join('')}
+      ${
+        cs.analysis?.length
+          ? `<div class="rv-analysis">
+        <p class="rv-an-h">Machine findings</p>
+        <ul class="rv-lines">${cs.analysis
+          .map((f) => `<li class="an-${esc(f.severity)}">${esc(f.text)}</li>`)
+          .join('')}</ul>
+      </div>`
+          : ''
+      }
       <div class="rv-actions">
         <form method="post" action="/review/${cs.id}/accept"><button class="rv-accept">Accept</button></form>
         <form method="post" action="/review/${cs.id}/reject"><button>Reject</button></form>
