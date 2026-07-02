@@ -42,6 +42,9 @@ const byId = new Map<string, NodeData>();
 const parentsOf = new Map<string, NodeData[]>();
 const partsMemo = new Map<string, number>();
 const revOf = new Map<string, number>();
+// Precomputed lowercased names so the per-keystroke search scan doesn't
+// allocate 192k fresh strings every call.
+const lowerName = new Map<string, string>();
 let databaseUrlInUse = '';
 export let totalCatalogParts = 0;
 
@@ -54,7 +57,23 @@ export function currentRev(id: string): number | undefined {
   return revOf.get(id);
 }
 
-export async function loadGraph(databaseUrl: string): Promise<void> {
+// All reloads run strictly one-at-a-time. Without this, two accepts could each
+// fire a reload and the one whose query ran earlier could finish later,
+// clobbering the newer snapshot with stale data. Serializing guarantees the
+// last reload to start is the last to finish, so the in-memory graph always
+// ends on the most recent committed state.
+let graphLock: Promise<void> = Promise.resolve();
+
+export function loadGraph(databaseUrl: string): Promise<void> {
+  const run = graphLock.then(
+    () => doLoadGraph(databaseUrl),
+    () => doLoadGraph(databaseUrl),
+  );
+  graphLock = run.catch(() => {});
+  return run;
+}
+
+async function doLoadGraph(databaseUrl: string): Promise<void> {
   databaseUrlInUse = databaseUrl;
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
@@ -67,9 +86,11 @@ export async function loadGraph(databaseUrl: string): Promise<void> {
   parentsOf.clear();
   partsMemo.clear();
   revOf.clear();
+  lowerName.clear();
   for (const row of res.rows) {
     byId.set(row.id, { id: row.id, ...row.data });
     revOf.set(row.id, Number(row.current_rev));
+    lowerName.set(row.id, (row.data.name ?? '').toLowerCase());
   }
   for (const node of byId.values()) {
     for (const line of node.bom ?? []) {
@@ -107,7 +128,7 @@ export function searchNodes(q: string, limit = 8): SearchHit[] {
   if (!needle) return [];
   const hits: (SearchHit & { rank: number })[] = [];
   for (const node of byId.values()) {
-    const name = node.name.toLowerCase();
+    const name = lowerName.get(node.id) ?? node.name.toLowerCase();
     let rank = -1;
     if (name.startsWith(needle)) rank = 0;
     else if (name.includes(needle)) rank = 1;
@@ -140,22 +161,32 @@ export function lineCount(id: string): number {
   return byId.get(id)?.bom?.length ?? 0;
 }
 
-/** Total atomic parts under a node, multiplied through quantities. Memoized;
- *  the graph is a DAG so a plain visited-stack guard is enough for safety. */
+/** Total atomic parts under a node, multiplied through quantities. Memoized.
+ *  The write path guarantees a DAG (validateEdits rejects cycles at accept),
+ *  so the stack guard is a last-resort against corruption. A total computed
+ *  while the guard truncated a descendant is NOT memoized, so a stray cycle
+ *  can never poison the cache with an order-dependent wrong count. */
 export function totalParts(id: string, stack = new Set<string>()): number {
   const memo = partsMemo.get(id);
   if (memo !== undefined) return memo;
   const node = byId.get(id);
   if (!node) return 0;
   if (!node.bom || node.bom.length === 0) return 1;
-  if (stack.has(id)) return 0;
+  if (stack.has(id)) {
+    truncatedByCycle = true;
+    return 0;
+  }
   stack.add(id);
+  const outerTruncated = truncatedByCycle;
+  truncatedByCycle = false;
   let total = 0;
   for (const line of node.bom) total += line.qty * totalParts(line.id, stack);
   stack.delete(id);
-  partsMemo.set(id, total);
+  if (!truncatedByCycle) partsMemo.set(id, total);
+  truncatedByCycle = truncatedByCycle || outerTruncated;
   return total;
 }
+let truncatedByCycle = false;
 
 export function parents(id: string): NodeData[] {
   return parentsOf.get(id) ?? [];

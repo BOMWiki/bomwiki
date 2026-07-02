@@ -7,7 +7,7 @@ import type {
   Topic,
   WatchEvent,
 } from '../community.ts';
-import { esc } from '../html.ts';
+import { esc, fmtWhen, summaryLines } from '../html.ts';
 import { getNode, type NodeData } from '../nodes.ts';
 import { page } from './base.ts';
 
@@ -18,16 +18,13 @@ function changeList(rows: ChangeRow[], showStatus: boolean): string {
       (c) => `<section class="rv-cs">
     <div class="rv-head">
       <h2>Change #${c.id}${c.summary ? ` · ${esc(c.summary)}` : ''}${showStatus ? ` <span class="cs-status ${c.status}">${c.status}</span>` : ''}</h2>
-      <span class="rv-meta">by <a href="/user/${esc(c.author)}">${esc(c.author)}</a> · ${esc(c.createdAt.slice(0, 16).replace('T', ' '))}</span>
+      <span class="rv-meta">by <a href="/user/${esc(c.author)}">${esc(c.author)}</a> · ${fmtWhen(c.createdAt)}</span>
     </div>
     ${c.edits
       .map(
         (e) => `<div class="rv-edit">
       <p class="rv-node">${e.op === 'create' ? 'New: ' : ''}<a href="/item/${e.nodeId}/">${esc(getNode(e.nodeId)?.name ?? e.nodeId)}</a></p>
-      <ul class="rv-lines">${e.summary
-        .split('\n')
-        .map((l) => `<li>${esc(l)}</li>`)
-        .join('')}</ul>
+      <ul class="rv-lines">${summaryLines(e.summary)}</ul>
     </div>`,
       )
       .join('')}
@@ -36,7 +33,9 @@ function changeList(rows: ChangeRow[], showStatus: boolean): string {
     .join('\n');
 }
 
-export function signinPage(opts: { error?: string; sentLink?: string } = {}): string {
+export function signinPage(
+  opts: { error?: string; sent?: boolean; devLink?: string } = {},
+): string {
   return page({
     title: 'Sign in or create an account | BOMwiki',
     description: 'Sign in to edit BOMwiki.',
@@ -45,9 +44,13 @@ export function signinPage(opts: { error?: string; sentLink?: string } = {}): st
     body: `<div class="review"><h1>Sign in or create an account</h1>
       ${opts.error ? `<p class="rv-notice">${esc(opts.error)}</p>` : ''}
       ${
-        opts.sentLink !== undefined
-          ? `<section class="rv-cs"><p>Magic link created. In production this arrives by email; in development it is right here:</p>
-             <p><a href="${esc(opts.sentLink)}">Complete sign-in</a></p></section>`
+        opts.sent
+          ? `<section class="rv-cs"><p>If that email has an account, a sign-in link is on its way. Check your inbox.</p>
+             ${
+               opts.devLink
+                 ? `<p class="stub">Development mode — the link is shown here instead of emailed: <a href="${esc(opts.devLink)}">Complete sign-in</a></p>`
+                 : ''
+             }</section>`
           : ''
       }
       <section class="rv-cs">
@@ -153,13 +156,13 @@ export function talkPage(node: NodeData, topics: Topic[], signedIn: boolean, can
         .map(
           (t) => `<section class="rv-cs${t.resolved ? ' t-resolved' : ''}">
         <div class="rv-head">
-          <p class="rv-node"><a href="/user/${esc(t.author)}">${esc(t.author)}</a> <span class="rv-meta">· ${esc(t.createdAt.slice(0, 16).replace('T', ' '))}${t.resolved ? ' · resolved' : ''}</span></p>
+          <p class="rv-node"><a href="/user/${esc(t.author)}">${esc(t.author)}</a> <span class="rv-meta">· ${fmtWhen(t.createdAt)}${t.resolved ? ' · resolved' : ''}</span></p>
         </div>
         <p class="t-body">${esc(t.body)}</p>
         ${t.replies
           .map(
             (r) => `<div class="t-reply">
-          <p class="rv-node"><a href="/user/${esc(r.author)}">${esc(r.author)}</a> <span class="rv-meta">· ${esc(r.createdAt.slice(0, 16).replace('T', ' '))}</span></p>
+          <p class="rv-node"><a href="/user/${esc(r.author)}">${esc(r.author)}</a> <span class="rv-meta">· ${fmtWhen(r.createdAt)}</span></p>
           <p class="t-body">${esc(r.body)}</p>
         </div>`,
           )
@@ -169,8 +172,9 @@ export function talkPage(node: NodeData, topics: Topic[], signedIn: boolean, can
             ? `<form method="post" action="/item/${node.id}/talk" class="talk-form t-replyform">
           <input type="hidden" name="parent_id" value="${t.id}" />
           <textarea name="body" rows="2" placeholder="Reply…" required></textarea>
-          <div class="rv-actions"><button>Reply</button>${canModerate ? `</form><form method="post" action="/talk/${t.id}/resolve"><button>Resolve</button>` : ''}</div>
-        </form>`
+          <div class="rv-actions"><button>Reply</button></div>
+        </form>
+        ${canModerate ? `<form method="post" action="/talk/${t.id}/resolve" class="talk-form t-resolveform"><button>Resolve</button></form>` : ''}`
             : ''
         }
       </section>`,
@@ -193,12 +197,9 @@ export function watchlistPage(events: WatchEvent[]): string {
         .map(
           (e) => `<section class="rv-cs">
         <div class="rv-head">
-          <p class="rv-node"><a href="/item/${e.nodeId}/">${esc(getNode(e.nodeId)?.name ?? e.nodeId)}</a> r${e.rev} <span class="rv-meta">· by <a href="/user/${esc(e.author)}">${esc(e.author)}</a> · ${esc(e.createdAt.slice(0, 16).replace('T', ' '))}</span></p>
+          <p class="rv-node"><a href="/item/${e.nodeId}/">${esc(getNode(e.nodeId)?.name ?? e.nodeId)}</a> r${e.rev} <span class="rv-meta">· by <a href="/user/${esc(e.author)}">${esc(e.author)}</a> · ${fmtWhen(e.createdAt)}</span></p>
         </div>
-        <ul class="rv-lines">${e.summary
-          .split('\n')
-          .map((l) => `<li>${esc(l)}</li>`)
-          .join('')}</ul>
+        <ul class="rv-lines">${summaryLines(e.summary)}</ul>
       </section>`,
         )
         .join('\n')}</div>`,

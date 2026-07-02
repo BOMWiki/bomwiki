@@ -14,10 +14,9 @@ import {
   type Session,
 } from './auth.ts';
 import {
-  createChangeset,
   decideChangeset,
-  isAutoconfirmed,
   listPending,
+  proposeChangeset,
   revertNode,
   type ProposedEdit,
 } from './changesets.ts';
@@ -68,6 +67,18 @@ function send(res: http.ServerResponse, status: number, type: string, body: stri
 
 function sendHtml(res: http.ServerResponse, body: string, status = 200): void {
   send(res, status, 'text/html; charset=utf-8', body);
+}
+
+// Read pages carry no per-session HTML (session-aware chrome is filled in by a
+// client fetch), so they are identical for every visitor and safe to cache at
+// the edge. Short TTL + stale-while-revalidate keeps edits appearing quickly
+// while letting a CDN absorb read traffic instead of the single Node process.
+function sendCacheableHtml(res: http.ServerResponse, body: string): void {
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'public, max-age=60, stale-while-revalidate=86400',
+  });
+  res.end(body);
 }
 
 function sendJson(res: http.ServerResponse, status: number, value: unknown): void {
@@ -171,7 +182,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const body = new URLSearchParams(await readBody(req));
     const result = await requestMagicLink(body.get('email') ?? '', body.get('handle') ?? undefined);
     if (result.error) return sendHtml(res, signinPage({ error: result.error }), 422);
-    return sendHtml(res, signinPage({ sentLink: result.link }));
+    return sendHtml(res, signinPage({ sent: true, devLink: result.devLink }));
   }
   const magic = path.match(/^\/auth\/([a-f0-9]{48})$/);
   if (magic && method === 'GET') {
@@ -193,7 +204,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
   if (path === '/api/search') {
     const q = url.searchParams.get('q') ?? '';
-    return sendJson(res, 200, searchNodes(q, Number(url.searchParams.get('limit') ?? 8)));
+    const raw = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
+    const limit = Number.isFinite(raw) ? Math.min(50, Math.max(1, raw)) : 8;
+    return sendJson(res, 200, searchNodes(q, limit));
   }
   if (path === '/api/changesets' && method === 'POST') {
     const session = await getSession(req);
@@ -204,15 +217,17 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     } catch {
       return sendJson(res, 400, { error: 'invalid JSON' });
     }
-    const result = await createChangeset(session.userId, parsed.edits ?? [], parsed.summary);
+    const result = await proposeChangeset(
+      { userId: session.userId, role: session.role },
+      parsed.edits ?? [],
+      parsed.summary,
+    );
     if (result.errors) return sendJson(res, 422, { errors: result.errors });
-    // The trust ladder: autoconfirmed contributors (and reviewers/admins)
-    // publish directly; their changeset applies immediately.
-    if (await isAutoconfirmed(session.userId, session.role)) {
-      const applied = await decideChangeset(result.id!, session.userId, 'accepted');
-      return sendJson(res, 201, { id: result.id, applied: applied.ok });
-    }
-    return sendJson(res, 201, { id: result.id, applied: false });
+    return sendJson(res, 201, {
+      id: result.id,
+      applied: result.applied,
+      ...(result.applyError ? { applyError: result.applyError } : {}),
+    });
   }
 
   // --- review ---
@@ -237,7 +252,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   // --- history ---
-  const history = path.match(/^\/item\/([a-z0-9-]+)\/history$/);
+  const history = path.match(/^\/item\/([A-Za-z0-9._-]+)\/history$/);
   if (history) {
     const node = getNode(history[1]);
     if (!node) return notFound(res, history[1]);
@@ -258,7 +273,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return sendHtml(res, historyPage(node, revisions, session?.role === 'admin'));
   }
 
-  const oldRev = path.match(/^\/item\/([a-z0-9-]+)\/rev\/(\d+)$/);
+  const oldRev = path.match(/^\/item\/([A-Za-z0-9._-]+)\/rev\/(\d+)$/);
   if (oldRev) {
     const node = getNode(oldRev[1]);
     if (!node) return notFound(res, oldRev[1]);
@@ -271,7 +286,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return sendHtml(res, itemPage(historical, { asOfRev: Number(oldRev[2]) }));
   }
 
-  const revert = path.match(/^\/item\/([a-z0-9-]+)\/revert\/(\d+)$/);
+  const revert = path.match(/^\/item\/([A-Za-z0-9._-]+)\/revert\/(\d+)$/);
   if (revert && method === 'POST') {
     const session = await requireReviewer(req, res);
     if (!session) return;
@@ -309,7 +324,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return sendHtml(res, settingsPage(user!, url.searchParams.has('saved')));
   }
 
-  const talk = path.match(/^\/item\/([a-z0-9-]+)\/talk$/);
+  const talk = path.match(/^\/item\/([A-Za-z0-9._-]+)\/talk$/);
   if (talk) {
     const node = getNode(talk[1]);
     if (!node) return notFound(res, talk[1]);
@@ -317,13 +332,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (method === 'POST') {
       if (!session) return redirect(res, '/login');
       const body = new URLSearchParams(await readBody(req));
-      const parent = body.get('parent_id');
-      const result = await addComment(
-        node.id,
-        session.userId,
-        body.get('body') ?? '',
-        parent ? Number(parent) : undefined,
-      );
+      const parentRaw = body.get('parent_id');
+      let parentId: number | undefined;
+      if (parentRaw) {
+        parentId = Number.parseInt(parentRaw, 10);
+        if (!Number.isInteger(parentId)) return sendJson(res, 422, { error: 'invalid parent_id' });
+      }
+      const result = await addComment(node.id, session.userId, body.get('body') ?? '', parentId);
       if (result.error) return sendJson(res, 422, result);
       return redirect(res, `/item/${node.id}/talk`);
     }
@@ -340,7 +355,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return redirect(res, `/item/${nodeId}/talk`);
   }
 
-  const watch = path.match(/^\/item\/([a-z0-9-]+)\/watch$/);
+  const watch = path.match(/^\/item\/([A-Za-z0-9._-]+)\/watch$/);
   if (watch && method === 'POST') {
     const session = await requireUser(req, res);
     if (!session) return;
@@ -356,13 +371,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   // --- read path ---
-  const item = path.match(/^\/item\/([a-z0-9-]+)(\/?)$/);
+  const item = path.match(/^\/item\/([A-Za-z0-9._-]+)(\/?)$/);
   if (item) {
     const [, id, slash] = item;
     const node = getNode(id);
     if (!node) return notFound(res, id);
     if (!slash) return redirect(res, `/item/${id}/`);
-    return sendHtml(res, itemPage(node));
+    return sendCacheableHtml(res, itemPage(node));
   }
 
   if (path === '/') {

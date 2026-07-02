@@ -9,6 +9,14 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? 'dev-admin';
 const ADMIN_HANDLE = process.env.ADMIN_HANDLE ?? 'sd';
 const SESSION_DAYS = 30;
 
+// Whether the magic link may be shown on-screen instead of emailed. This is
+// ONLY safe in local development: rendering the link to whoever requested it
+// is account takeover. Production must leave this off (no mailer is wired yet,
+// so production sign-in via magic link is intentionally inert until one is).
+const DEV_SHOW_MAGIC_LINK =
+  process.env.DEV_SHOW_MAGIC_LINK === '1' ||
+  (process.env.DEV_SHOW_MAGIC_LINK !== '0' && process.env.NODE_ENV !== 'production');
+
 export interface Session {
   userId: number;
   handle: string;
@@ -49,7 +57,7 @@ export async function getSession(req: http.IncomingMessage): Promise<Session | n
     [token],
   );
   if (res.rows.length === 0) return null;
-  return { userId: res.rows[0].id, handle: res.rows[0].handle, role: res.rows[0].role };
+  return { userId: Number(res.rows[0].id), handle: res.rows[0].handle, role: res.rows[0].role };
 }
 
 export async function logout(req: http.IncomingMessage): Promise<void> {
@@ -61,12 +69,18 @@ const HANDLE_RE = /^[a-z0-9][a-z0-9_-]{2,29}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface MagicLinkResult {
-  link?: string;
+  // Present only when DEV_SHOW_MAGIC_LINK is on; never sent to the browser in
+  // production, where the link must be delivered to the account's own inbox.
+  devLink?: string;
+  // True whenever a request was accepted (existing or newly created account).
+  // The response to the user is identical either way so it can't be used to
+  // probe which emails are registered.
+  sent?: boolean;
   error?: string;
 }
 
 /** Signup or returning login: both produce a one-time magic link. In dev the
- *  link is surfaced directly; production (milestone 5) mails it instead. */
+ *  link is surfaced directly; production mails it (mailer not yet wired). */
 export async function requestMagicLink(email: string, handle?: string): Promise<MagicLinkResult> {
   const normalized = email.trim().toLowerCase();
   if (!EMAIL_RE.test(normalized)) return { error: 'Enter a valid email address.' };
@@ -94,7 +108,13 @@ export async function requestMagicLink(email: string, handle?: string): Promise<
     "insert into magic_links (token, user_id, expires_at) values ($1, $2, now() + interval '30 minutes')",
     [token, userId],
   );
-  return { link: `/auth/${token}` };
+  const link = `/auth/${token}`;
+  if (DEV_SHOW_MAGIC_LINK) return { sent: true, devLink: link };
+  // Production: hand off to the mailer. Until one is wired, the link is
+  // generated (so the account exists) but only its owner could ever receive
+  // it — it is deliberately never returned to the caller.
+  // TODO(milestone 5): sendMagicLinkEmail(email, link).
+  return { sent: true };
 }
 
 /** Complete a magic link: one-time use, creates a session. */

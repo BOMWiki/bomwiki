@@ -72,11 +72,30 @@ check('page rev advanced', after.rev > before.rev);
 check('new part page exists', (await req(`/item/${newPartId}/`)).status === 200);
 check('new part in rendered BOM', after.html.includes(newPartId));
 
-// --- invalid edits still rejected ---
+// --- invalid edits still rejected (422, not 500) ---
 const bad = await propose([
   { op: 'edit', nodeId: NODE, baseRev: after.rev, data: { ...proposed, bom: [{ id: 'does-not-exist-xyz', qty: 0.5 }] } },
 ]);
 check('invalid edit rejected (422)', bad.status === 422);
+
+// --- malformed payloads are 422, never 500 (review-fix regressions) ---
+const noData = await propose([{ op: 'edit', nodeId: NODE, baseRev: after.rev }]);
+check('edit missing data → 422', noData.status === 422, `got ${noData.status}`);
+const badOp = await propose([{ op: 'frobnicate', nodeId: NODE, baseRev: after.rev, data: proposed }]);
+check('unknown op → 422', badOp.status === 422, `got ${badOp.status}`);
+const dupCreate = await propose([
+  { op: 'create', nodeId: NODE, data: { name: 'X', kind: 'part' } },
+]);
+check('create of existing id → 422 (not 500)', dupCreate.status === 422, `got ${dupCreate.status}`);
+const badParent = await fetch(`${BASE}/item/${NODE}/talk`, {
+  method: 'POST',
+  redirect: 'manual',
+  headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+  body: 'body=hi&parent_id=abc',
+});
+check('non-numeric talk parent_id → 422 (not 500)', badParent.status === 422, `got ${badParent.status}`);
+const emptyLimit = await (await req('/api/search?q=motor&limit=')).json();
+check('empty search limit falls back, not empty', Array.isArray(emptyLimit) && emptyLimit.length > 0);
 
 // --- history ---
 const histHtml = await (await req(`/item/${NODE}/history`)).text();

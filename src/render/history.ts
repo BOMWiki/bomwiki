@@ -1,4 +1,4 @@
-import { esc } from '../html.ts';
+import { esc, fmtWhen, summaryLines } from '../html.ts';
 import { currentRev, type NodeData } from '../nodes.ts';
 import { page } from './base.ts';
 
@@ -21,12 +21,9 @@ export function historyPage(node: NodeData, revisions: RevisionRow[], isAdmin: b
         (r) => `<section class="rv-cs">
       <div class="rv-head">
         <h2>r${r.rev}${r.rev === head ? ' · current' : ''}</h2>
-        <span class="rv-meta">by ${esc(r.author)} · ${esc(r.createdAt.slice(0, 16).replace('T', ' '))} · change #${r.changesetId}</span>
+        <span class="rv-meta">by ${esc(r.author)} · ${fmtWhen(r.createdAt)} · change #${r.changesetId}</span>
       </div>
-      <ul class="rv-lines">${r.summary
-        .split('\n')
-        .map((line) => `<li>${esc(line)}</li>`)
-        .join('')}</ul>
+      <ul class="rv-lines">${summaryLines(r.summary)}</ul>
       <div class="rv-actions">
         <a class="rv-view" href="/item/${node.id}/rev/${r.rev}">View this revision</a>
         ${

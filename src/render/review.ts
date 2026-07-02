@@ -1,14 +1,7 @@
 import type { PendingChangeset } from '../changesets.ts';
-import { esc } from '../html.ts';
+import { esc, fmtWhen, summaryLines } from '../html.ts';
 import { getNode } from '../nodes.ts';
 import { page } from './base.ts';
-
-function summaryLines(summary: string): string {
-  return summary
-    .split('\n')
-    .map((line) => `<li>${esc(line)}</li>`)
-    .join('');
-}
 
 export function reviewPage(pending: PendingChangeset[], notice?: string): string {
   const body = `<div class="review">
@@ -20,7 +13,7 @@ export function reviewPage(pending: PendingChangeset[], notice?: string): string
         (cs) => `<section class="rv-cs">
       <div class="rv-head">
         <h2>Change #${cs.id}${cs.summary ? ` · ${esc(cs.summary)}` : ''}</h2>
-        <span class="rv-meta">by ${esc(cs.author)} · ${esc(cs.createdAt.slice(0, 16).replace('T', ' '))} · ${cs.edits.length} ${cs.edits.length === 1 ? 'node' : 'nodes'}</span>
+        <span class="rv-meta">by ${esc(cs.author)} · ${fmtWhen(cs.createdAt)} · ${cs.edits.length} ${cs.edits.length === 1 ? 'node' : 'nodes'}</span>
       </div>
       ${cs.edits
         .map(

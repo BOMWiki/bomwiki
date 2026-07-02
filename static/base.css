@@ -164,3 +164,13 @@
         table { font-size: 12px; }
         th, td { padding: 6px 8px; }
       }
+
+/* Engine header nav (not part of the original site CSS) */
+.site-nav { display: flex; gap: 12px; font-size: 12.5px; white-space: nowrap; }
+.site-nav a { color: var(--link); }
+@media (max-width: 640px) { .site-nav { font-size: 12px; gap: 8px; } }
+
+/* Page action row */
+.page-actions { flex-wrap: wrap; align-items: flex-start; }
+.page-actions .pa-btn { white-space: nowrap; }
+.site-nav { justify-content: center; }

@@ -4,8 +4,8 @@
 .page-actions { float: right; display: flex; gap: 6px; margin: 2px 0 8px 12px; }
 .pa-btn {
   display: inline-block; padding: 4px 12px; font-size: 12.5px; font-family: var(--sans);
-  border: 1px solid var(--rule); border-radius: 2px; background: var(--panel);
-  color: var(--ink); cursor: pointer; text-decoration: none;
+  font-weight: 400; line-height: 1.55; border: 1px solid var(--rule); border-radius: 2px;
+  background: var(--panel); color: var(--ink); cursor: pointer; text-decoration: none;
 }
 .pa-btn:hover { background: var(--hl); text-decoration: none; }
 
@@ -88,7 +88,7 @@
 .login-form button { font: inherit; font-size: 13px; padding: 6px 14px; border: 1px solid var(--rule); border-radius: 2px; background: var(--panel); cursor: pointer; }
 
 /* Community */
-.pa-form { display: inline; margin: 0; }
+.pa-form { display: contents; }
 .si-h { border: 0; margin: 0 0 8px; font-size: 14px; font-family: var(--sans); font-weight: 600; }
 .login-col { flex-direction: column; align-items: stretch; max-width: 360px; }
 .cs-status { font-size: 11px; font-weight: 400; padding: 1px 7px; border-radius: 2px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); vertical-align: middle; }
@@ -112,3 +112,4 @@
 .rv-analysis { margin-top: 10px; border: 1px solid var(--line); border-left: 3px solid var(--link); border-radius: 2px; background: var(--panel); padding: 8px 12px; }
 .rv-an-h { font-weight: 600; font-size: 12px; font-family: var(--sans); margin: 0 0 4px; color: var(--muted); }
 .an-note { color: #ac6600; }
+.t-resolveform { margin: 6px 0 0; }

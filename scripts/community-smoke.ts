@@ -56,6 +56,9 @@ async function signup(email: string, handle: string): Promise<Client> {
   const html = await res.text();
   const link = html.match(/href="(\/auth\/[a-f0-9]{48})"/)?.[1];
   check(`magic link issued for ${handle}`, Boolean(link));
+  // The link is only shown because dev mode is on; the page must say so, which
+  // is the guard that keeps it from ever rendering in production.
+  check('magic link is dev-gated', html.includes('Development mode'));
   const authRes = await anon.req(link!);
   check(`magic link signs ${handle} in`, authRes.status === 303 && anon.jar.cookie.startsWith('bw_sess='));
   const again = await anon.req(link!);

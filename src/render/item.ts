@@ -7,12 +7,15 @@ import { nodeIcon } from '../icons.ts';
 import {
   currentRev,
   flattenBom,
+  getNode,
   lineCount,
   parents,
   primaryPath,
   totalParts,
+  type BomRow,
   type NodeData,
 } from '../nodes.ts';
+import { snapshotOf } from '../changesets.ts';
 import { isIndexableNode, seoDescription, seoTitle } from '../seo.ts';
 import { page } from './base.ts';
 import { rail } from './rail.ts';
@@ -25,12 +28,32 @@ export interface ItemPageOpts {
 }
 
 export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
+  const historical = opts.asOfRev !== undefined;
   const kindLabel = KIND_LABEL[node.kind];
   const trail = primaryPath(node.id);
-  const lines = lineCount(node.id);
-  const tp = totalParts(node.id);
-  const ups = parents(node.id);
-  const bomRows = flattenBom(node.id, 3);
+  // For a historical revision, everything must come from the snapshot itself —
+  // the live graph reflects the current version. We render this revision's own
+  // BOM lines (one level; names resolved from current nodes where they still
+  // exist), and omit live-graph-derived figures (total parts, used-in) that
+  // can't be reconstructed as-of a past date.
+  const lines = historical ? (node.bom?.length ?? 0) : lineCount(node.id);
+  const tp = historical ? 0 : totalParts(node.id);
+  const ups = historical ? [] : parents(node.id);
+  const bomRows = historical
+    ? (node.bom ?? []).map((line, i): BomRow => {
+        const child = getNode(line.id);
+        return {
+          num: `${i + 1}`,
+          level: 1,
+          node: child ?? { id: line.id, name: line.id, kind: 'part' },
+          qty: line.qty,
+          ext: line.qty,
+          childLines: child ? lineCount(child.id) : 0,
+          subtreeParts: 0,
+          hasMore: false,
+        };
+      })
+    : flattenBom(node.id, 3);
 
   const trailHtml = trail
     .map((t, i) =>
@@ -42,7 +65,7 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
 
   const specs = [
     ...(lines > 0 ? [`<tr><th>Direct parts</th><td>${lines}</td></tr>`] : []),
-    ...(node.kind !== 'part'
+    ...(!historical && node.kind !== 'part'
       ? [`<tr><th>Total parts</th><td>${tp.toLocaleString()}</td></tr>`]
       : []),
     ...(node.material ? [`<tr><th>Material</th><td>${esc(node.material)}</td></tr>`] : []),
@@ -61,7 +84,11 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
       : `<section class="bom">
         <div class="sec-head">
           <h2>Bill of materials</h2>
-          <span class="sec-n">${lines} top-level ${lines === 1 ? 'line' : 'lines'} · ${bomRows.length} rows shown · ${tp.toLocaleString()} parts total · indented to 3 levels</span>
+          <span class="sec-n">${
+            historical
+              ? `${lines} top-level ${lines === 1 ? 'line' : 'lines'} as of r${opts.asOfRev}`
+              : `${lines} top-level ${lines === 1 ? 'line' : 'lines'} · ${bomRows.length} rows shown · ${tp.toLocaleString()} parts total · indented to 3 levels`
+          }</span>
         </div>
         <div class="bom-scroll">
           <table class="bomtable">
@@ -118,13 +145,17 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
 
   const railDomain = trail[0]?.kind === 'product' ? trail[0].domain : node.domain;
 
-  const historical = opts.asOfRev !== undefined;
   const editData = historical
     ? ''
     : `<script type="application/json" id="bw-edit-data">${JSON.stringify({
         id: node.id,
         rev: currentRev(node.id),
-        data: (({ id, ...data }) => data)(node),
+        data: snapshotOf(node),
+        // Display names for the node's BOM children, so the editor labels
+        // rows from data instead of scraping the rendered table.
+        names: Object.fromEntries(
+          (node.bom ?? []).map((line) => [line.id, getNode(line.id)?.name ?? line.id]),
+        ),
       }).replaceAll('<', '\\u003c')}</script>`;
   const banner = historical
     ? `<p class="rev-banner">You are viewing r${opts.asOfRev} of this page, not the current version. <a href="/item/${node.id}/">Go to current</a> · <a href="/item/${node.id}/history">history</a></p>`
@@ -159,11 +190,27 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
       </div>
     </div>`;
 
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Products', item: 'https://bomwiki.com/' },
+      ...trail.map((t, i) => ({
+        '@type': 'ListItem',
+        position: i + 2,
+        name: t.name,
+        item: `https://bomwiki.com/item/${t.id}/`,
+      })),
+    ],
+  };
+
   return page({
     title: seoTitle(node),
     description: seoDescription(node),
     path: `/item/${node.id}/`,
     indexable: isIndexableNode(node),
+    ogType: 'article',
+    jsonLd: historical ? [] : [breadcrumbLd],
     body,
     extraCss: ['/static/item.css', '/static/rail.css', '/static/edit.css'],
     scripts: historical ? [] : ['/static/edit.js'],

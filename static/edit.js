@@ -12,6 +12,7 @@
   var nodeId = embedded.id;
   var baseRev = embedded.rev;
   var orig = embedded.data;
+  var names = embedded.names || {}; // { childId: displayName }, from the server
   var work = null;
   var creates = [];
   var editorEl = null;
@@ -35,8 +36,7 @@
 
   function nameOf(id) {
     for (var i = 0; i < creates.length; i++) if (creates[i].id === id) return creates[i].name;
-    var row = document.querySelector('.ed-row[data-id="' + id + '"] .ed-name');
-    return row ? row.textContent : id;
+    return names[id] || id;
   }
 
   function diffLines() {
@@ -154,7 +154,9 @@
               }));
             });
             var slug = slugify(q);
-            if (slug) {
+            // Server requires ids of 2+ chars (ID_RE); don't offer create for
+            // names that would slug shorter, or the propose would 422.
+            if (slug.length >= 2) {
               list.appendChild(el('button', {
                 type: 'button', class: 'ed-pick-hit ed-pick-new',
                 text: '+ Create new part "' + q + '"',
@@ -230,10 +232,9 @@
       picker(),
       el('div', { class: 'ed-bar' }),
     ]);
-    (bom || article || pane).before
-      ? (bom || article).parentNode.insertBefore(editorEl, bom || article)
-      : pane.appendChild(editorEl);
-    // Fill in display names for existing rows from the read table if present.
+    var anchor = bom || article;
+    if (anchor) anchor.before(editorEl);
+    else pane.appendChild(editorEl);
     renderChangeBar();
   }
 
@@ -247,17 +248,6 @@
     if (bom) bom.hidden = false;
     editBtn.textContent = 'Edit this page';
   }
-
-  // Existing BOM line names come from the read table; index them once so
-  // editor rows show names instead of ids.
-  var readNames = {};
-  document.querySelectorAll('.bomtable tr.lvl1').forEach(function (tr) {
-    var id = tr.querySelector('.c-pn');
-    var name = tr.querySelector('.rname');
-    if (id && name) readNames[id.textContent.trim()] = name.textContent.trim();
-  });
-  var origNameOf = nameOf;
-  nameOf = function (id) { return readNames[id] || origNameOf(id); };
 
   editBtn.addEventListener('click', function () {
     if (editorEl) exitEdit();

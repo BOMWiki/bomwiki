@@ -39,7 +39,7 @@ export interface Topic {
 
 function mapUser(r: any): PublicUser {
   return {
-    id: r.id,
+    id: Number(r.id),
     handle: r.handle,
     role: r.role,
     displayName: r.display_name ?? undefined,
@@ -96,7 +96,7 @@ async function changeRows(where: string, params: unknown[], limit: number): Prom
     params,
   );
   return res.rows.map((r) => ({
-    id: r.id,
+    id: Number(r.id),
     author: r.author,
     status: r.status,
     createdAt: r.created_at.toISOString(),
