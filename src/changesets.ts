@@ -69,7 +69,7 @@ export function semanticDiff(base: Snapshot | null, next: Snapshot): string[] {
   const lines: string[] = [];
   const name = next.name;
   if (!base) {
-    lines.push(`Created ${name} (${next.kind})${next.summary ? ` — "${next.summary}"` : ''}`);
+    lines.push(`Created ${name} (${next.kind})${next.summary ? `: "${next.summary}"` : ``}`);
     for (const l of next.bom ?? []) {
       lines.push(`Added ${getNode(l.id)?.name ?? l.id} × ${l.qty}`);
     }
@@ -113,7 +113,7 @@ export function semanticDiff(base: Snapshot | null, next: Snapshot): string[] {
     const nodeName = getNode(id)?.name ?? id;
     const b = baseLines.get(id);
     if (!b) {
-      lines.push(`Added ${nodeName} × ${l.qty}${l.note ? ` — "${l.note}"` : ''}`);
+      lines.push(`Added ${nodeName} × ${l.qty}${l.note ? `: "${l.note}"` : ''}`);
     } else {
       if (b.qty !== l.qty) lines.push(`${nodeName} quantity ${b.qty} → ${l.qty}`);
       if ((b.note ?? '') !== (l.note ?? '')) lines.push(`${nodeName} note updated`);
@@ -469,7 +469,7 @@ export async function decideChangeset(
             await client.query('rollback');
             return {
               ok: false,
-              error: `${e.node_id} was created by another change already — reject and re-propose`,
+              error: `${e.node_id} was created by another change already (reject and re-propose)`,
             };
           }
           resolved.push({ nodeId: e.node_id, op: 'create', data: e.data, summary: e.summary });
@@ -501,7 +501,7 @@ export async function decideChangeset(
             await client.query('rollback');
             return {
               ok: false,
-              error: `${e.node_id} conflicts with r${curRev}: ${m.conflicts!.join('; ')} — reject and re-propose`,
+              error: `${e.node_id} conflicts with r${curRev}: ${m.conflicts!.join('; ')} (reject and re-propose)`,
             };
           }
           data = m.merged;
@@ -525,7 +525,7 @@ export async function decideChangeset(
       );
       if (recheck.length) {
         await client.query('rollback');
-        return { ok: false, error: `no longer applies: ${recheck.join('; ')} — reject and re-propose` };
+        return { ok: false, error: `no longer applies: ${recheck.join('; ')} (reject and re-propose)` };
       }
 
       // Phase 3 — write revisions, remembering each new rev so the in-memory

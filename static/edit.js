@@ -144,7 +144,7 @@
   }
 
   function picker() {
-    var input = el('input', { type: 'text', class: 'ed-pick', placeholder: 'Add a component — start typing…' });
+    var input = el('input', { type: 'text', class: 'ed-pick', placeholder: 'Add a component by name…' });
     var list = el('div', { class: 'ed-pick-list' });
     var timer = null;
 
@@ -173,7 +173,7 @@
             hits.forEach(function (h) {
               list.appendChild(el('button', {
                 type: 'button', class: 'ed-pick-hit',
-                text: h.name + ' — ' + h.kind + (h.usedIn ? ', used in ' + h.usedIn : ''),
+                text: h.name + ' · ' + h.kind + (h.usedIn ? ', used in ' + h.usedIn : ''),
                 onclick: function () { addLine(h.id, h.name); },
               }));
             });

@@ -48,7 +48,7 @@ export function signinPage(
           ? `<section class="rv-cs"><p>If that email has an account, a sign-in link is on its way. Check your inbox.</p>
              ${
                opts.devLink
-                 ? `<p class="stub">Development mode — the link is shown here instead of emailed: <a href="${esc(opts.devLink)}">Complete sign-in</a></p>`
+                 ? `<p class="stub">Development mode: the link is shown here instead of emailed. <a href="${esc(opts.devLink)}">Complete sign-in</a></p>`
                  : ''
              }</section>`
           : ''
@@ -199,7 +199,7 @@ export function talkPage(
       ${
         signedIn
           ? `<form method="post" action="${esc(subject.talkPath)}" class="talk-form">
-        <textarea name="body" rows="3" placeholder="Start a topic — disagreements about this page's structure or facts go here." required>${esc(prefill)}</textarea>
+        <textarea name="body" rows="3" placeholder="Start a topic. Disagreements about this page's structure or facts go here." required>${esc(prefill)}</textarea>
         <button>Post topic</button>
       </form>`
           : `<p class="stub"><a href="/login">Sign in</a> to join the discussion.</p>`

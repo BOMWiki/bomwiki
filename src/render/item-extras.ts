@@ -54,7 +54,7 @@ export function sourcingSection(node: NodeData): string {
   return `<section class="sourcing">
         <div class="src-head">
           <h2>Sourcing: possible vendors</h2>
-          <span class="src-note"><b>Prices, MOQ, and lead times are algorithmic estimates</b> — not quotes, and not claims about these companies. Company mappings are curated by keyword; est. price band ${esc(band)}. <a href="/about/verification">How estimates work</a></span>
+          <span class="src-note"><b>Prices, MOQ, and lead times are algorithmic estimates</b>, not quotes, and not claims about these companies. Company mappings are curated by keyword; est. price band ${esc(band)}. <a href="/about/verification">How estimates work</a></span>
         </div>
         <div class="src-scroll">
           <table class="src-table">

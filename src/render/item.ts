@@ -176,7 +176,7 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
       ? ''
       : verification === 'machine-checked'
         ? `<p class="vf-banner vf-machine">Machine-checked by <a href="/user/steward-bot">steward-bot</a>, not yet human-verified: consistency checks pass, but a person hasn't confirmed it against the real thing (<a href="/about/verification">what this means</a>). <a href="/item/${node.id}/talk">Discuss</a> or verify it below if you know this hardware.</p>`
-        : `<p class="vf-banner vf-none">This page is machine-generated and unverified (<a href="/about/verification">what this means</a>). Treat details as provisional. If you know this hardware, <a href="/item/${node.id}/talk">weigh in</a> — or correct it directly with Edit.</p>`;
+        : `<p class="vf-banner vf-none">This page is machine-generated and unverified (<a href="/about/verification">what this means</a>). Treat details as provisional. If you know this hardware, <a href="/item/${node.id}/talk">weigh in</a> or correct it directly with Edit.</p>`;
   const verifyForm = historical
     ? ''
     : `<form method="post" action="/item/${node.id}/verify" class="vf-form" id="bw-verify-form" hidden>
