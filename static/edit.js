@@ -192,6 +192,7 @@
       .then(function (r) {
         var bar = editorEl.querySelector('.ed-bar');
         if (r.status === 201) {
+          if (r.body.applied) { window.location.reload(); return; }
           exitEdit();
           var ok = el('p', { class: 'ed-done' });
           ok.appendChild(document.createTextNode('Change #' + r.body.id + ' submitted for review. '));

@@ -132,7 +132,9 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
   const actions = historical
     ? ''
     : `<div class="page-actions">
+          <a class="pa-btn" href="/item/${node.id}/talk">Discussion</a>
           <a class="pa-btn" href="/item/${node.id}/history">History</a>
+          <form method="post" action="/item/${node.id}/watch" class="pa-form"><button class="pa-btn">Watch</button></form>
           <button class="pa-btn" type="button" id="bw-edit-btn" hidden>Edit this page</button>
         </div>`;
 

@@ -86,3 +86,24 @@
 .login-form { display: flex; gap: 8px; margin: 14px 0; }
 .login-form input { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 2px; }
 .login-form button { font: inherit; font-size: 13px; padding: 6px 14px; border: 1px solid var(--rule); border-radius: 2px; background: var(--panel); cursor: pointer; }
+
+/* Community */
+.pa-form { display: inline; margin: 0; }
+.si-h { border: 0; margin: 0 0 8px; font-size: 14px; font-family: var(--sans); font-weight: 600; }
+.login-col { flex-direction: column; align-items: stretch; max-width: 360px; }
+.cs-status { font-size: 11px; font-weight: 400; padding: 1px 7px; border-radius: 2px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); vertical-align: middle; }
+.cs-status.accepted { border-color: var(--ok); color: var(--ok); }
+.cs-status.rejected { border-color: var(--warn); color: var(--warn); }
+.pf-stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; }
+.pf-stats b { font-size: 16px; }
+.settings-form { display: flex; flex-direction: column; gap: 10px; max-width: 460px; margin: 0 0 14px; }
+.settings-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.settings-form input, .settings-form textarea { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 2px; color: var(--ink); }
+.settings-form button { align-self: flex-start; font: inherit; font-size: 13px; padding: 6px 14px; border: 1px solid var(--rule); border-radius: 2px; background: var(--panel); cursor: pointer; }
+.talk-form { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
+.talk-form textarea { font: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 2px; }
+.talk-form button { align-self: flex-start; font: inherit; font-size: 12.5px; padding: 5px 12px; border: 1px solid var(--rule); border-radius: 2px; background: var(--panel); cursor: pointer; }
+.t-body { font-size: 13.5px; margin: 4px 0 10px; white-space: pre-wrap; }
+.t-reply { border-left: 2px solid var(--line); padding-left: 12px; margin: 10px 0; }
+.t-replyform { margin: 8px 0 0; }
+.t-resolved { opacity: 0.75; background: var(--panel); }

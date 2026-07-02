@@ -5,14 +5,42 @@ import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getSession, login, logout, type Session } from './auth.ts';
+import {
+  getSession,
+  login,
+  logout,
+  requestMagicLink,
+  verifyMagicLink,
+  type Session,
+} from './auth.ts';
 import {
   createChangeset,
   decideChangeset,
+  isAutoconfirmed,
   listPending,
   revertNode,
   type ProposedEdit,
 } from './changesets.ts';
+import {
+  addComment,
+  contributionsOf,
+  contributionStats,
+  getUserByHandle,
+  recentChanges,
+  setTopicResolved,
+  toggleWatch,
+  topicsFor,
+  updateProfile,
+  watchlistFeed,
+} from './community.ts';
+import {
+  changesPage,
+  profilePage,
+  settingsPage,
+  signinPage,
+  talkPage,
+  watchlistPage,
+} from './render/community.ts';
 import { pool } from './db.ts';
 import { esc } from './html.ts';
 import { getNode, loadGraph, nodeCount, searchNodes, totalCatalogParts } from './nodes.ts';
@@ -76,29 +104,24 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function loginPage(error?: string): string {
-  return page({
-    title: 'Sign in | BOMwiki',
-    description: 'Sign in to edit.',
-    path: '/login',
-    indexable: false,
-    body: `<div class="review"><h1>Sign in</h1>
-      ${error ? `<p class="rv-notice">${esc(error)}</p>` : ''}
-      <form method="post" action="/login" class="login-form">
-        <input type="password" name="token" placeholder="Admin token" autofocus />
-        <button>Sign in</button>
-      </form>
-      <p class="stub">Milestone 2: a single admin token. Accounts arrive in milestone 3.</p></div>`,
-    extraCss: ['/static/edit.css'],
-  });
-}
-
-async function requireAdmin(
+async function requireUser(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<Session | null> {
   const session = await getSession(req);
-  if (!session || session.role !== 'admin') {
+  if (!session) {
+    redirect(res, '/login');
+    return null;
+  }
+  return session;
+}
+
+async function requireReviewer(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<Session | null> {
+  const session = await getSession(req);
+  if (!session || (session.role !== 'admin' && session.role !== 'reviewer')) {
     redirect(res, '/login');
     return null;
   }
@@ -128,17 +151,33 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   // --- auth ---
-  if (path === '/login' && method === 'GET') return sendHtml(res, loginPage());
+  const setSessionAndGo = (token: string, to: string) => {
+    res.writeHead(303, {
+      'set-cookie': `bw_sess=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax`,
+      location: to,
+    });
+    res.end();
+  };
+  if ((path === '/login' || path === '/signup') && method === 'GET') {
+    return sendHtml(res, signinPage());
+  }
   if (path === '/login' && method === 'POST') {
     const body = new URLSearchParams(await readBody(req));
     const token = await login(body.get('token') ?? '');
-    if (!token) return sendHtml(res, loginPage('Wrong token.'), 403);
-    res.writeHead(303, {
-      'set-cookie': `bw_sess=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax`,
-      location: '/review',
-    });
-    res.end();
-    return;
+    if (!token) return sendHtml(res, signinPage({ error: 'Wrong token.' }), 403);
+    return setSessionAndGo(token, '/review');
+  }
+  if (path === '/auth/request' && method === 'POST') {
+    const body = new URLSearchParams(await readBody(req));
+    const result = await requestMagicLink(body.get('email') ?? '', body.get('handle') ?? undefined);
+    if (result.error) return sendHtml(res, signinPage({ error: result.error }), 422);
+    return sendHtml(res, signinPage({ sentLink: result.link }));
+  }
+  const magic = path.match(/^\/auth\/([a-f0-9]{48})$/);
+  if (magic && method === 'GET') {
+    const token = await verifyMagicLink(magic[1]);
+    if (!token) return sendHtml(res, signinPage({ error: 'That link is expired or already used.' }), 403);
+    return setSessionAndGo(token, '/');
   }
   if (path === '/logout' && method === 'POST') {
     await logout(req);
@@ -167,18 +206,24 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
     const result = await createChangeset(session.userId, parsed.edits ?? [], parsed.summary);
     if (result.errors) return sendJson(res, 422, { errors: result.errors });
-    return sendJson(res, 201, { id: result.id });
+    // The trust ladder: autoconfirmed contributors (and reviewers/admins)
+    // publish directly; their changeset applies immediately.
+    if (await isAutoconfirmed(session.userId, session.role)) {
+      const applied = await decideChangeset(result.id!, session.userId, 'accepted');
+      return sendJson(res, 201, { id: result.id, applied: applied.ok });
+    }
+    return sendJson(res, 201, { id: result.id, applied: false });
   }
 
   // --- review ---
   if (path === '/review' && method === 'GET') {
-    const session = await requireAdmin(req, res);
+    const session = await requireReviewer(req, res);
     if (!session) return;
     return sendHtml(res, reviewPage(await listPending(), url.searchParams.get('m') ?? undefined));
   }
   const decide = path.match(/^\/review\/(\d+)\/(accept|reject)$/);
   if (decide && method === 'POST') {
-    const session = await requireAdmin(req, res);
+    const session = await requireReviewer(req, res);
     if (!session) return;
     const result = await decideChangeset(
       Number(decide[1]),
@@ -228,11 +273,86 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   const revert = path.match(/^\/item\/([a-z0-9-]+)\/revert\/(\d+)$/);
   if (revert && method === 'POST') {
-    const session = await requireAdmin(req, res);
+    const session = await requireReviewer(req, res);
     if (!session) return;
     const result = await revertNode(revert[1], Number(revert[2]), session.userId);
     if (!result.ok) return sendJson(res, 409, { error: result.error });
     return redirect(res, `/item/${revert[1]}/history`);
+  }
+
+  // --- community ---
+  if (path === '/changes') return sendHtml(res, changesPage(await recentChanges()));
+
+  const profile = path.match(/^\/user\/([a-z0-9_-]+)$/);
+  if (profile) {
+    const user = await getUserByHandle(profile[1]);
+    if (!user) return notFound(res, profile[1]);
+    return sendHtml(
+      res,
+      profilePage(user, await contributionStats(user.id), await contributionsOf(user.id)),
+    );
+  }
+
+  if (path === '/settings') {
+    const session = await requireUser(req, res);
+    if (!session) return;
+    if (method === 'POST') {
+      const body = new URLSearchParams(await readBody(req));
+      await updateProfile(session.userId, {
+        displayName: body.get('displayName')?.trim().slice(0, 60) || undefined,
+        affiliation: body.get('affiliation')?.trim().slice(0, 120) || undefined,
+        bio: body.get('bio')?.trim().slice(0, 1000) || undefined,
+      });
+      return redirect(res, '/settings?saved=1');
+    }
+    const user = await getUserByHandle(session.handle);
+    return sendHtml(res, settingsPage(user!, url.searchParams.has('saved')));
+  }
+
+  const talk = path.match(/^\/item\/([a-z0-9-]+)\/talk$/);
+  if (talk) {
+    const node = getNode(talk[1]);
+    if (!node) return notFound(res, talk[1]);
+    const session = await getSession(req);
+    if (method === 'POST') {
+      if (!session) return redirect(res, '/login');
+      const body = new URLSearchParams(await readBody(req));
+      const parent = body.get('parent_id');
+      const result = await addComment(
+        node.id,
+        session.userId,
+        body.get('body') ?? '',
+        parent ? Number(parent) : undefined,
+      );
+      if (result.error) return sendJson(res, 422, result);
+      return redirect(res, `/item/${node.id}/talk`);
+    }
+    const canModerate = session?.role === 'admin' || session?.role === 'reviewer';
+    return sendHtml(res, talkPage(node, await topicsFor(node.id), Boolean(session), canModerate));
+  }
+
+  const resolve = path.match(/^\/talk\/(\d+)\/resolve$/);
+  if (resolve && method === 'POST') {
+    const session = await requireReviewer(req, res);
+    if (!session) return;
+    const nodeId = await setTopicResolved(Number(resolve[1]), true);
+    if (!nodeId) return notFound(res);
+    return redirect(res, `/item/${nodeId}/talk`);
+  }
+
+  const watch = path.match(/^\/item\/([a-z0-9-]+)\/watch$/);
+  if (watch && method === 'POST') {
+    const session = await requireUser(req, res);
+    if (!session) return;
+    if (!getNode(watch[1])) return notFound(res, watch[1]);
+    await toggleWatch(session.userId, watch[1]);
+    return redirect(res, `/item/${watch[1]}/`);
+  }
+
+  if (path === '/watchlist') {
+    const session = await requireUser(req, res);
+    if (!session) return;
+    return sendHtml(res, watchlistPage(await watchlistFeed(session.userId)));
   }
 
   // --- read path ---
@@ -253,7 +373,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         description: 'A public catalog of parts and the assemblies they roll up into.',
         path: '/',
         indexable: false,
-        body: `<p>BOMwiki engine, milestone 2. ${nodeCount().toLocaleString()} items served from the database, ${totalCatalogParts.toLocaleString()} parts mapped. Try <a href="/item/ev-car/">the electric car</a>, or the <a href="/review">review queue</a>.</p>`,
+        body: `<p>BOMwiki engine. ${nodeCount().toLocaleString()} items served from the database, ${totalCatalogParts.toLocaleString()} parts mapped. Try <a href="/item/ev-car/">the electric car</a>, the <a href="/changes">recent changes</a>, or the <a href="/review">review queue</a>.</p>`,
       }),
     );
   }

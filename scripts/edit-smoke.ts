@@ -1,7 +1,7 @@
-// End-to-end smoke test of the edit loop against a running engine:
-// login -> propose (qty change + new part) -> pending in queue -> accept ->
-// page updated -> history has the revision -> revert -> page restored.
-// Uses a real node but leaves the database exactly as found.
+// End-to-end smoke test of the edit loop against a running engine, as an
+// admin (trust ladder: admin proposals auto-apply). Pending-queue gating for
+// new contributors is covered by community-smoke.ts. Leaves the database as
+// it was found.
 const BASE = process.env.ENGINE_URL ?? 'http://localhost:4400';
 const TOKEN = process.env.ADMIN_TOKEN ?? 'dev-admin';
 const NODE = process.env.SMOKE_NODE ?? 'hv-battery-pack';
@@ -20,6 +20,15 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
     redirect: 'manual',
     headers: { ...(init.headers ?? {}), cookie },
   });
+}
+
+async function propose(edits: unknown[]): Promise<{ status: number; body: any }> {
+  const res = await req('/api/changesets', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ edits }),
+  });
+  return { status: res.status, body: await res.json() };
 }
 
 async function pageData(id: string): Promise<{ rev: number; data: any; html: string }> {
@@ -42,55 +51,32 @@ check('login sets session', loginRes.status === 303 && cookie.startsWith('bw_ses
 
 // --- snapshot the starting state ---
 const before = await pageData(NODE);
-const firstLine = before.data.bom[0];
-const origQty = firstLine.qty;
+const origQty = before.data.bom[0].qty;
 const newQty = origQty + 3;
 const newPartName = `Smoke Test Washer ${Date.now() % 100000}`;
 const newPartId = newPartName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-// --- propose: qty change + created part added to the BOM ---
+// --- propose as admin: applies immediately (trust ladder) ---
 const proposed = JSON.parse(JSON.stringify(before.data));
 proposed.bom[0].qty = newQty;
 proposed.bom.push({ id: newPartId, qty: 6, note: 'smoke test line' });
-const proposeRes = await req('/api/changesets', {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({
-    edits: [
-      { op: 'create', nodeId: newPartId, data: { name: newPartName, kind: 'part' } },
-      { op: 'edit', nodeId: NODE, baseRev: before.rev, data: proposed },
-    ],
-  }),
-});
-const proposeBody = await proposeRes.json();
-check('propose accepted (201)', proposeRes.status === 201, JSON.stringify(proposeBody));
-const csId = proposeBody.id;
+const a = await propose([
+  { op: 'create', nodeId: newPartId, data: { name: newPartName, kind: 'part' } },
+  { op: 'edit', nodeId: NODE, baseRev: before.rev, data: proposed },
+]);
+check('admin propose auto-applies', a.status === 201 && a.body.applied === true, JSON.stringify(a.body));
 
-// --- rejected inputs are rejected ---
-const badRes = await req('/api/changesets', {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({
-    edits: [{ op: 'edit', nodeId: NODE, baseRev: before.rev, data: { ...proposed, bom: [{ id: 'does-not-exist-xyz', qty: 0.5 }] } }],
-  }),
-});
-check('invalid edit rejected (422)', badRes.status === 422);
-
-// --- pending queue shows it, page is still unchanged ---
-const queueHtml = await (await req('/review')).text();
-check('queue lists the change', queueHtml.includes(`Change #${csId}`));
-check('queue shows semantic line', queueHtml.includes(`quantity ${origQty} → ${newQty}`));
-const stillBefore = await pageData(NODE);
-check('page unchanged while pending', stillBefore.data.bom[0].qty === origQty);
-
-// --- accept ---
-const acceptRes = await req(`/review/${csId}/accept`, { method: 'POST' });
-check('accept redirects', acceptRes.status === 303);
 const after = await pageData(NODE);
 check('page shows new qty', after.data.bom[0].qty === newQty);
 check('page rev advanced', after.rev > before.rev);
 check('new part page exists', (await req(`/item/${newPartId}/`)).status === 200);
 check('new part in rendered BOM', after.html.includes(newPartId));
+
+// --- invalid edits still rejected ---
+const bad = await propose([
+  { op: 'edit', nodeId: NODE, baseRev: after.rev, data: { ...proposed, bom: [{ id: 'does-not-exist-xyz', qty: 0.5 }] } },
+]);
+check('invalid edit rejected (422)', bad.status === 422);
 
 // --- history ---
 const histHtml = await (await req(`/item/${NODE}/history`)).text();
@@ -99,19 +85,26 @@ check('history has semantic summary', histHtml.includes(`quantity ${origQty} →
 const oldView = await (await req(`/item/${NODE}/rev/${before.rev}`)).text();
 check('old revision view has banner', oldView.includes(`viewing r${before.rev}`));
 
-// --- stale baseRev is refused on accept ---
-const staleRes = await req('/api/changesets', {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({
-    edits: [{ op: 'edit', nodeId: NODE, baseRev: before.rev, data: proposed }],
-  }),
-});
-const staleId = (await staleRes.json()).id;
-const staleAccept = await req(`/review/${staleId}/accept`, { method: 'POST' });
-const staleLoc = staleAccept.headers.get('location') ?? '';
-check('stale accept refused', decodeURIComponent(staleLoc).includes('changed since'));
-await req(`/review/${staleId}/reject`, { method: 'POST' });
+// --- stale base + non-overlapping change merges cleanly ---
+const mergeable = JSON.parse(JSON.stringify(before.data));
+mergeable.bom[1].note = 'merged note from a concurrent editor';
+const m = await propose([{ op: 'edit', nodeId: NODE, baseRev: before.rev, data: mergeable }]);
+check('non-overlapping stale change merges on apply', m.status === 201 && m.body.applied === true, JSON.stringify(m.body));
+const merged = await pageData(NODE);
+check('merge kept the earlier qty change', merged.data.bom[0].qty === newQty);
+check('merge kept the added line', merged.data.bom.some((l: any) => l.id === newPartId));
+check('merge applied the note change', merged.data.bom[1].note === 'merged note from a concurrent editor');
+check('history marks the merge', (await (await req(`/item/${NODE}/history`)).text()).includes('(merged over r'));
+
+// --- stale base + overlapping change is a conflict: stays pending ---
+const conflicting = JSON.parse(JSON.stringify(before.data));
+conflicting.bom[0].qty = newQty + 5;
+const c = await propose([{ op: 'edit', nodeId: NODE, baseRev: before.rev, data: conflicting }]);
+check('conflicting change not auto-applied', c.status === 201 && c.body.applied === false, JSON.stringify(c.body));
+const queueHtml = await (await req('/review')).text();
+check('conflicting change waits in queue', queueHtml.includes(`Change #${c.body.id}`));
+const rejectRes = await req(`/review/${c.body.id}/reject`, { method: 'POST' });
+check('conflict rejected', rejectRes.status === 303);
 
 // --- revert restores the original state ---
 const revertRes = await req(`/item/${NODE}/revert/${before.rev}`, { method: 'POST' });
@@ -119,6 +112,7 @@ check('revert redirects', revertRes.status === 303);
 const restored = await pageData(NODE);
 check('qty restored', restored.data.bom[0].qty === origQty);
 check('smoke line gone', !restored.data.bom.some((l: any) => l.id === newPartId));
+check('merged note gone', (restored.data.bom[1].note ?? '') === (before.data.bom[1].note ?? ''));
 
 console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exit(failures ? 1 : 0);

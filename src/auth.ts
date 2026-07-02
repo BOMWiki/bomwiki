@@ -56,3 +56,60 @@ export async function logout(req: http.IncomingMessage): Promise<void> {
   const token = sessionCookie(req);
   if (token) await pool.query('delete from sessions where token = $1', [token]);
 }
+
+const HANDLE_RE = /^[a-z0-9][a-z0-9_-]{2,29}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export interface MagicLinkResult {
+  link?: string;
+  error?: string;
+}
+
+/** Signup or returning login: both produce a one-time magic link. In dev the
+ *  link is surfaced directly; production (milestone 5) mails it instead. */
+export async function requestMagicLink(email: string, handle?: string): Promise<MagicLinkResult> {
+  const normalized = email.trim().toLowerCase();
+  if (!EMAIL_RE.test(normalized)) return { error: 'Enter a valid email address.' };
+
+  const existing = await pool.query('select id from users where email = $1', [normalized]);
+  let userId: number;
+  if (existing.rows.length) {
+    userId = existing.rows[0].id;
+  } else {
+    const wanted = (handle ?? '').trim().toLowerCase();
+    if (!HANDLE_RE.test(wanted)) {
+      return { error: 'Pick a handle: 3-30 characters, lowercase letters, digits, - or _.' };
+    }
+    const taken = await pool.query('select 1 from users where handle = $1', [wanted]);
+    if (taken.rows.length) return { error: 'That handle is taken.' };
+    const created = await pool.query(
+      "insert into users (email, handle, role) values ($1, $2, 'contributor') returning id",
+      [normalized, wanted],
+    );
+    userId = created.rows[0].id;
+  }
+
+  const token = randomBytes(24).toString('hex');
+  await pool.query(
+    "insert into magic_links (token, user_id, expires_at) values ($1, $2, now() + interval '30 minutes')",
+    [token, userId],
+  );
+  return { link: `/auth/${token}` };
+}
+
+/** Complete a magic link: one-time use, creates a session. */
+export async function verifyMagicLink(token: string): Promise<string | null> {
+  const res = await pool.query(
+    `update magic_links set used_at = now()
+     where token = $1 and used_at is null and expires_at > now()
+     returning user_id`,
+    [token],
+  );
+  if (res.rows.length === 0) return null;
+  const session = randomBytes(32).toString('hex');
+  await pool.query(
+    `insert into sessions (token, user_id, expires_at) values ($1, $2, now() + interval '${SESSION_DAYS} days')`,
+    [session, res.rows[0].user_id],
+  );
+  return session;
+}
