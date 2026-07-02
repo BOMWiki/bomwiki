@@ -3,11 +3,11 @@
 // is transactional with optimistic concurrency against base_rev.
 import { pool } from './db.ts';
 import {
+  applyAcceptedEdits,
   currentRev,
   getNode,
   lineCount,
-  loadedDatabaseUrl,
-  loadGraph,
+  type AppliedEdit,
   type BomLine,
   type NodeData,
 } from './nodes.ts';
@@ -162,6 +162,7 @@ export function validateEdits(edits: ProposedEdit[]): string[] {
 const AUTOCONFIRM_EDITS = Number(process.env.AUTOCONFIRM_EDITS ?? 4);
 const MAX_PENDING_PER_USER = 10;
 const MAX_PROPOSALS_PER_HOUR = 20;
+const MAX_PROPOSALS_PER_HOUR_AUTOCONFIRMED = 120;
 
 /** The trust ladder: admins and reviewers always publish directly; a
  *  contributor earns it after enough accepted changesets. */
@@ -174,7 +175,10 @@ export async function isAutoconfirmed(userId: number, role: string): Promise<boo
   return res.rows[0].c >= AUTOCONFIRM_EDITS;
 }
 
-async function rateLimitError(userId: number): Promise<string | null> {
+/** Rate limits scale with trust: new contributors get the tight caps, the
+ *  autoconfirmed get room for real cleanup sessions, reviewers and admins
+ *  (who staff the queue and revert vandalism) are exempt. */
+async function rateLimitError(userId: number, autoconfirmed: boolean): Promise<string | null> {
   const res = await pool.query(
     `select
        count(*) filter (where status = 'pending')::int as pending,
@@ -182,10 +186,11 @@ async function rateLimitError(userId: number): Promise<string | null> {
      from changesets where author_id = $1`,
     [userId],
   );
-  if (res.rows[0].pending >= MAX_PENDING_PER_USER) {
+  if (!autoconfirmed && res.rows[0].pending >= MAX_PENDING_PER_USER) {
     return 'You have too many changes waiting for review; please wait for those first.';
   }
-  if (res.rows[0].lasthour >= MAX_PROPOSALS_PER_HOUR) {
+  const hourly = autoconfirmed ? MAX_PROPOSALS_PER_HOUR_AUTOCONFIRMED : MAX_PROPOSALS_PER_HOUR;
+  if (res.rows[0].lasthour >= hourly) {
     return 'Rate limit: too many proposals in the last hour.';
   }
   return null;
@@ -266,8 +271,6 @@ export async function createChangeset(
 ): Promise<{ id?: number; errors?: string[] }> {
   const errors = validateEdits(edits);
   if (errors.length) return { errors };
-  const limited = await rateLimitError(authorId);
-  if (limited) return { errors: [limited] };
 
   const client = await pool.connect();
   try {
@@ -344,6 +347,7 @@ export async function decideChangeset(
   decision: 'accepted' | 'rejected',
 ): Promise<{ ok: boolean; error?: string }> {
   const client = await pool.connect();
+  const applied: AppliedEdit[] = [];
   try {
     await client.query('begin');
     const cs = await client.query(
@@ -432,7 +436,8 @@ export async function decideChangeset(
         return { ok: false, error: `no longer applies: ${recheck.join('; ')} — reject and re-propose` };
       }
 
-      // Phase 3 — write revisions.
+      // Phase 3 — write revisions, remembering each new rev so the in-memory
+      // graph can be patched in place after commit.
       for (const r of resolved) {
         if (r.op === 'create') {
           await client.query(
@@ -448,6 +453,12 @@ export async function decideChangeset(
           rev.rows[0].rev,
           r.nodeId,
         ]);
+        applied.push({
+          nodeId: r.nodeId,
+          op: r.op,
+          rev: Number(rev.rows[0].rev),
+          data: r.data,
+        });
       }
     }
 
@@ -463,7 +474,10 @@ export async function decideChangeset(
     client.release();
   }
 
-  if (decision === 'accepted') await loadGraph(loadedDatabaseUrl());
+  // Patch the in-memory graph in place: an edit that touched two nodes costs
+  // two map updates, not a 192k-row reload. (Full loadGraph remains only for
+  // boot.)
+  if (decision === 'accepted') applyAcceptedEdits(applied);
   return { ok: true };
 }
 
@@ -476,9 +490,14 @@ export async function proposeChangeset(
   edits: ProposedEdit[],
   summary?: string,
 ): Promise<{ id?: number; errors?: string[]; applied: boolean; applyError?: string }> {
+  const autoconfirmed = await isAutoconfirmed(author.userId, author.role);
+  if (author.role !== 'admin' && author.role !== 'reviewer') {
+    const limited = await rateLimitError(author.userId, autoconfirmed);
+    if (limited) return { errors: [limited], applied: false };
+  }
   const created = await createChangeset(author.userId, edits, summary);
   if (created.errors) return { errors: created.errors, applied: false };
-  if (await isAutoconfirmed(author.userId, author.role)) {
+  if (autoconfirmed) {
     const applied = await decideChangeset(created.id!, author.userId, 'accepted');
     return { id: created.id, applied: applied.ok, applyError: applied.error };
   }

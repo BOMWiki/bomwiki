@@ -105,6 +105,75 @@ async function doLoadGraph(databaseUrl: string): Promise<void> {
   }
 }
 
+export interface AppliedEdit {
+  nodeId: string;
+  op: 'edit' | 'create';
+  rev: number;
+  data: Omit<NodeData, 'id'>;
+}
+
+/** Apply accepted edits to the in-memory graph in place — no full reload.
+ *  Synchronous, so requests never observe a half-applied state. Node objects
+ *  are mutated (not replaced) to keep every reference in parentsOf valid.
+ *  Part-count memos are invalidated up the ancestor chain only, and the
+ *  headline total is re-summed from memos (cheap: untouched products hit
+ *  their memo). */
+export function applyAcceptedEdits(edits: AppliedEdit[]): void {
+  for (const e of edits) {
+    const oldBom = byId.get(e.nodeId)?.bom ?? [];
+    let node = byId.get(e.nodeId);
+    if (!node) {
+      node = { id: e.nodeId, ...e.data };
+      byId.set(e.nodeId, node);
+    } else {
+      const mutable = node as unknown as Record<string, unknown>;
+      for (const key of Object.keys(node)) {
+        if (key !== 'id' && !(key in e.data)) delete mutable[key];
+      }
+      Object.assign(node, e.data);
+    }
+    revOf.set(e.nodeId, e.rev);
+    lowerName.set(e.nodeId, (e.data.name ?? '').toLowerCase());
+
+    // Reconcile the reverse index for edges this edit added or removed.
+    const newIds = new Set((e.data.bom ?? []).map((l) => l.id));
+    const oldIds = new Set(oldBom.map((l) => l.id));
+    for (const childId of oldIds) {
+      if (newIds.has(childId)) continue;
+      const list = parentsOf.get(childId);
+      if (list) {
+        const i = list.findIndex((p) => p.id === e.nodeId);
+        if (i >= 0) list.splice(i, 1);
+      }
+    }
+    for (const childId of newIds) {
+      if (oldIds.has(childId)) continue;
+      const list = parentsOf.get(childId);
+      if (list) {
+        if (!list.some((p) => p.id === e.nodeId)) list.push(node);
+      } else {
+        parentsOf.set(childId, [node]);
+      }
+    }
+
+    // Part counts change for this node and everything above it.
+    const invalid = [e.nodeId];
+    const seen = new Set<string>();
+    while (invalid.length) {
+      const id = invalid.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      partsMemo.delete(id);
+      for (const parent of parentsOf.get(id) ?? []) invalid.push(parent.id);
+    }
+  }
+
+  totalCatalogParts = 0;
+  for (const node of byId.values()) {
+    if (node.kind === 'product') totalCatalogParts += totalParts(node.id);
+  }
+}
+
 export function nodeCount(): number {
   return byId.size;
 }
