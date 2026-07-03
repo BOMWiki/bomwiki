@@ -11,6 +11,7 @@ import type {
 } from '../community.ts';
 import type { EmailPrefs } from '../emails.ts';
 import { esc, fmtWhen, summaryLines } from '../html.ts';
+import { renderArticle } from '../markdown.ts';
 import { getNode, verificationOfNode, type NodeData } from '../nodes.ts';
 import { page } from './base.ts';
 
@@ -141,6 +142,15 @@ export function profilePage(
     : opts.ownProfile
       ? `<p class="stub">No edits yet. Open a <a href="/random">random page</a> and check one quantity against something you own, or start with the <a href="/help/editing">editing help</a>.</p>`
       : `<p class="stub">No edits yet.</p>`;
+  // The self-authored user page, wiki-style: markdown through the same
+  // pipeline as articles. A blocked account's page is hidden, not deleted.
+  const userPage =
+    user.profileMd && !user.blocked
+      ? `<section class="pf-page prose">${renderArticle(user.profileMd)}</section>
+         ${opts.ownProfile ? `<p class="stub"><a href="/user/${esc(user.handle)}/page">Edit your page</a></p>` : ''}`
+      : opts.ownProfile
+        ? `<p class="stub">Make this page yours: <a href="/user/${esc(user.handle)}/page">write an about page</a>. Markdown, with [[wiki-links]] to the pages you know best. Some people keep a resume here; some list the machines on their bench.</p>`
+        : '';
   return page({
     title: `${user.handle} | BOMwiki`,
     description: `Contributions of ${user.handle} on BOMwiki.`,
@@ -153,6 +163,7 @@ export function profilePage(
       <p class="stub">${byline}${opts.ownProfile ? ` · <a href="/settings">edit your profile</a>` : ''}</p>
       ${user.bio ? `<p>${esc(user.bio)}</p>` : ''}
       ${website}
+      ${userPage}
       <section class="rv-cs"><div class="pf-stats">
         <span><b>${stats.accepted}</b> accepted</span>
         <span><b>${stats.nodesTouched}</b> pages touched</span>
@@ -165,6 +176,28 @@ export function profilePage(
       <h2 class="si-h">Contributions</h2>
       ${emptyState}
       ${changeList(rows, true)}</div>`,
+    extraCss: ['/static/edit.css'],
+  });
+}
+
+export function profilePageEditor(
+  user: PublicUser,
+  opts: { adminEdit?: boolean; error?: string } = {},
+): string {
+  return page({
+    title: `Edit your page | BOMwiki`,
+    description: 'Your user page.',
+    path: `/user/${user.handle}/page`,
+    indexable: false,
+    body: `<div class="review">
+      <nav class="trail"><a href="/user/${esc(user.handle)}">${esc(user.handle)}</a><span class="sep">›</span><span class="cur">Your page</span></nav>
+      <h1>${opts.adminEdit ? `Edit ${esc(user.handle)}'s page (admin)` : 'Your page'}</h1>
+      ${opts.error ? `<p class="rv-notice">${esc(opts.error)}</p>` : ''}
+      <p class="stub">This renders at the top of <a href="/user/${esc(user.handle)}">your public profile</a>. Markdown: headings with <code>##</code>, lists with <code>-</code>, links as <code>[text](url)</code>, and <code>[[node-id]]</code> links straight to a BOMwiki page. Whatever you want people to know: a resume, the machines you work on, the pages you steward. Public, like everything else here.</p>
+      <form method="post" action="/user/${esc(user.handle)}/page" class="settings-form pf-page-form">
+        <textarea name="page" rows="18" maxlength="20000" placeholder="## Who I am&#10;&#10;Mechanical engineer, ten years in pump manufacturing.&#10;&#10;## Pages I steward&#10;&#10;- [[centrifugal-pump]]&#10;- [[gate-valve]]">${esc(user.profileMd ?? '')}</textarea>
+        <div class="rv-actions"><button>Save</button></div>
+      </form></div>`,
     extraCss: ['/static/edit.css'],
   });
 }

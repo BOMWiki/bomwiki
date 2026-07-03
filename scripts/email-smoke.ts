@@ -190,6 +190,26 @@ const replyRes = await dave.req(
 );
 check('dave replies (reply hook does not break posting)', replyRes.status === 303);
 
+// --- self-authored user page ---
+const pageMd = `## Who I am\n\nPump engineer. <script>alert(1)</script>\n\n- [[battery-module]]\n- [[no-such-node-${stamp}]]`;
+const pageSave = await carol.req(`/user/${carolHandle}/page`, form({ page: pageMd }));
+check('user page saves', pageSave.status === 303);
+profileHtml = await (await admin.req(`/user/${carolHandle}`)).text();
+check('user page renders markdown heading', profileHtml.includes('Who I am'));
+check('user page script is sanitized away', !profileHtml.includes('<script>alert'));
+check('user page resolves wiki-links', profileHtml.includes(`href="/item/battery-module/"`));
+check('user page red-links missing nodes', profileHtml.includes('redlink'));
+const strangerEdit = await dave.req(`/user/${carolHandle}/page`);
+check('stranger cannot open the editor', strangerEdit.status === 303);
+const strangerSave = await dave.req(`/user/${carolHandle}/page`, form({ page: 'vandalism' }));
+check('stranger cannot save', strangerSave.status === 303);
+profileHtml = await (await admin.req(`/user/${carolHandle}`)).text();
+check('stranger save did not stick', !profileHtml.includes('vandalism'));
+const clearSave = await carol.req(`/user/${carolHandle}/page`, form({ page: '   ' }));
+check('blank save clears the page', clearSave.status === 303);
+profileHtml = await (await carol.req(`/user/${carolHandle}`)).text();
+check('cleared page shows the invitation again', profileHtml.includes('write an about page'));
+
 // --- profile extras and contributors ---
 profileHtml = await (await admin.req(`/user/${carolHandle}`)).text();
 check('profile counts discussion posts', /<b>1<\/b> discussion posts/.test(profileHtml));

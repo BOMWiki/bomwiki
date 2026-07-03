@@ -51,6 +51,7 @@ import {
   listContributors,
   profileExtras,
   recentChanges,
+  setProfilePage,
   setBlocked,
   setRole,
   setTopicResolved,
@@ -73,6 +74,7 @@ import {
   HOME_TALK,
   homepageAdminPage,
   profilePage,
+  profilePageEditor,
   settingsPage,
   signinPage,
   talkPage,
@@ -502,6 +504,30 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         notice: url.searchParams.get('m') ?? undefined,
       }),
     );
+  }
+
+  // The self-authored user page: its owner (or an admin, for moderation)
+  // edits it here; it renders at the top of the profile.
+  const userPageEdit = path.match(/^\/user\/([a-z0-9_-]+)\/page$/);
+  if (userPageEdit && (method === 'GET' || method === 'POST')) {
+    const session = await requireUser(req, res);
+    if (!session) return;
+    const target = await getUserByHandle(userPageEdit[1]);
+    if (!target) return notFound(res, userPageEdit[1]);
+    const adminEdit = session.role === 'admin' && session.userId !== target.id;
+    if (session.userId !== target.id && !adminEdit) {
+      return redirect(res, `/user/${target.handle}`);
+    }
+    if (method === 'POST') {
+      const body = new URLSearchParams(await readBody(req));
+      const md = stripNul(body.get('page') ?? '')
+        .replace(/\r\n/g, '\n')
+        .trim()
+        .slice(0, 20_000);
+      await setProfilePage(target.id, md || null);
+      return redirect(res, `/user/${target.handle}`);
+    }
+    return sendHtml(res, profilePageEditor(target, { adminEdit }));
   }
 
   if (path === '/contributors' && method === 'GET') {

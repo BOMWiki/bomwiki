@@ -12,6 +12,8 @@ export interface PublicUser {
   affiliation?: string;
   bio?: string;
   website?: string;
+  /** Self-authored user page, markdown with [[wiki-links]]. */
+  profileMd?: string;
   joined: string;
 }
 
@@ -59,16 +61,22 @@ function mapUser(r: any): PublicUser {
     affiliation: r.affiliation ?? undefined,
     bio: r.bio ?? undefined,
     website: r.website ?? undefined,
+    profileMd: r.profile_md ?? undefined,
     joined: r.created_at.toISOString(),
   };
 }
 
 export async function getUserByHandle(handle: string): Promise<PublicUser | null> {
   const res = await pool.query(
-    'select id, handle, role, blocked, display_name, affiliation, bio, website, created_at from users where handle = $1',
+    'select id, handle, role, blocked, display_name, affiliation, bio, website, profile_md, created_at from users where handle = $1',
     [handle],
   );
   return res.rows.length ? mapUser(res.rows[0]) : null;
+}
+
+/** Save the self-authored user page; empty clears it. */
+export async function setProfilePage(userId: number, md: string | null): Promise<void> {
+  await pool.query('update users set profile_md = $2 where id = $1', [userId, md]);
 }
 
 /** Block or unblock an account. Blocking kills its sessions and pending
