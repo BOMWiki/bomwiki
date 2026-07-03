@@ -176,17 +176,19 @@ export function contributorsPage(rows: ContributorRow[], totalMembers: number): 
     path: '/contributors',
     indexable: false,
     body: `<div class="review"><h1>Contributors</h1>
-      <p class="stub">The people who build BOMwiki: everyone with at least one accepted edit, most edits first. ${totalMembers} ${totalMembers === 1 ? 'member' : 'members'} in total. <a href="/changes">Recent changes</a> shows what they are doing right now.</p>
+      <p class="stub">The people who build BOMwiki: everyone with at least one accepted edit, most edits first. ${totalMembers} ${totalMembers === 1 ? 'member' : 'members'} in total. Automated cleanup runs under <a href="/user/steward-bot">steward-bot</a> and is labeled as machine work. <a href="/changes">Recent changes</a> shows what everyone is doing right now.</p>
       ${rows.length === 0 ? '<p class="stub">Nobody yet. The first accepted edit puts you here.</p>' : ''}
       ${rows
-        .map(
-          (u) => `<section class="rv-cs">
+        .map((u) => {
+          const tag =
+            u.handle === 'steward-bot' ? 'machine' : u.role !== 'contributor' ? u.role : '';
+          return `<section class="rv-cs">
         <div class="rv-head">
-          <p class="rv-node"><a href="/user/${esc(u.handle)}">${esc(u.displayName ? `${u.displayName} (${u.handle})` : u.handle)}</a>${u.role !== 'contributor' ? ` <span class="htag">${esc(u.role)}</span>` : ''}</p>
+          <p class="rv-node"><a href="/user/${esc(u.handle)}">${esc(u.displayName ? `${u.displayName} (${u.handle})` : u.handle)}</a>${tag ? ` <span class="htag">${esc(tag)}</span>` : ''}</p>
           <span class="rv-meta">${u.accepted} accepted ${u.accepted === 1 ? 'edit' : 'edits'} · joined ${esc(u.joined.slice(0, 10))}${u.lastActive ? ` · last active ${fmtWhen(u.lastActive)}` : ''}</span>
         </div>
-      </section>`,
-        )
+      </section>`;
+        })
         .join('\n')}</div>`,
     extraCss: ['/static/edit.css'],
   });
