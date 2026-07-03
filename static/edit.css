@@ -64,7 +64,7 @@
 }
 
 /* Review queue and history */
-.review { max-width: 780px; }
+.review { max-width: 780px; margin: 0 auto; }
 .rv-notice { background: var(--hl); border: 1px solid var(--link); border-radius: 2px; padding: 8px 12px; font-size: 13px; }
 .rv-cs { border: 1px solid var(--line); border-radius: 2px; background: var(--bg); padding: 12px 14px; margin: 0 0 14px; }
 .rv-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; }
@@ -139,3 +139,36 @@
 .ed-spec-add input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 2px; }
 a.redlink { color: var(--warn); }
 a.ib-report { display: block; text-align: center; text-decoration: none; padding: 5px 0; }
+.motto { font-family: var(--serif); font-style: italic; font-size: 17px; color: var(--muted); margin: 0 0 16px; }
+
+/* /intelligence deep-dive: figures, tables, code */
+.bi { max-width: 780px; }
+.bi p { line-height: 1.6; }
+.bi-fig { margin: 18px 0 22px; border: 1px solid var(--line); background: var(--panel); border-radius: 2px; padding: 14px 14px 10px; }
+.bi-fig svg { display: block; width: 100%; height: auto; }
+.bi-cap { margin: 10px 0 0; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.5; }
+.bi-code { background: var(--panel); border: 1px solid var(--line); border-radius: 2px; padding: 10px 12px; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.55; margin: 12px 0; }
+.bi-table { border-collapse: collapse; width: 100%; margin: 14px 0 18px; font-size: 12.5px; }
+.bi-table th { text-align: left; background: var(--panel); border: 1px solid var(--line); padding: 6px 9px; font-weight: 600; }
+.bi-table td { border: 1px solid var(--line); padding: 6px 9px; vertical-align: top; line-height: 1.5; }
+.bi-table td:first-child { font-weight: 600; white-space: nowrap; }
+
+/* Talk page context and guidance */
+.talk-sub { font-size: 13px; color: var(--muted); margin: -6px 0 14px; line-height: 1.6; }
+.talk-sub .vf-tag { margin-right: 4px; }
+.talk-help { background: var(--panel); border: 1px solid var(--line); border-radius: 2px; padding: 10px 13px; font-size: 12.5px; line-height: 1.6; margin: 0 0 14px; }
+.talk-count { margin-top: 18px; }
+.t-resolvebtn { font: inherit; font-size: 12.5px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 2px; background: var(--bg); color: var(--muted); cursor: pointer; }
+.t-resolvebtn:hover { background: var(--hl); }
+
+/* Admin dashboard */
+.adm-health { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+.adm-chip { font-size: 12px; padding: 3px 10px; border-radius: 2px; border: 1px solid var(--line); background: var(--panel); }
+.adm-ok { border-color: var(--ok); color: var(--ok); }
+.adm-down { border-color: var(--warn); color: var(--warn); }
+
+/* In-flight proposal note on item pages */
+.pending-note { clear: both; background: var(--hl); border: 1px solid var(--link); border-radius: 2px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px; }
+.adm-merge { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; }
+.adm-merge input { font: inherit; font-size: 12.5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 2px; width: 240px; }
+.adm-merge button { font: inherit; font-size: 12.5px; padding: 5px 12px; border: 1px solid var(--rule); border-radius: 2px; background: var(--panel); cursor: pointer; }

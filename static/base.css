@@ -23,6 +23,10 @@
         --cond: var(--serif);
       }
       * { box-sizing: border-box; }
+      /* Author display rules (.vf-form { display: flex } etc.) silently beat
+         the UA's [hidden] { display: none }, which leaked reviewer-only
+         controls to everyone. hidden must always win. */
+      [hidden] { display: none !important; }
       html { -webkit-text-size-adjust: 100%; }
       body {
         margin: 0;
@@ -179,3 +183,10 @@
 .hdr-search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
 .hdr-search input:focus { outline: 0; border-color: var(--link); background: var(--bg); }
 .site-nav { flex: none; }
+
+/* Project footer */
+.proj-footer { display: flex; flex-direction: column; gap: 4px; align-items: center; text-align: center; }
+.pf-brand { margin: 0; display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.pf-brand img { vertical-align: -3px; }
+.pf-motto { color: var(--muted); font-style: italic; }
+.pf-links, .pf-credit { margin: 0; font-size: 12px; color: var(--muted); }

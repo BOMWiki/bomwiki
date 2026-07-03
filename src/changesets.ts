@@ -2,6 +2,7 @@
 // Proposed snapshots live in changeset_edits until a reviewer accepts; apply
 // is transactional with optimistic concurrency against base_rev.
 import { pool } from './db.ts';
+import { hasNul } from './html.ts';
 import {
   applyAcceptedEdits,
   currentRev,
@@ -43,6 +44,17 @@ export interface PendingChangeset {
 }
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,79}$/;
+
+/** Any string leaf in a snapshot carrying a NUL byte (which jsonb rejects).
+ *  Checked on the parsed value, not the JSON text: JSON.stringify re-escapes a
+ *  real NUL back to the six characters "\u0000", so a check on the serialized
+ *  form would never see it. */
+function anyNul(v: unknown): boolean {
+  if (typeof v === 'string') return hasNul(v);
+  if (Array.isArray(v)) return v.some(anyNul);
+  if (v && typeof v === 'object') return Object.values(v).some(anyNul);
+  return false;
+}
 
 /** The editable snapshot of a node: everything except its id. Used by the
  *  diff/merge paths and by the editor embed, so client and server agree on
@@ -157,6 +169,9 @@ export function validateEdits(edits: ProposedEdit[]): string[] {
     }
     if (e.op === 'create' && getNode(e.nodeId)) errors.push(`${e.nodeId}: already exists`);
     if (e.op === 'edit' && !getNode(e.nodeId)) errors.push(`${e.nodeId}: does not exist`);
+    // A NUL byte anywhere in the snapshot would fail the jsonb insert as an
+    // opaque 500; reject it here as the validation error it is.
+    if (anyNul(e.data)) errors.push(`${e.nodeId}: text fields may not contain null bytes`);
     if (e.op === 'edit' && !e.baseRev) errors.push(`${e.nodeId}: baseRev is required`);
     const lineIds = new Set<string>();
     for (const l of e.data.bom ?? []) {
@@ -431,6 +446,77 @@ export async function listPending(): Promise<PendingChangeset[]> {
     analysis: r.analysis,
     edits: r.edits,
   }));
+}
+
+export interface ChangesetDetail extends PendingChangeset {
+  status: 'pending' | 'accepted' | 'rejected';
+  authorId: number;
+  reviewer: string | null;
+  decidedAt: string | null;
+  /** True when a pending changeset was closed by its own author. */
+  withdrawn: boolean;
+}
+
+/** One changeset in any status, for the public changeset page. */
+export async function getChangeset(id: number): Promise<ChangesetDetail | null> {
+  const res = await pool.query(
+    `select c.id, c.status, c.author_id, u.handle as author, r.handle as reviewer,
+            c.created_at, c.decided_at, c.summary, c.analysis,
+            json_agg(json_build_object('nodeId', e.node_id, 'op', e.op, 'baseRev', e.base_rev, 'summary', e.summary) order by e.id) as edits
+     from changesets c
+     join users u on u.id = c.author_id
+     left join users r on r.id = c.reviewer_id
+     join changeset_edits e on e.changeset_id = c.id
+     where c.id = $1
+     group by c.id, u.handle, r.handle`,
+    [id],
+  );
+  const r = res.rows[0];
+  if (!r) return null;
+  return {
+    id: Number(r.id),
+    status: r.status,
+    authorId: Number(r.author_id),
+    author: r.author,
+    reviewer: r.reviewer,
+    createdAt: r.created_at.toISOString(),
+    decidedAt: r.decided_at ? r.decided_at.toISOString() : null,
+    summary: r.summary,
+    analysis: r.analysis,
+    edits: r.edits,
+    withdrawn: r.status === 'rejected' && r.reviewer === r.author,
+  };
+}
+
+/** Author closing their own pending changeset. Recorded as a rejection with
+ *  the author as the decider, which the UI reads back as "withdrawn". */
+export async function withdrawChangeset(
+  id: number,
+  userId: number,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await pool.query(
+    `update changesets set status = 'rejected', reviewer_id = $2, decided_at = now()
+     where id = $1 and status = 'pending' and author_id = $2`,
+    [id, userId],
+  );
+  return res.rowCount ? { ok: true } : { ok: false, error: 'not yours, or no longer pending' };
+}
+
+/** Pending changesets touching a node, oldest first: the item page shows
+ *  these so proposers (and everyone else) can find in-flight changes. */
+export async function pendingIdsForNode(
+  nodeId: string,
+): Promise<{ id: number; author: string }[]> {
+  const res = await pool.query(
+    `select distinct c.id, u.handle as author
+     from changesets c
+     join users u on u.id = c.author_id
+     join changeset_edits e on e.changeset_id = c.id
+     where e.node_id = $1 and c.status = 'pending'
+     order by c.id`,
+    [nodeId],
+  );
+  return res.rows.map((r) => ({ id: Number(r.id), author: r.author }));
 }
 
 export async function decideChangeset(

@@ -25,6 +25,26 @@
       if (vf && (s.role === 'admin' || s.role === 'reviewer')) vf.hidden = false;
     });
 
+  // Surface in-flight proposals on the page itself, so a contributor who
+  // just proposed (or anyone else) can find them. The page HTML is cached
+  // and session-agnostic, so this has to come from a live endpoint.
+  fetch('/api/pending?node=' + encodeURIComponent(nodeId))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      var list = (j && j.pending) || [];
+      if (!list.length) return;
+      var note = el('p', { class: 'pending-note' });
+      note.appendChild(document.createTextNode(
+        list.length === 1 ? '1 proposed change is awaiting review: ' : list.length + ' proposed changes are awaiting review: '));
+      list.forEach(function (p, i) {
+        if (i) note.appendChild(document.createTextNode(', '));
+        note.appendChild(el('a', { href: '/changeset/' + p.id, text: '#' + p.id + ' by ' + p.author }));
+      });
+      note.appendChild(document.createTextNode('.'));
+      document.querySelector('.wtitle').after(note);
+    })
+    .catch(function () {});
+
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
 
   function el(tag, attrs, children) {
@@ -221,8 +241,9 @@
           if (r.body.applied) { window.location.reload(); return; }
           exitEdit();
           var ok = el('p', { class: 'ed-done' });
-          ok.appendChild(document.createTextNode('Change #' + r.body.id + ' submitted for review. '));
-          ok.appendChild(el('a', { href: '/review', text: 'Open the review queue' }));
+          ok.appendChild(document.createTextNode('Change #' + r.body.id + ' submitted. A reviewer will check it before it goes live. '));
+          ok.appendChild(el('a', { href: '/changeset/' + r.body.id, text: 'Track it here' }));
+          ok.appendChild(document.createTextNode('.'));
           document.querySelector('.wtitle').after(ok);
         } else {
           bar.insertBefore(

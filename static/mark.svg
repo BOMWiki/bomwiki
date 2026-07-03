@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="18" height="18" role="img" aria-label="BOMwiki mark">
+  <path d="M150 176 v218" stroke="#c8ccd1" stroke-width="20" stroke-linecap="round" fill="none"/>
+  <path d="M150 240 h44 M150 317 h44 M150 394 h44" stroke="#c8ccd1" stroke-width="20" stroke-linecap="round" fill="none"/>
+  <rect x="108" y="108" width="240" height="56" rx="14" fill="#202122"/>
+  <rect x="210" y="212" width="192" height="56" rx="14" fill="#3366cc"/>
+  <rect x="210" y="289" width="150" height="56" rx="14" fill="#202122"/>
+  <rect x="210" y="366" width="120" height="56" rx="14" fill="#a2a9b1"/>
+</svg>

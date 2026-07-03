@@ -1,0 +1,116 @@
+ Active Chilled Beam             | chilled-beam-unit | active-chilled-beam
+ Anaerobic Digester              | anaerobic-digester | methane-digester
+ Anchor Windlass                 | hydraulic-anchor-windlass | anchor-windlass
+ Apron Feeder                    | reclaim-apron-feeder | apron-feeder-heavy | apron-feeder
+ Articulating Boom Lift          | articulating-boom-lift | boom-lift
+ Auto Rickshaw                   | auto-rickshaw | autorickshaw
+ Biomass Gasifier                | pyrolysis-gasifier | biomass-gasifier
+ Blister Packaging Machine       | blister-packaging-machine | blister-pack-machine | rotary-blister-machine
+ Bottle Washing Machine          | bottle-washer | bottle-washing-machine-food
+ Bow Thruster                    | tunnel-bow-thruster | bow-thruster
+ Brine Injection Machine         | brine-injector-meat | meat-brine-injector
+ Bucket Elevator                 | bucket-elevator | bucket-elevator-industrial
+ Burr Coffee Grinder             | burr-coffee-grinder | coffee-grinder
+ Can Seaming Machine             | can-seamer | can-seaming-machine
+ Case Erector                    | case-erector | case-erector-beverage
+ Case Packer                     | automatic-case-packer | case-packer
+ CNC Plasma Cutting Table        | cnc-plasma-table | plasma-cutting-table
+ Compressor Ice Cream Maker      | ice-cream-maker | ice-cream-maker-compressor
+ Concert Pedal Harp              | harp | concert-harp
+ Cone Crusher                    | secondary-cone-crusher | cone-crusher
+ Continuous Butter Churn         | continuous-butter-churn | butter-churn-continuous
+ Continuous Grain Dryer          | grain-dryer | grain-dryer-continuous
+ Continuous Ice Cream Freezer    | ice-cream-freezer-continuous | continuous-ice-cream-freezer
+ Continuous Inkjet Coder         | inkjet-coder | continuous-inkjet-coder
+ Continuous Miner                | bord-and-pillar-miner | continuous-miner
+ Cooling Tower                   | cooling-tower-large | cooling-tower
+ Coordinate Measuring Machine    | cmm-coordinate-measuring-machine | cmm-machine
+ Cotton Picker                   | spindle-cotton-harvester | cotton-picker
+ Cycle Rickshaw                  | rickshaw-tricycle | cycle-rickshaw
+ Dairy Homogenizer               | homogenizer-dairy | dairy-homogenizer
+ Demolition Robot                | selective-demolition-robot | demolition-robot
+ Dental Articulator              | dental-articulator | semi-adjustable-articulator
+ Depalletizer                    | depalletizer-beverage | depalletizer
+ Drilling Mud Pump               | mud-pump-drilling | mud-pump
+ Dust Suppression Cannon         | telescopic-dust-cannon | dust-suppression-cannon
+ Electric Car                    | ev-car | electric-car
+ Electric Chain Hoist            | electric-chain-hoist | chain-hoist
+ Electric Griddle                | electric-griddle | electric-griddle-pancake
+ Electric Pasta Maker            | electric-pasta-maker | electric-pasta-machine
+ Electric Wok                    | electric-wok-home | electric-wok
+ Envelope Making Machine         | envelope-making-machine | envelope-machine
+ Extrusion Blow Molding Machine  | extrusion-blow-molder | extrusion-blow-molding-machine
+ Feed Hammer Mill                | feed-hammer-mill | hammer-mill-feed
+ Fiber Laser Cutting Machine     | fiber-laser-cutter | fiber-laser-cutting-machine
+ Flash Butt Welding Machine      | flash-butt-welder | rail-flash-butt-welder
+ Food Dehydrator                 | home-food-dehydrator | food-dehydrator
+ Friction Stir Welding Machine   | friction-stir-welding-machine | friction-stir-welder
+ Grape Harvester                 | mechanical-grape-harvester | grape-harvester
+ Guided-Missile Frigate          | guided-missile-frigate | naval-frigate
+ Home Deep Fryer                 | home-deep-fryer | deep-fryer-home
+ Horizontal Flow Wrapper         | horizontal-flow-wrapper | horizontal-flow-wrap-machine
+ Hot Towel Cabinet               | heated-towel-cabinet | hot-towel-cabinet
+ Hydraulic Dock Leveler          | loading-dock-leveler | dock-leveler
+ Hydraulic Door Closer           | door-closer-hydraulic | door-closer
+ Hydraulic Press                 | hydraulic-press | hydraulic-stamping-press
+ Industrial Parts Washer         | parts-washer | parts-cleaning-machine
+ Industrial Smokehouse           | industrial-smokehouse | smokehouse-industrial
+ Jet Dyeing Machine              | dyeing-machine | fabric-dyeing-jet-machine
+ Metal Planer                    | metal-planer | planer-machine-tool
+ Oilseed Expeller Press          | oilseed-press-industrial | oilseed-expeller
+ Orchestra Pit Lift              | orchestra-pit-lift | orchestra-lift
+ Outdoor Gas Pizza Oven          | outdoor-pizza-oven | outdoor-gas-pizza-oven
+ Pad Printing Machine            | pad-printing-machine | pad-printing-press
+ Pallet Stretch Wrapper          | stretch-wrapper | pallet-wrapper
+ Patty Forming Machine           | automatic-patty-former | patty-forming-machine
+ Pipe Inspection Crawler         | pipe-inspection-crawler | inspection-crawler-robot
+ Pipelayer                       | pipe-layer | pipelayer
+ Planetarium Projector           | planetarium-projector | dome-planetarium-projector
+ Pneumatic Wine Press            | wine-press | wine-press-pneumatic
+ Portable Induction Cooktop      | portable-induction-cooktop | induction-cooktop-portable
+ Potato Harvester                | self-propelled-potato-digger | potato-harvester
+ Poultry Evisceration Line       | evisceration-line | poultry-evisceration-line
+ Poultry Plucker                 | poultry-defeathering-machine | poultry-plucker
+ Powered Roller Conveyor         | roller-conveyor | roller-conveyor-powered
+ Raclette Grill                  | raclette-tabletop-grill | raclette-grill
+ Reach Truck                     | reach-truck-warehouse | reach-truck
+ Resistance Seam Welder          | seam-welder | resistance-seam-welder
+ Resistive Load Bank             | load-bank | load-bank-resistive
+ Ribbon Blender                  | ribbon-blender-food | ribbon-blender
+ Ring Spinning Frame             | spinning-frame | ring-spinning-frame
+ Rockwell Hardness Tester        | rockwell-hardness-tester | hardness-tester-rockwell
+ Roller Flour Mill               | flour-mill | roller-flour-mill
+ Rotational Molding Machine      | rotomolding-machine | roto-mold-carousel | rotational-molding-machine
+ Rubber-Tyred Gantry Crane       | gantry-crane | rubber-tyred-gantry-crane
+ Sanforizing Machine             | sanforizing-machine | sanforizing-shrinkage-machine
+ Scanning Electron Microscope    | electron-microscope | scanning-electron-microscope
+ Shrink Sleeve Applicator        | label-shrink-sleeve-applicator | shrink-sleeve-applicator
+ Single-Axis Solar Tracker       | solar-tracker-single-axis | solar-tracker
+ Slotting Machine                | slotter-machine | slotting-machine
+ Solar Carport                   | solar-carport-system | solar-carport
+ Sous Vide Immersion Circulator  | sous-vide-immersion | sous-vide-cooker
+ Spiral Freezer                  | spiral-freezer-food | spiral-freezer
+ Stacker-Reclaimer               | stacker-reclaimer | bridge-stacker-reclaimer
+ Strapping Machine               | pallet-strapping-machine | strapping-machine
+ Stretch Limousine               | stretch-limousine | limousine
+ Stud Welding Machine            | stud-welder | stud-welding-machine
+ Tandem Bicycle                  | tandem-bicycle | tandem-bike
+ Tank Inspection Robot           | tank-inspection-robot | confined-tank-inspection-robot
+ Thermoforming Machine           | thermoforming-machine | sheet-thermoformer
+ Thread Rolling Machine          | thread-rolling-machine | flat-die-thread-roller
+ Total Station                   | theodolite-total-station | total-station
+ Trawl Winch                     | trawl-winch | net-trawl-winch
+ Trencher                        | trencher | trenching-machine
+ Vacuum Furnace                  | vacuum-furnace | vacuum-heat-treat-furnace
+ Vacuum Tube Lifter              | vacuum-tube-lifter | vacuum-lifter
+ VAV Terminal Box                | vav-terminal-box | vav-box
+ Vertical Broaching Machine      | broaching-machine | vertical-broaching-machine
+ Vertical Form-Fill-Seal Machine | form-fill-seal-machine | vertical-form-fill-seal-machine
+ Vertical Lift Module            | vertical-lift-module-system | vertical-lift-module
+ Vibratory Finishing Machine     | vibratory-deburring-machine | vibratory-finishing-bowl
+ Warp Sizing Machine             | sizing-machine-textile | sizing-machine
+ Welding Positioner              | welding-positioner | tilt-welding-positioner
+ Wide-Body Airliner              | wide-body-airliner | widebody-airliner
+ Wire Drawing Machine            | multi-die-wire-drawer | wire-drawing-machine
+ Wire EDM Machine                | wire-edm | edm-wire-machine
+

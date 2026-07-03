@@ -74,6 +74,19 @@ export function currentRev(id: string): number | undefined {
 // ends on the most recent committed state.
 let graphLock: Promise<void> = Promise.resolve();
 
+// Merged pages: from_id -> to_id. A redirected page 301s to its target and
+// drops out of listings and search; its node and history stay in the
+// database untouched.
+const redirects = new Map<string, string>();
+
+export function redirectOf(id: string): string | undefined {
+  return redirects.get(id);
+}
+
+export function setRedirectInMemory(fromId: string, toId: string): void {
+  redirects.set(fromId, toId);
+}
+
 export function loadGraph(databaseUrl: string): Promise<void> {
   const run = graphLock.then(
     () => doLoadGraph(databaseUrl),
@@ -90,7 +103,10 @@ async function doLoadGraph(databaseUrl: string): Promise<void> {
   const res = await client.query(
     'select n.id, n.current_rev, n.verification, r.data from nodes n join revisions r on r.rev = n.current_rev where not n.deleted order by n.pos',
   );
+  const rd = await client.query('select from_id, to_id from redirects');
   await client.end();
+  redirects.clear();
+  for (const row of rd.rows) redirects.set(row.from_id, row.to_id);
 
   byId.clear();
   parentsOf.clear();
@@ -214,7 +230,8 @@ export function allNodes(): IterableIterator<NodeData> {
 /** All products in authored order. */
 export function productList(): NodeData[] {
   const out: NodeData[] = [];
-  for (const n of byId.values()) if (n.kind === 'product') out.push(n);
+  for (const n of byId.values())
+    if (n.kind === 'product' && !redirects.has(n.id)) out.push(n);
   return out;
 }
 
@@ -237,6 +254,7 @@ export function searchNodes(q: string, limit = 8): SearchHit[] {
   if (!needle) return [];
   const hits: (SearchHit & { rank: number })[] = [];
   for (const node of byId.values()) {
+    if (redirects.has(node.id)) continue;
     const name = lowerName.get(node.id) ?? node.name.toLowerCase();
     let rank = -1;
     if (name.startsWith(needle)) rank = 0;

@@ -1,6 +1,7 @@
 // Community data: profiles, contributions, discussions, watches, and the
 // site-wide recent-changes feed.
 import { pool } from './db.ts';
+import { hasNul } from './html.ts';
 
 export interface PublicUser {
   id: number;
@@ -191,6 +192,7 @@ export async function addComment(
   const text = body.trim();
   if (!text) return { error: 'empty comment' };
   if (text.length > 5000) return { error: 'comment too long' };
+  if (hasNul(text)) return { error: 'comment may not contain null bytes' };
   // Link caps and rate limits: discussions publish instantly, so they are the
   // natural first target for link spam. New accounts get tight caps.
   if (!trusted) {

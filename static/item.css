@@ -157,3 +157,7 @@
       .prose p, .prose li { font-size: 14px; }
       .prose figure { float: none; width: auto; max-width: 100%; margin: 12px 0; }
     }
+
+/* Transitive where-used (FFS graph sidecar) */
+.usedin-products { font-size: 13px; line-height: 1.6; margin: 10px 0 0; }
+.uip-src { color: var(--muted); font-size: 11.5px; white-space: nowrap; }

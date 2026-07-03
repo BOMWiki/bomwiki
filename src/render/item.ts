@@ -30,6 +30,8 @@ const KIND_LABEL = { product: 'Product', assembly: 'Assembly', part: 'Part' } as
 export interface ItemPageOpts {
   /** Render a historical revision read-only with a banner. */
   asOfRev?: number;
+  /** Transitive where-used from the FFS graph sidecar; null/absent hides the line. */
+  productsUsing?: { count: number; top: { id: string; name: string }[] } | null;
 }
 
 export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
@@ -139,11 +141,22 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
         </div>
       </section>`;
 
+  const pu = opts.productsUsing;
+  const appearsHtml =
+    !pu || node.kind === 'product'
+      ? ''
+      : `<p class="usedin-products">Appears in <b>${pu.count.toLocaleString()}</b> ${pu.count === 1 ? 'product' : 'products'}: ${pu.top
+          .map((p) => `<a href="/item/${p.id}/">${esc(p.name)}</a>`)
+          .join(', ')}${pu.count > pu.top.length ? `, and ${(pu.count - pu.top.length).toLocaleString()} more` : ''}. <span class="uip-src">Graph query · <a href="/project/engine">how this is computed</a></span></p>`;
+
   const usedInHtml =
-    ups.length === 0
+    ups.length === 0 && !appearsHtml
       ? ''
       : `<section class="usedin">
-        <h2>Used in ${ups.length} ${ups.length === 1 ? 'assembly' : 'assemblies'}</h2>
+        ${
+          ups.length === 0
+            ? ''
+            : `<h2>Used in ${ups.length} ${ups.length === 1 ? 'assembly' : 'assemblies'}</h2>
         <div class="chips">
           ${ups
             .map(
@@ -151,7 +164,9 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
                 `<a class="chip" href="/item/${u.id}/"><svg viewBox="0 0 96 96">${nodeIcon(u)}</svg><span>${esc(u.name)}</span></a>`,
             )
             .join('\n')}
-        </div>
+        </div>`
+        }
+        ${appearsHtml}
       </section>`;
 
   const railDomain = trail[0]?.kind === 'product' ? trail[0].domain : node.domain;

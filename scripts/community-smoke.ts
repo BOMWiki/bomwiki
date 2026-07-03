@@ -97,7 +97,11 @@ check('new contributor gated to pending', first.status === 201 && first.body.app
 const unchanged = await pageData(admin, NODE);
 check('page unchanged while pending', (unchanged.data.bom[0].note ?? '') === origNote);
 const reviewAsAlice = await alice.req('/review');
-check('contributor cannot review', reviewAsAlice.status === 303);
+check(
+  'contributor cannot review, told why',
+  reviewAsAlice.status === 403 && (await reviewAsAlice.text()).includes('Reviewers only'),
+  `status ${reviewAsAlice.status}`,
+);
 
 // --- climb the trust ladder ---
 let accepted = 0;

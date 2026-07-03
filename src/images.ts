@@ -53,7 +53,11 @@ export function setCategoryResolver(fn: (node: NodeData) => string): void {
 
 export function imageFor(node: NodeData): ItemImage | undefined {
   const exact = IMAGES[node.id];
-  const key = exact ? node.id : categoryForNode ? `cat:${categoryForNode(node)}` : undefined;
+  // Category stand-ins (a generic bearing photo on a bearing page) only make
+  // sense for parts and assemblies. A whole product shown as its category
+  // (a taxi as a tire) reads as a wrong photo, so products are exact-only.
+  const fallbackOk = node.kind !== 'product' && categoryForNode;
+  const key = exact ? node.id : fallbackOk ? `cat:${categoryForNode!(node)}` : undefined;
   const im = exact ?? (key ? IMAGES[key] : undefined);
   if (!im) return undefined;
   const local = im.local && publicAssetExists(im.local) ? im.local : undefined;

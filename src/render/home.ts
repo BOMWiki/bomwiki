@@ -16,6 +16,7 @@ import {
   totalCatalogParts,
   totalParts,
   type NodeData,
+  verificationOfNode,
 } from '../nodes.ts';
 import { getSetting, settingMeta } from '../site-settings.ts';
 import { page } from './base.ts';
@@ -173,17 +174,22 @@ export async function homePage(): Promise<string> {
   const featuredParts = featured ? totalParts(featured.id) : 0;
   const featuredLines = featured?.bom?.length ?? 0;
 
-  const avgParts = products.length ? Math.round(totalCatalogParts / products.length) : 0;
-  const maxDepth = s.deepest[0]?.d ?? 0;
-  const topReused = s.mostReused[0];
+  // Numbers that come from rolled-up page data are stated as facts about
+  // BOMwiki's mapping, rounded to two significant figures. Exact seven-digit
+  // figures would claim a precision the underlying (largely unverified)
+  // content does not have. Exact counts stay only for the wiki's own totals.
+  const approx = (n: number): string => {
+    if (n >= 1_000_000) return `about ${(Math.round(n / 100_000) / 10).toLocaleString()} million`;
+    if (n >= 10_000) return `about ${(Math.round(n / 1000) * 1000).toLocaleString()}`;
+    return `about ${n.toLocaleString()}`;
+  };
 
   // Curated facts (reviewer-edited, plain text) lead; computed facts follow.
-  // Each computed fact is true and, where numeric, derived from the live
-  // graph; facts naming specific items only appear when those items exist.
+  // Facts naming specific items only appear when those items exist.
   const didYouKnow: string[] = curatedFacts.map((f) => esc(f));
   if (getNode('airliner'))
     didYouKnow.push(
-      `that a ${item('airliner', 'commercial airliner')} is built from roughly ${totalParts('airliner').toLocaleString()} individual parts, down to each rivet`,
+      `that BOMwiki's ${item('airliner', 'commercial airliner')} page maps ${approx(totalParts('airliner'))} individual parts, down to each rivet`,
     );
   if (getNode('espresso-machine') && getNode('excavator'))
     didYouKnow.push(
@@ -191,7 +197,7 @@ export async function homePage(): Promise<string> {
     );
   if (s.largest[0])
     didYouKnow.push(
-      `that the largest bill of materials on BOMwiki, the ${item(s.largest[0].p.id, s.largest[0].p.name.toLowerCase())}, rolls up to ${s.largest[0].parts.toLocaleString()} parts`,
+      `that the largest bill of materials on BOMwiki, the ${item(s.largest[0].p.id, s.largest[0].p.name.toLowerCase())}, rolls up to ${approx(s.largest[0].parts)} parts`,
     );
   if (getNode('smartphone'))
     didYouKnow.push(
@@ -201,6 +207,17 @@ export async function homePage(): Promise<string> {
     `that BOMwiki maps ${totalCatalogParts.toLocaleString()} parts across ${nc.toLocaleString()} distinct items in ${groups.length} domains`,
   );
 
+  // The summary comes from the page (largely unverified content), so it is
+  // clamped to its first two sentences and the page's verification status is
+  // shown beside the name. Curation controls are reviewer chrome: the link
+  // is hidden until the session check confirms a reviewer is looking.
+  const featSummary = (() => {
+    const s2 = featured?.summary ?? '';
+    const sentences = s2.match(/[^.!?]+[.!?]+/g) ?? [s2];
+    const short = sentences.slice(0, 2).join(' ').trim();
+    return short.length > 240 ? `${short.slice(0, 237).trimEnd()}…` : short;
+  })();
+  const featVerification = featured ? verificationOfNode(featured.id) : 'unverified';
   const featuredBox = featured
     ? `<section class="pbox feat">
         <h2 class="pbh">Featured product</h2>
@@ -210,41 +227,43 @@ export async function homePage(): Promise<string> {
               ? `<a href="/item/${featured.id}/"><img class="featimg" src="${esc(featuredImg.thumb ?? featuredImg.url)}" alt="${esc(featured.name)}" width="150" height="98" loading="eager" fetchpriority="high" decoding="async" /></a>`
               : ''
           }
-          <p>
-            <a href="/item/${featured.id}/"><strong>${esc(featured.name)}</strong></a>. ${esc(featured.summary ?? '')} Its
-            bill of materials rolls up to ${featuredParts.toLocaleString()} parts across ${featuredLines}
-            top-level assemblies, each explorable down to individual components.
-            <a href="/item/${featured.id}/">Full bill of materials →</a>
-          </p>
-          <p class="feat-meta">Rotates daily from a pool ${
-            poolMeta
-              ? `curated by <a href="/user/${esc(poolMeta.updatedBy)}">${esc(poolMeta.updatedBy)}</a>`
-              : 'seeded at launch'
-          } · <a href="/admin/homepage">curate</a> · <a href="/home/talk">discuss this page</a></p>
+          <div class="feat-body">
+            <p>
+              <a href="/item/${featured.id}/"><strong>${esc(featured.name)}</strong></a>${
+                featVerification !== 'human-verified'
+                  ? ` <span class="vf-tag vf-${featVerification}">${featVerification}</span>`
+                  : ''
+              }. ${esc(featSummary)}
+              Its bill of materials on BOMwiki rolls up to ${approx(featuredParts)} parts across ${featuredLines}
+              top-level assemblies. <a href="/item/${featured.id}/">Full bill of materials →</a>
+            </p>
+            <p class="feat-meta">Featured product rotates daily · <a href="/home/talk">discuss</a><span id="bw-curate" hidden> · <a href="/admin/homepage">curate</a>${
+              poolMeta
+                ? ` · pool by <a href="/user/${esc(poolMeta.updatedBy)}">${esc(poolMeta.updatedBy)}</a>`
+                : ''
+            }</span></p>
+          </div>
         </div>
-      </section>`
+      </section>
+      <script>
+        fetch('/api/session').then(function (r) { return r.json(); }).then(function (s) {
+          var c = document.getElementById('bw-curate');
+          if (c && (s.role === 'admin' || s.role === 'reviewer')) c.hidden = false;
+        });
+      </script>`
     : '';
 
-  const tile = (p: NodeData, gi: number, pi: number): string => {
-    const img = imageFor(p);
-    const media = img
-      ? `<img src="${esc(img.thumb ?? img.url)}" alt="" width="160" height="104" loading="${gi === 0 && pi < 6 ? 'eager' : 'lazy'}" decoding="async" />`
-      : `<svg viewBox="0 0 96 96" role="img" aria-label="${esc(p.name)}">${nodeIcon(p)}</svg>`;
-    return `<a class="t" href="/item/${p.id}/">
-            ${media}
-            <span class="tn">${esc(p.name)}</span>
-            <span class="tm">${totalParts(p.id).toLocaleString()} parts</span>
-          </a>`;
-  };
-
-  const body = `    <div class="wrap">
-      <nav class="rail" aria-label="Domains">
-        <p class="rail-h">Domains</p>
-        <ul>
-          ${groups.map((d) => `<li><a href="#${d.slug}">${esc(d.name)}</a> <span class="n">${d.ps.length}</span></li>`).join('\n          ')}
-        </ul>
-      </nav>
-
+  // The homepage explains what BOMwiki is and offers ways in. The full tile
+  // directory (4,879 products, most of the old page's weight) lives at
+  // /products; the stats boxes moved there with it.
+  //
+  // The old static site linked domains as /#<slug> anchors; those links are
+  // still out in the wild. Fragments never reach the server, so the redirect
+  // to the real domain page has to happen client side.
+  const legacyHashRedirect = `<script>(function(){var d=${JSON.stringify(
+    groups.map((g) => g.slug),
+  )};var h=location.hash.slice(1);if(d.indexOf(h)>=0)location.replace('/domain/'+h+'/');})();</script>`;
+  const body = `    ${legacyHashRedirect}<div class="wrap home-short">
       <div class="pane">
         <div class="welcome">
           <p class="wtitle">${esc(welcome.title)}</p>
@@ -252,10 +271,38 @@ export async function homePage(): Promise<string> {
             <strong>BOMwiki</strong> is the free <a href="/about/">bill-of-materials encyclopedia</a>.
             ${esc(welcome.subtitle)}
           </p>
+          <p class="wedit">
+            Anyone can edit. Changes from new contributors are reviewed before going live, and every
+            page shows its <a href="/about/verification">verification status</a>.
+            <a href="/about/">More about BOMwiki</a>.
+          </p>
           <p class="wcounts">
             ${products.length.toLocaleString()} products · ${totalCatalogParts.toLocaleString()} parts mapped ·
             ${nc.toLocaleString()} items · ${groups.length} domains
           </p>
+        </div>
+
+        <div class="explain">
+          <div class="exp">
+            <h3>How a BOM page works</h3>
+            <p>Open any product and its bill of materials unfolds: assemblies, sub-assemblies, parts, and quantities, all the way down. Every part is a single entry shared across the whole catalog, so a correction to one bearing fixes every machine that uses it.</p>
+            <p class="exp-l">${getNode('airliner') ? `<a href="/item/airliner/">See the airliner &#8594;</a>` : `<a href="/random">Open a random product &#8594;</a>`}</p>
+          </div>
+          <div class="exp">
+            <h3>Machine review on every change</h3>
+            <p>Each proposed edit is checked by <b>BOM Intelligence</b>, a deterministic analysis engine. It rejects broken structure outright (cycles, dangling parts, nonsense quantities) and reads products as graphs of functions, so reviewers see machine findings beside every diff.</p>
+            <p class="exp-l"><a href="/intelligence">How the engine works &#8594;</a></p>
+          </div>
+          <div class="exp">
+            <h3>Verification is earned</h3>
+            <p>Every page carries a status: unverified, machine-checked, or human-verified. Machine-checked means the graph is coherent; human-verified means a person checked it against evidence, and only those pages are offered to search engines.</p>
+            <p class="exp-l"><a href="/about/verification">The verification system &#8594;</a></p>
+          </div>
+          <div class="exp">
+            <h3>Edit it, get credit</h3>
+            <p>Sign in with an email address and propose a change from any page's Edit button. New contributors' changes are reviewed first; after a few accepted changes you publish directly. Every revision is attributed to your public profile, so your work is visible and citable.</p>
+            <p class="exp-l"><a href="/help/editing">How to edit &#8594;</a> · <a href="/login">Create an account &#8594;</a></p>
+          </div>
         </div>
 
         <div class="portal">
@@ -268,85 +315,19 @@ export async function homePage(): Promise<string> {
             </ul>
           </section>
 
-          <section class="pbox">
-            <h2 class="pbh">Most-reused components</h2>
-            <p class="pbc note">The parts the most products bottom out in, the catalog's shared hubs.</p>
-            <ol class="pbc ranklist">
-              ${s.mostReused.map(({ n, c }) => `<li>${item(n.id, n.name)} <span class="lp">in ${c.toLocaleString()} products</span></li>`).join('\n              ')}
-            </ol>
-          </section>
-
-          <section class="pbox">
-            <h2 class="pbh">Most distinct components</h2>
-            <p class="pbc note">Widest variety of unique part types, not just the most repeated parts.</p>
-            <ol class="pbc ranklist">
-              ${s.mostDistinct.map(({ p, c }) => `<li>${item(p.id, p.name)} <span class="lp">${c.toLocaleString()} distinct parts</span></li>`).join('\n              ')}
-            </ol>
-          </section>
-
-          <section class="pbox wide">
-            <h2 class="pbh">Largest bills of materials</h2>
-            <ol class="pbc largest">
-              ${s.largest.map(({ p, parts }) => `<li>${item(p.id, p.name)} <span class="lp">${parts.toLocaleString()} parts</span></li>`).join('\n              ')}
-            </ol>
-          </section>
-
-          <section class="pbox">
-            <h2 class="pbh">Down to raw materials</h2>
-            <p class="pbc note">Every chain ends here. Commodities ranked by how many products depend on them.</p>
-            <ol class="pbc ranklist">
-              ${s.rawMaterials.map(({ p, c }) => `<li>${item(p.id, p.name)} <span class="lp">${c > 0 ? `in ${c.toLocaleString()} products` : 'material'}</span></li>`).join('\n              ')}
-            </ol>
-          </section>
-
-          <section class="pbox">
-            <h2 class="pbh">BOMwiki by the numbers</h2>
-            <div class="pbc">
-              <table class="nums">
-                <tbody>
-                  <tr><td>Products mapped</td><td>${products.length.toLocaleString()}</td></tr>
-                  <tr><td>Total parts rolled up</td><td>${totalCatalogParts.toLocaleString()}</td></tr>
-                  <tr><td>Distinct items in the graph</td><td>${nc.toLocaleString()}</td></tr>
-                  <tr><td>Average parts per product</td><td>${avgParts.toLocaleString()}</td></tr>
-                  <tr><td>Deepest bill of materials</td><td>${maxDepth} levels</td></tr>
-                  ${topReused ? `<tr><td>Most-reused component</td><td>${esc(topReused.n.name)} (${topReused.c.toLocaleString()})</td></tr>` : ''}
-                  <tr><td>Domains covered</td><td>${groups.length}</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-
           <section class="pbox wide">
             <h2 class="pbh">
-              Browse by domain
-              <button id="rnd" class="rndbtn" type="button">Random product →</button>
+              Browse
+              <a class="rndbtn" href="/random">Random product →</a>
             </h2>
             <ul class="pbc domgrid">
               ${groups.map((d) => `<li><a href="/domain/${d.slug}/">${esc(d.name)}</a> <span class="lp">${d.ps.length}</span></li>`).join('\n              ')}
             </ul>
+            <p class="pbc note"><a href="/products">All ${products.length.toLocaleString()} products on one page →</a></p>
           </section>
         </div>
-
-        ${groups
-          .map(
-            (d, gi) => `<section id="${d.slug}" class="dom">
-          <h2><a class="da" href="/domain/${d.slug}/">${esc(d.name)}</a> <span class="dn">(${d.ps.length})</span></h2>
-          <div class="tiles">
-          ${d.ps.map((p, pi) => tile(p, gi, pi)).join('\n          ')}
-          </div>
-        </section>`,
-          )
-          .join('\n\n        ')}
       </div>
-    </div>
-
-    <script>
-      // "Random product": jump to a random tile already on the page (no payload).
-      document.getElementById('rnd')?.addEventListener('click', () => {
-        const tiles = document.querySelectorAll('a.t');
-        if (tiles.length) window.location = tiles[Math.floor(Math.random() * tiles.length)].href;
-      });
-    </script>`;
+    </div>`;
 
   const siteLd = {
     '@context': 'https://schema.org',
@@ -377,5 +358,115 @@ export async function homePage(): Promise<string> {
     extraCss: ['/static/home.css'],
     jsonLd: [siteLd, orgLd],
     body,
+  });
+}
+
+const tile = (p: NodeData, gi: number, pi: number): string => {
+  const img = imageFor(p);
+  const media = img
+    ? `<img src="${esc(img.thumb ?? img.url)}" alt="" width="160" height="104" loading="${gi === 0 && pi < 6 ? 'eager' : 'lazy'}" decoding="async" />`
+    : `<svg viewBox="0 0 96 96" role="img" aria-label="${esc(p.name)}">${nodeIcon(p)}</svg>`;
+  return `<a class="t" href="/item/${p.id}/">
+          ${media}
+          <span class="tn">${esc(p.name)}</span>
+          <span class="tm">${totalParts(p.id).toLocaleString()} parts</span>
+        </a>`;
+};
+
+/** The full product directory: every product as an image tile, grouped by
+ *  domain with an anchor rail, plus the graph-wide stats boxes. This is the
+ *  old homepage's heavy half, one click away from the new short homepage. */
+export function productsPage(): string {
+  const s = homeStats();
+  const nc = nodeCount();
+  const { products } = s;
+  const groups = DOMAINS.map((d) => ({ ...d, ps: productsByDomain(d.slug) })).filter(
+    (d) => d.ps.length > 0,
+  );
+  const avgParts = products.length ? Math.round(totalCatalogParts / products.length) : 0;
+  const maxDepth = s.deepest[0]?.d ?? 0;
+  const topReused = s.mostReused[0];
+
+  const body = `    <div class="wrap">
+      <nav class="rail" aria-label="Domains">
+        <p class="rail-h">Domains</p>
+        <ul>
+          ${groups.map((d) => `<li><a href="#${d.slug}">${esc(d.name)}</a> <span class="n">${d.ps.length}</span></li>`).join('\n          ')}
+        </ul>
+      </nav>
+
+      <div class="pane">
+        <div class="welcome">
+          <p class="wtitle">All products</p>
+          <p class="wcounts">
+            ${products.length.toLocaleString()} products · ${totalCatalogParts.toLocaleString()} parts mapped ·
+            ${nc.toLocaleString()} items · ${groups.length} domains · <a href="/random">random product →</a>
+          </p>
+        </div>
+
+        <div class="portal">
+          <section class="pbox">
+            <h2 class="pbh">Most-reused components</h2>
+            <p class="pbc note">The parts the most products bottom out in, the catalog's shared hubs.</p>
+            <ol class="pbc ranklist">
+              ${s.mostReused.map(({ n, c }) => `<li>${item(n.id, n.name)} <span class="lp">in ${c.toLocaleString()} products</span></li>`).join('\n              ')}
+            </ol>
+          </section>
+
+          <section class="pbox">
+            <h2 class="pbh">Most distinct components</h2>
+            <p class="pbc note">Widest variety of unique part types, not just the most repeated parts.</p>
+            <ol class="pbc ranklist">
+              ${s.mostDistinct.map(({ p, c }) => `<li>${item(p.id, p.name)} <span class="lp">${c.toLocaleString()} distinct parts</span></li>`).join('\n              ')}
+            </ol>
+          </section>
+
+          <section class="pbox">
+            <h2 class="pbh">Down to raw materials</h2>
+            <p class="pbc note">Every chain ends here. Commodities ranked by how many products depend on them.</p>
+            <ol class="pbc ranklist">
+              ${s.rawMaterials.map(({ p, c }) => `<li>${item(p.id, p.name)} <span class="lp">${c > 0 ? `in ${c.toLocaleString()} products` : 'material'}</span></li>`).join('\n              ')}
+            </ol>
+          </section>
+
+          <section class="pbox">
+            <h2 class="pbh">BOMwiki by the numbers</h2>
+            <div class="pbc">
+              <table class="nums">
+                <tbody>
+                  <tr><td>Products mapped</td><td>${products.length.toLocaleString()}</td></tr>
+                  <tr><td>Total parts rolled up</td><td>${totalCatalogParts.toLocaleString()}</td></tr>
+                  <tr><td>Distinct items in the graph</td><td>${nc.toLocaleString()}</td></tr>
+                  <tr><td>Average parts per product</td><td>${avgParts.toLocaleString()}</td></tr>
+                  <tr><td>Deepest bill of materials</td><td>${maxDepth} levels</td></tr>
+                  ${topReused ? `<tr><td>Most-reused component</td><td>${esc(topReused.n.name)} (${topReused.c.toLocaleString()})</td></tr>` : ''}
+                  <tr><td>Domains covered</td><td>${groups.length}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        ${groups
+          .map(
+            (d, gi) => `<section id="${d.slug}" class="dom">
+          <h2><a class="da" href="/domain/${d.slug}/">${esc(d.name)}</a> <span class="dn">(${d.ps.length})</span></h2>
+          <div class="tiles">
+          ${d.ps.map((p, pi) => tile(p, gi, pi)).join('\n          ')}
+          </div>
+        </section>`,
+          )
+          .join('\n\n        ')}
+      </div>
+    </div>`;
+
+  return page({
+    title: 'All products | BOMwiki',
+    description: `Every product on BOMwiki: ${products.length.toLocaleString()} bills of materials grouped by domain.`,
+    path: '/products',
+    indexable: true,
+    ogType: 'website',
+    body,
+    extraCss: ['/static/home.css'],
   });
 }

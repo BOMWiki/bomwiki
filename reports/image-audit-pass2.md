@@ -1,0 +1,1164 @@
+# Hero image audit, pass 2: full visual sweep (2026-07-03)
+
+Every mapped hero image (4,213 product/part entries; cat: stand-ins excluded)
+was viewed and judged by a two-pass agent fleet:
+
+- Pass 1 looked at all 4,213 thumbnails and flagged 1,071 wrong + 66 unsure.
+- Pass 2 re-viewed only the 1,137 flagged, with a lean-keep rubric (generic,
+  variant, in-use, or partial photos of the right product stay). It confirmed
+  892 as wrong and rescued 245.
+- 8 confirmations and 2 rescues were then human-spot-checked; all held.
+
+The 892 confirmed-wrong keys were removed from src/data/images.json
+(4,228 -> 3,336 entries). Those pages show the neutral kind icon until a
+correct photo is mapped. This includes the two found by hand earlier the
+same day (bin-picking-cell, soap-cutting-machine).
+
+Prod note: /opt/bomwiki/data/images.json predates BOTH audits; deploying
+this file fixes the previous 625 unmaps and these 892 in one go.
+
+## Unmapped as wrong (892)
+
+- accordion-storm-shutter: This appears to be a wooden gate or fence section, not a storm shutter. A reader looking for accordion storm shutter product information would not recognize this as relevant.
+- acoustic-banner-hoist: Cityscape/skyline photo with waterfront. Completely unrelated to a banner hoist system.
+- air-amplifier: This is a vintage electronic audio amplifier, not an industrial air amplifier. Different product category entirely.
+- air-jet-spinning-machine: Close-up of sheet metal or fabric being worked on, not showing the spinning machine itself.
+- air-knife: Technical diagram/blueprint of a fighting knife, not a photograph of an air knife industrial tool.
+- air-motor: Model/display of a streamlined missile or aircraft part, not a pneumatic motor.
+- air-start-unit: Technical diagram/schematic drawing, not a photograph of equipment.
+- aircraft-tow-tractor: Red semi-truck designed for highway use, not an aircraft tug/tow tractor. Different vehicle category.
+- airport-baggage-tug: People on wooden carts/wagons, not a motorized baggage tug.
+- all-electric-injection-molder: Building signage with industrial facility background, not the injection molding machine itself.
+- amr-warehouse-robot: Cartoon/icon illustration, not an actual photograph of a robot.
+- anaerobic-chamber: Pink biological tissue microscopy view, not a physical chamber.
+- anaerobic-digester: 3D schematic diagram of biogas plant, not a photograph of actual equipment.
+- angle-roll-bender: Film strip negatives/contact sheets, not metalworking equipment.
+- animal-mri: Military personnel examining a dog, not showing the MRI machine itself.
+- ankle-foot-orthosis: Person's feet in athletic shoes, not an AFO orthotic device.
+- aoi-inspection-machine: Woman's face/portrait, completely unrelated to optical inspection equipment.
+- aquarium-auto-feeder: School of colorful fish, not an auto feeder device.
+- aquarium-ozonizer: A waterfront building with industrial towers/chimneys, not an aquarium ozonizer device.
+- arc-spray-system: A silver sedan car parked outdoors, completely unrelated to arc spray equipment.
+- archimedes-screw-turbine: Brick mill house or medieval building next to water, not showing a turbine.
+- arena-basketball-system: Stadium dome at night, showing a venue building, not a basketball court system.
+- aseptic-filler: Packaged consumer product on cloth, not an industrial aseptic filling machine.
+- ash-handling-system: Historical cross-section technical drawing/blueprint, not a photograph of equipment.
+- asphalt-drum-plant: Close-up images of asphalt/aggregate samples, not a plant machine.
+- assistive-feeding-robot: Small medical/prosthetic devices like hearing aids, not a feeding robot.
+- astrophotography-ccd-camera: The Oval Office interior with government officials, not an astrophotography camera.
+- atomic-force-microscope: Spacecraft/lander on Martian surface, not a microscope.
+- auto-top-off-system: Modern building facade with curved patterns, not an aquarium auto top-off system.
+- automated-mooring-system: Automated weather station on a pole, not a mooring system.
+- automated-slide-stainer: 3D rendered transparent box/container (CAD model), not a microscope slide stainer.
+- automatic-canning-line: Subway/train station platform with people, not a canning line.
+- automatic-chain-oiler: Technical diagram of chain cross-sections, not a machine.
+- automatic-fish-scaler: Drawing of a single fish, not a machine for scaling fish.
+- automatic-labeler: Bank ATM, not a labeling machine.
+- automatic-pocket-setter: Black-and-white photo of soldiers with military equipment, not a pocket setter machine.
+- automatic-titrator: Diagram of laboratory glassware for titration, not a machine.
+- automatic-transfer-switch: Generators and equipment in a yard, not an electrical switch.
+- autopsy-table: Historical painting of an autopsy scene, not showing the actual table equipment.
+- autorack-wagon: Aerial view of an automotive/railroad facility yard, not showing a wagon.
+- av-lectern: Portrait photo of a man, not an AV lectern.
+- avalanche-airbag-pack: Ski resort information sign, not an avalanche airbag pack.
+- backpack-power-sprayer: Train/passenger rail vehicle, not a power sprayer.
+- backpack-vacuum: Vintage black-and-white photo of group of people outdoors, not a vacuum.
+- bacon-press: Portrait painting of a bearded man in period clothing, not a cooking tool.
+- bag-making-machine: Landfill with piles of garbage and waste, not a machine.
+- bag-making-machine-paper: Miniature brass model/sculpture of a vehicle or machine, not an actual bag-making machine.
+- bagel-forming-machine: Bagel restaurant storefront exterior, not a machine.
+- bagging-carousel: Grocery store storefront, not a bagging carousel.
+- balloon-inflator: Medical illustration of intra-aortic balloon pump (cardiac device), not a general balloon inflator.
+- ballpoint-assembly-machine: Ballpoint pens, shows the product not the assembly machine.
+- banjo: Portrait of a man's face, not a musical instrument.
+- banknote-bander: Shows historical banknote currency, not the bundling machine
+- banknote-fitness-sorter: Historical handwritten document, unrelated to banknote sorting equipment
+- banner-welder: Cropped photo of people gathering, not a banner welder machine
+- barcode-verifier: Close-up of printed barcode output, not the verification machine
+- bartack-sewing-machine: Close-up of fabric stitches, depicts output not the machine
+- bass-boat: Portrait of person with fish, boat not visible
+- batch-powder-booth: Shows pipes/tubes material, not a coating booth
+- battery-formation-system: Laptop battery product, not industrial formation/testing system
+- batting-cage-system: Portrait photograph, unrelated to batting cage equipment
+- beer-brewhouse-line: Glass of beer beverage, not brewhouse equipment
+- beet-slicer-sugar: Botanical illustration of sugar beet plant, not the slicing machine
+- belt-squat-machine: Portrait of person in gym, not fitness equipment
+- belt-weigher: Thermohaline circulation diagram, unrelated to conveyor scales
+- beverage-bottle-filler: Bottles and cans of beverages, not the filling machine
+- beverage-center: Beverage cans and bottles, not the appliance/center
+- beverage-delivery-truck: Tall office building, unrelated to delivery trucks
+- beverage-fridge: Mushrooms in container, not a refrigerator appliance
+- bike-fitting-jig: Person on ATV/quad bike, not a bicycle fitting jig
+- bike-shelter: Historic government building facade, not a bike shelter
+- billet-heating-furnace: Faint stereoscopic historical image, too degraded to be useful
+- billet-shearing-machine: Technical schematic diagram, not photograph of equipment
+- bingo-blower: Person at bingo table, not the ball-drawing machine
+- biodiesel-processor: Passenger train, completely unrelated to fuel processing
+- biofeedback-system: Anatomical nervous system diagram, not biofeedback equipment
+- biomass-boiler: Pile of pellets, shows fuel not the heating system
+- bioreactor: Modern building complex exterior, not laboratory equipment
+- bird-control-laser: Public plaza with grid pattern, unrelated to bird control
+- blanking-press-line: Barcode labels on carpet, not metal stamping equipment
+- blast-hole-stemming-truck: Historical graph/chart on paper, not drilling/blasting vehicle
+- blister-packaging-machine: Finished blister pack of capsules, shows output not the machine
+- blood-donation-bus: Plastic storage containers on shelf, not a blood donation vehicle
+- blood-gas-analyzer: 3D technical visualization of blood vessel, not analyzer device
+- blowroom-line: Commercial storefront with signage, not textile equipment
+- board-edger: Green circuit board/PCB, not wood edging machine
+- bolt-heading-machine: Nearly blank historical document page, not machinery
+- bomb-disposal-truck: Wet plaza with person, specialized vehicle not shown
+- book-scanner: Historic steam locomotive, unrelated to scanning equipment
+- book-sewing-machine: Historical bookbinding illustration, not machine photograph
+- book-sorting-machine: Orange block on paper, minimal unclear image
+- booklet-maker: Laptop computer display, not booklet-making equipment
+- bottle-capping-machine: Old patent diagram/technical drawing, not photograph
+- bottle-rinser-blower: Glass milk bottle in fridge, shows product not machine
+- bottle-warmer-cooler: Decorated aluminum water bottles, not appliance
+- bottle-washer: Portrait of man in formal attire, unrelated to machine
+- bow-press: Person drawing a recurve bow, not bow pressing equipment
+- bow-sight: Person holding drawn recurve bow, not sight component
+- bread-cooling-tower: Historic church building reflected in water, unrelated
+- bread-moulder: Cookbook or historical book page, not machine photograph
+- breading-machine: Kitchen counter with various appliances, not breading equipment
+- brewery-centrifuge: Beer bottle label/logo, not centrifuge machine
+- brewhouse-system: Historic brewery building complex, not equipment
+- brick-tunnel-kiln: Landscape of grassy overgrown path, unrelated
+- brite-tank: Smiley face sponges, completely unrelated to beer storage
+- bubble-machine: Portrait of man with accordion, unrelated to bubbles
+- built-in-wall-oven: Stone wall structure with opening, not kitchen oven
+- bulk-bag-unloader: Dry bulk cargo barge vessel, not unloading machine
+- bundling-machine-film: Dark archival film still, not bundling equipment
+- busway-system: Vintage railway map/diagram, unrelated to busbar systems
+- button-attaching-machine: Historical patent document text, not equipment photograph
+- cable-armoring-machine: Museum display of submarine cable cross-section, not machine
+- cable-granulator: Suspension bridge is a landscape/architecture photo; not a cable granulator machine.
+- calender-machine: Molecular diagram is a pure physics illustration, not a photo of the product category.
+- camp-kitchen-station: Historical settlement landscape photo; not a kitchen station structure.
+- can-densifier: Retail warehouse interior; building space, not machinery.
+- candy-depositor-line: Vintage decorative glassware; not a candy depositing machine.
+- candy-slab-cutter: Sugarloaf form (food product); not a cutter machine.
+- car-parking-lift: Multi-storey car park building exterior; architecture, not mechanical lift.
+- carbon-capture-skid: Gas cooktop/burner; unrelated kitchen appliance, not carbon capture equipment.
+- carousel-vertical: Vertical lathe/machining center; different type of machinery, not a carousel.
+- case-erector: Erector Set toy; a toy product, not industrial case erector machinery.
+- case-labeling-machine: Horseshoe crab; completely unrelated animal to labeling machinery.
+- case-making-machine: Historical advertisement for meat choppers; entirely different product.
+- case-packer: Vintage portrait of a man; person/portrait subject, not machinery.
+- casino-chip-sorter: Apple A16 computer chip; semiconductor, not a casino chip sorter machine.
+- cassette-tissue-processor: Histopathology microscopy cross-section; scientific image, not equipment photo.
+- cast-film-line: Group of people at film event; movie cast (people), not extrusion machinery.
+- cast-saw: Person wearing orthopedic cast; portrait of person in medical equipment, not a saw tool.
+- cat-battery: Golden Gate Bridge landscape photo; scenic geography, not product-related.
+- cat-seat: Cat (animal) on surface; animal subject, not a seat product.
+- cat-tire: Black Cat Tire storefront sign; building exterior, not a tire product photo.
+- catch-basin-cleaner: Aquarium fish in tank; aquatic animal, not cleaning machinery.
+- catering-hi-loft: DJ performing at concert; person/entertainer, not catering equipment.
+- cd-duplicator: Medieval document page; historical text document, not CD duplication equipment.
+- ceiling-bike-hoist: Church ceiling interior architecture; building structure, not bike hoist.
+- ceiling-patient-hoist: Ornate mosque ceiling interior; building decoration, not patient lifting equipment.
+- cell-grading-machine: Histology microscopy cross-section; scientific image, not grading machinery.
+- centering-machine: Historic industrial building interior; building space/architecture, not machinery.
+- centrifugal-sugar-machine: Sugarcane stalks in sunlight; plant material, not equipment.
+- chain-welding-machine: Museum chainmail armor garment; historical clothing, not welding machinery.
+- channel-letter-bender: Telescopic lift vehicle against building; different equipment type, not letter bender.
+- check-scanner: Computer screen with code; software interface, not check scanner hardware.
+- cheese-brining-system: Finished Gouda cheese rounds; food product, not a brining system machine.
+- cheese-vat-industrial: Technical schematic drawing; diagram/illustration, not a photo of the machinery.
+- chipper-canter: Canter's delicatessen storefront; building exterior, wrong product.
+- chlorine-dosing-system: Test tube with yellow chemical liquid; chemical compound, not a dosing system machine.
+- chocolate-enrobing-line: Finished chocolate-coated marzipans; food product output, not the enrobing machine.
+- chocolate-moulding-line: Black and white photo of four men; person/people, not machinery.
+- churro-machine: Railway viaduct bridge crossing landscape; scenic structure, not churro machinery.
+- cinema-seating: Cinema building storefront exterior; building facade, not seating furniture.
+- cinema-sound-processor: Home theater room interior with projection; room setup, not processor device.
+- clay-pigeon-thrower: Ammunition and accessories in snow; ammunition/supplies, not thrower machine.
+- clicker-press: Dog wearing pink collar; animal/portrait, not machinery.
+- clothes-steamer: Person holding sweater in retail setting; portrait of person with garment, not steamer machine.
+- cnc-metal-spinning-machine: Dark abstract/texture photo; too unclear and abstract to depict any recognizable machinery.
+- co2-injection-pump: Snowy mountain landscape; geography/scenery, not CO2 injection equipment.
+- co2-jet-system: Line graph chart of CO2 emissions; data visualization, not equipment.
+- co2-mosquito-trap: Scientific illustration of mosquito insect; drawing/illustration, not trap device.
+- coffee-roaster: Cartoon logo of Blind Dog Coffee; company logo/graphic design, not roaster machinery.
+- coil-coating-line: Vintage technical diagram of induction coils; historical schematic drawing, not modern machinery photo.
+- coil-feed-line: Small electronic capacitor component; discrete electronic part, not coil feed machinery.
+- coil-slitting-line: Band performing on stage at outdoor festival; entertainment/people, not industrial machinery.
+- coin-counting-kiosk: US penny coin close-up; single coin, not a counting kiosk machine.
+- coin-sorter: Image shows archaeological coins photographed with a scale ruler. A reader on a Coin Sorter page would expect to see the sorting/counting machine, not ancient artifacts.
+- cold-brew-system: Shows a mechanical arm-like device photographed from below. Completely unrelated to a cold brew coffee system. Reader would be confused.
+- cold-heading-machine: Portrait photo of a man at a microphone. This is a clear mismatch—reader expects a machine, not a person.
+- cold-rolling-mill: Parking lot with cars and industrial building. This is a facility/location photo, not the rolling mill equipment itself.
+- cold-spray-system: A chart/diagram showing temperature vs velocity data. This is not a photo of physical equipment.
+- collaborative-robot: Humanoid robot display at a trade show. Readers expect an industrial collaborative robot (cobot), not a humanoid entertainment robot.
+- colony-counter: Screenshot of city planning/construction simulation software. Completely unrelated to bacterial colony counting equipment.
+- combine-header-grain: Large farm storage facility/barn. This is a building, not a grain header component.
+- combing-machine-textile: Technical diagram/blueprint from a historical machinery catalog. This is a drawing, not a photo of the machine.
+- commercial-bread-slicer: Photo of sliced bread as a finished food product. Readers expect to see the bread slicing machine itself, not the output.
+- commercial-dough-mixer: Dough being mixed in a bowl. Readers expect to see the commercial mixer machine, not the ingredient being mixed.
+- commercial-ice-machine: Person dispensing soft serve ice cream from a machine. While it shows equipment, it's a soft serve machine, not an ice machine.
+- commercial-idli-steamer: Cooked idli on a plate as a prepared food dish. Readers expect to see the steamer equipment, not the finished food.
+- commercial-kitchen-hood: Elegant kitchen interior design photo. This is not a commercial kitchen hood/exhaust system, just general kitchen decor.
+- commercial-planetary-mixer: Dough being mixed/shaped by hand. Readers expect to see the commercial planetary mixer equipment, not hand mixing.
+- commercial-washer-extractor: Historical anti-Chinese political cartoon from 1886. Completely unrelated to washing equipment—this is offensive historical propaganda.
+- commodity-abs-resin: Chemical formula diagram showing molecular structures. This is a diagram, not a photo of physical ABS resin.
+- commodity-alumina: Abstract geometric pattern/design. Not a photo of alumina powder or ingots.
+- commodity-ferromanganese: Underwater deep-sea photograph of hydrothermal vent/mineral deposits on ocean floor. Not ferromanganese metal—it's an ocean/marine image.
+- commodity-fiberglass-roving: Apollo 17 lunar rover on the moon. This is a space vehicle, not fiberglass roving material.
+- commodity-flat-glass: Large glass fishing float/buoy with netting. Readers expect flat sheet glass, not a fishing buoy.
+- commodity-hot-rolled-steel-coil: Technical diagram/blueprint of continuous mill machinery. This is a drawing, not a photo of the actual steel coil product.
+- commodity-pet-resin: Black plastic resin identification code symbol/stamp. This is a logo/mark, not actual PET resin material.
+- commodity-polypropylene-pellet: Molecular 3D model of polypropylene. This is a diagram/illustration, not actual pellets.
+- commodity-polysilicon-chunk: Roasted beef/meat dinner with garnish. This is food, not polysilicon.
+- commodity-propylene: 3D molecular model of propylene. This is an illustration, not the physical commodity.
+- commodity-pta: Molecular model structure. This is an illustration, not a photo of terephthalic acid.
+- commodity-silver-bullion: Photo of a gold bar (described as gold, not silver). Readers expect silver bullion, not a different precious metal.
+- concrete-recycling-plant: Historical marker plaques. This is signage/monument, not a concrete recycling plant.
+- concrete-saw-ride-on: Chainsaw cutting wood logs. A reader expects a ride-on concrete saw, not a handheld chainsaw on wood.
+- concrete-slipform-paver: Technical diagram/schematic with labeled parts. This is a drawing, not a photo of the actual machine.
+- concrete-vibrator: Highway road with traffic. This has nothing to do with concrete vibration equipment.
+- conductivity-analyzer: Mars rover spacecraft landing on Mars. This is a space mission photo, completely unrelated to a conductivity analyzer.
+- conference-phone: Portrait of a man in business attire. Readers expect a conference speakerphone device, not a person.
+- confined-tank-inspection-robot: Toy/remote controlled robot on display. Readers expect a tank inspection robot, which is industrial equipment, not a toy.
+- contact-grill: Building exterior on street. This has nothing to do with a contact grill cooking appliance.
+- continuous-ice-cream-freezer: Finished ice cream dessert in a bowl. Readers expect to see the freezer equipment itself, not the finished product.
+- counting-scale: Historical engraving of a person counting money. Readers expect to see a counting scale device, not an old engraving of a person.
+- crab-block-hauler: Live crab photographed against black background. Readers expect a crab pot hauler machine, not the seafood itself.
+- crack-sealing-machine: Crocodile pattern cracking in road pavement. This is the problem the machine solves, not the machine itself. Reader would expect to see sealing equipment.
+- crane-man-basket: Medieval illuminated manuscript showing a treadwheel crane. Readers expect a modern crane man basket, not a medieval historical illustration.
+- crematory-filter-system: Building exterior, not filtration system equipment
+- curb-paving-machine: Pompeii ruins, completely unrelated to paving equipment
+- currency-exchange-kiosk: Interior hallway/mall, not a currency exchange kiosk
+- cyclocross-bike: Landscape/countryside photo with no bike visible
+- cylinder-hone: Archaeological stone artifacts, not an industrial honing machine
+- dairy-homogenizer: Dairy products, not the homogenizer machine
+- data-center-switch: Network diagram schematic, not a physical device
+- ddgs-dryer: Baked goods/grain bars, not industrial dryer equipment
+- debarker-drum: Military landing craft, completely unrelated to wood debarking
+- debris-chute: Space shuttle, completely unrelated to construction debris equipment
+- deburring-tumbler: Landscape with creek, unrelated to tumbler equipment
+- deck-lift-platform: Outdoor event/stage landscape, not a stage deck lift
+- decon-shower-system: Facility diagram schematic, not equipment photo
+- deep-drawing-press: Satellite dish antenna, completely unrelated
+- deep-hole-drilling-machine: Mining site landscape, not drilling equipment
+- dehumidifier-desiccant: Graph/chart, not equipment
+- demolition-hammer: Band performing on stage, completely unrelated
+- denim-washing-machine: Group of people wearing jeans, not the washing machine
+- dental-air-polisher: Human skull, not the dental equipment
+- dental-milling-machine: Dental syringe instrument, not a milling machine
+- depalletizer-beverage: Beverage can top close-up, not the depalletizer equipment
+- disconnect-switch: Electrical transmission tower landscape, not the switch
+- distributed-antenna-headend: Document/text page, not equipment
+- dough-divider: Glazed donut, not the bakery equipment
+- dragline-bucket: Rusted truck cab, not a dragline bucket
+- drive-in-rack: Building exterior and parking, not racking equipment
+- dual-action-polisher: Person with microphone, unrelated to polisher tool
+- dual-fuel-range: Fuel gauge/indicator, not a cooking range
+- dvd-rental-kiosk: Video rental shop storefront, not a kiosk machine
+- dynamic-compaction-rig: AGFA cassette tape box, completely unrelated
+- e-coat-line: Butterflies, completely unrelated to electrocoating equipment
+- earth-ground-tester: Person working with outlet, not the testing device
+- ebb-flow-system: Architectural interior with decorative elements, not hydroponics equipment
+- ecg-machine: Vintage mechanical device, not an ECG machine
+- eddy-current-separator-recycling: Recycling bins, not the separator machine
+- edfa-optical-amplifier: Night sky with telescope, not the optical component
+- effect-snow-machine: Natural mountain snow, not artificial snow machine
+- egg-breaking-line: Historical engraving of Columbus metaphor, not the machine
+- egg-breaking-machine: Historical artwork of Columbus metaphor, not the machine
+- egg-grader: Fried egg cooking, not grading equipment
+- electric-chain-hoist: Small storefront building, not the hoisting equipment
+- electric-corkscrew: Hand diagram with field arrows, not equipment photo
+- electric-grain-mill: Bags of grain storage, not the milling machine
+- electric-grill-indoor: Industrial overhead crane, unrelated to indoor grill
+- electric-knife-sharpener: Street scene with people, unrelated to the product
+- electric-pallet-jack: Potted plant/tree, completely unrelated to warehouse equipment
+- electric-pasta-maker: Image shows an interior residential workshop/studio with tools and workbenches, not a pasta maker device.
+- electric-rice-dispenser: Image shows a bank ATM machine labeled 'Bankautomat', not a rice cooker or dispenser.
+- electric-strike: Image shows the Emerson company building/storefront exterior, not an electric strike door lock device.
+- electric-submersible-pump: Image is a labeled diagram of an electric guitar, not a submersible pump. Title explicitly references ESP guitar.
+- electric-trike: Image shows a small white autonomous delivery vehicle (4-wheeled pod), not a three-wheeled trike.
+- electric-unicycle: Image shows a street scene with people gathering. No electric unicycle visible in the photo.
+- electroforming-unit: Image shows a gold ore or nugget sample, not a dental electroforming unit device.
+- electrolysis-machine: Image is a historical portrait painting of a man, not an electrolysis machine.
+- electronic-load: Image shows a satellite dish or antenna structure, not an electronic load testing device.
+- electronic-safe: Image is a blue electronic sign about safe crossing on an island, not an electronic safe/vault.
+- electrostatic-coalescer: Image shows an aerial view of an oil tanker vessel at sea, not an industrial separator or coalescer device.
+- embalming-table: Image shows a historical photograph of a person on a military/medical stretcher under a tent, not an embalming table.
+- emergency-call-pillar: Image shows a building exterior with blue and green modular facade, not an emergency call pillar device.
+- engine-run-stand: Image is a Google search results page for 'search engine', not related to engine run stand equipment.
+- envelope-addressing-printer: Image shows a historical Civil War patriotic envelope with flag design, not an envelope printer device.
+- envelope-making-machine: Image shows a historical envelope artifact from the 1800s, not an envelope making machine.
+- epirb: Image is a COSPAS-SARSAT system diagram/infographic, not a photograph of an actual EPIRB device.
+- equine-surgery-table: Image shows people riding horses on a grass field, not an equine surgery table.
+- espresso-grinder: Image shows a coffee tasting/preparation setup with beverages and cups, not a grinder machine.
+- ethanol-fermenter-industrial: Image is a chart/diagram of ethanol fuel mixture compositions, not a photograph of an industrial fermenter.
+- ev-battery-swap-station: Image shows a corporate building exterior, not a battery swap station device or installation.
+- event-power-distro: Image is a satellite/aerial photograph showing an earthquake location marker, not power distribution equipment.
+- expanded-metal-machine: Image shows a decorative metal heart-shaped pendant with filigree pattern, not expanded metal or a machine.
+- expansion-tank: Image shows a concrete expansion joint/gap on pavement, not a thermal expansion tank.
+- explosive-trace-detector: Image shows a police officer with a dog performing explosive detection work, focused on people/animal, not the actual detector device.
+- fabric-calendering-machine: Image is a historical diagram/schematic from a textile textbook, not a photograph of an actual machine.
+- fabric-coating-machine: Image is a historical patent or technical diagram, not a photograph of an actual coating machine.
+- fabric-dyeing-jet-machine: Image shows camera/filming equipment at an airport, not a jet aircraft or fabric dyeing machine.
+- facade-bmu: Image shows an architectural structure (modern building element), not a Building Maintenance Unit for facade cleaning.
+- facial-steamer: Image is a portrait of a woman's face, not a facial steamer device.
+- fcc-regenerator: Image is a technical diagram or schematic illustration, not a photograph of an actual machine.
+- feed-off-the-arm-machine: Image shows a control system diagram with feedback loops, not an actual machine photograph.
+- fettling-machine: Image shows archaeological artifacts (ancient tools/implements), not a casting fettling machine.
+- film-wind-machine: Image is a movie poster for 'Gone with the Wind', not a film wind machine device.
+- fire-thermal-camera: Image shows people in formal attire at a donation ceremony, not a thermal camera device.
+- fire-tube-boiler: Image shows an old agricultural/industrial trailer or farm equipment in a field, not a fire-tube boiler.
+- fish-counting-system: Image shows an underwater scene with tropical fish in a reef environment, not a fish counter device.
+- fish-deheading-machine: Image shows the interior drum of a washing machine, not a fish deheading machine.
+- fish-filleting-line: Image shows a storefront of a Chinese fish fillet restaurant building, not a fish filleting production line.
+- fish-grader: Image shows an underwater school/shoal of live fish swimming, not a fish grading device.
+- fish-hold-refrigeration: Image shows ancient stone structures/foundations in grass, not fish hold refrigeration equipment.
+- fish-pump: Image shows an interior view of an old, deteriorated building structure, not a fish transfer or bilge pump device.
+- flare-ignition-system: Image shows the interior of an aircraft or vehicle cargo/cabin area, not a flare ignition system.
+- flash-point-tester: Image shows martini/cocktail glasses with flames, a flaming drink demonstration, not a lab flash point tester.
+- flat-iron-straightener: Image is a historical anatomical sketch with human head profiles and hair diagrams, not a hair straightener device.
+- flatwork-ironer: Image shows a colorful art installation/sculpture with mounted figures in a desert setting, not industrial laundry equipment.
+- flexo-press: Image shows a close-up of a green circuit board with glowing text, not a flexographic printing press.
+- flint-lighter: Image shows a wall display of hanging hand tools (hammers, mallets, files), not a flint spark lighter.
+- flooring-nailer: Image shows a polished wood floor hallway interior, not the flooring nailer tool itself.
+- flour-roller-mill: Brick building exterior, no milling equipment visible. Reader would see architecture, not a mill.
+- flower-vending-machine: Beverage vending machine, not flowers. Reader would immediately notice the wrong product.
+- flybridge-cruiser: FJ Cruiser SUV on road, not a boat. Completely wrong vehicle type.
+- flying-performer-track: Performer/stunt with fire effects, not a flying system or stage equipment.
+- folding-carton-gluer: Shelving with boxes and equipment, not a carton folding-gluing machine. Reader would see storage, not machinery.
+- folding-solar-panel: Medieval folding objects/artifacts, not solar panels. Reader would see antiques, not renewable energy.
+- form-finisher: Fabric color/texture swatches, not finishing equipment. Reader would see textiles, not machinery.
+- fpv-goggles: Person wearing FPV goggles and holding RC device. This is a portrait of a person, not a product photo.
+- fpv-racing-drone: Acrobatic performer in mid-air at night. This is a person doing sports, not a drone.
+- frame-marquee-tent: Historic architectural painting/rendering, not a tent. Reader would see artwork, not a product.
+- free-water-knockout: Water polo player in pool. Sports action, not industrial equipment.
+- frl-unit: Person in presentation/demo setting. This is a person, not equipment.
+- frost-free-hydrant: Historic houses with frost, not a yard hydrant. Reader would see buildings, not the product.
+- fruit-grading-line: Vintage tobacco advertising with illustrated person. Completely unrelated to fruit processing.
+- fryer-oil-filtration-system: Historic mill/stone structure, not industrial equipment. Reader would see architecture, not machinery.
+- game-feeder: Language learning/education diagram. Completely unrelated to game feeders.
+- gang-drilling-machine: Historic group photograph of people, not drilling equipment. Reader would see a portrait.
+- gantry-milling-machine: Ancient coins with measurement scale. Completely unrelated to milling machinery.
+- gantry-palletizer: Waterfront/harbor scene with buildings. Reader would see a landscape, not a robot.
+- garment-conveyor: Mugshot-style portrait of a person. This is a person photo, not machinery.
+- garment-steamer-standing: Historical photo of people on ship deck, not a garment steamer.
+- gas-balloon: Historical illustration/collage, not a gas balloon product. Reader would see artwork, not equipment.
+- gas-clothes-dryer: Person sitting inside a tumble dryer. This is a person in the appliance, not the appliance itself.
+- gas-cooktop: Simple schematic diagram with icons and arrows, not a product photo.
+- gas-engine-genset: Yellow car being worked on, not a gas genset. Reader would see automotive testing, not power generation.
+- gas-irrigation-pump: Solar-powered windmill pump, not gas-powered. Wrong power source for the product.
+- gas-pool-heater: Industrial boiler hall/power plant interior, not a pool heater. Reader would see utility-scale equipment, not residential.
+- gas-station-canopy-light: Trees photographed from below against sky. Reader would see nature, not a light fixture.
+- gas-turbine: Vintage steam/diesel locomotive, not a gas turbine. Wrong type of equipment.
+- gear-honing-machine: Marines with machine gun on frozen terrain. Military combat, not gear machinery.
+- gear-shaving-machine: Antique shaving mug artifact, not a machine tool. Reader would see a grooming object, not machinery.
+- generator-step-up-transformer: Technical schematic/diagram, not a product photo. Reader would see a drawing, not actual equipment.
+- germination-chamber: Bare tree branch/vegetation, not a laboratory chamber. Reader would see nature, not lab equipment.
+- glass-container-forming-machine: Beverage container deposit label, not machinery. Reader would see product packaging, not equipment.
+- glass-edging-machine: Portrait of a bearded man in formal attire. This is a person photo, not equipment.
+- glass-tempering-furnace: Red and blue vending/kiosk machine, not a furnace. Reader would see the wrong product type.
+- glider-sailplane: Small possum or animal with long tail, not an aircraft. Reader would see wildlife, not a glider.
+- glove-knitting-machine: Pair of knitted glove sleeves, not a machine. Reader would see a textile product, not machinery.
+- glycol-deicing-rig: Commercial aircraft in flight, not ground de-icing equipment. Reader would see a plane, not airport equipment.
+- gondola-car: Historic train derailment scene, not a gondola freight car. Reader would see a disaster, not the product.
+- grain-auger: Stacked blue grain auger sculpture/art installation, not functional equipment. Reader would see art, not machinery.
+- grain-cart-tracked: Historical portrait photographs of four people, not agricultural equipment. Reader would see portraits, not machinery.
+- grain-cleaner-aspirator: White SUV/sport utility vehicle, not grain equipment. Reader would see the wrong vehicle type.
+- gravity-flow-rack: Astronaut in space station conducting experiment, not a gravity flow rack. Reader would see a person, not equipment.
+- green-hydrogen-electrolyzer-plant: Electronic circuit board/power electronics component, not an electrolyzer plant. Reader would see electronics, not industrial plant.
+- greenhouse-exhaust-fan: World map visualization of greenhouse gas emissions, not a fan. Reader would see data visualization, not equipment.
+- ground-freezing-plant: Flowers in a field, completely unrelated to industrial equipment. Reader would see nature, not machinery.
+- grounding-transformer: Electrical schematic/diagram drawing, not physical equipment. Reader would see a drawing, not actual machinery.
+- guard-booth: Historical/vintage interior scene with people in period clothing, not a security booth. Reader would see a historical scene, not the product.
+- guided-missile-frigate: Historical sailing ship with multiple masts, clearly not a guided-missile frigate warship
+- gum-rolling-machine: Vintage cartoon poster about chewing gum manufacturing, not actual machinery or equipment
+- gummy-depositor: Historical photo of workers at a bank counter, completely unrelated to gummy manufacturing
+- hammer-mill: Historical illustration/painting of workers, not depicting a hammer mill machine
+- handheld-anemometer: Storm chasing/weather scenes, not showing an anemometer device
+- hardening-quench-line: Historical photo of person drinking at a restaurant, not metal hardening equipment
+- headlamp: Vehicle/motorcycle headlights on display, not a personal LED headlamp
+- headlight-aimer: Patent document page, not an actual device
+- heart-lung-machine: Space satellite/aerospace component with solar panels, not medical equipment
+- heat-recovery-wheel: Coiled rattlesnake, not energy recovery equipment
+- herbal-infusion-machine: Medical diagram of intraosseous infusion technique, not herbal infusion equipment
+- high-voltage-circuit-breaker: Line graph showing performance decline, not a circuit breaker device
+- holding-cabinet: Group of government officials in formal photo, not a kitchen holding cabinet
+- holiday-detector: Person spraying epoxy coating, not a pipeline holiday detector instrument
+- home-gym-multi: General gymnasium space without specific multi-station apparatus visible
+- home-proofing-box: Disused railway platform at Box Hill Railway Station, not a bread proofing box
+- honing-machine-vertical: Military person in combat gear with weapon, not a vertical honing machine
+- horizontal-flow-wrap-machine: Diagram/illustration of water flow patterns, not a wrapper machine
+- hospital-overbed-table: Ornate wooden antique table, not a modern hospital overbed table
+- hot-dog-roller: Prepared hot dog with condiments, not the roller grill machine
+- hot-fill-line: Hexagonal glass hot water bottle from 18th century, not a modern hot fill production line
+- hot-melt-extruder: Yellow road markings on asphalt, not a hot melt adhesive extruder
+- hot-melt-labeler: Adhesive being dispensed from a bottle, not a labeling machine
+- hot-plate-welding-machine: Food preparation/meal dishes, not a plastic hot plate welder
+- hydraulic-filtration-unit: Man in diving gear in water, not a hydraulic filtration unit
+- hydraulic-press: Physics diagram showing force vectors, not an actual hydraulic press machine
+- hydraulic-shaper: Historical technical drawing of elevator machinery, not a hydraulic shaper
+- hydraulic-stamping-press: Physics diagram showing force vectors, not an actual hydraulic stamping press
+- hydraulic-test-bench: Vintage automobile at car show, not a hydraulic test bench
+- hydrofoil-boat: Military warship in icy water (missile boat), not specifically a hydrofoil boat
+- hydrogen-fuel-cell-car: Space launch rocket on launchpad, not a hydrogen fuel cell car
+- iced-tea-brewer: Cup of iced coffee beverage, not the iced tea brewer machine
+- impact-crusher: Tornado/dust storm in rural landscape, not an impact crusher machine
+- incinerating-toilet: Technical diagram/blueprint, not a photograph of the equipment
+- indium-phosphide-wafer: Historic courthouse building with classical architecture, not a semiconductor wafer
+- induction-cap-sealer: U.S. Navy personnel in dress uniforms during ceremony, not a sealing machine
+- induction-cooktop-portable: Bar chart showing induction power levels, not an actual portable induction cooktop
+- induction-hardening-machine: Historical diagram/schematic of coils, not a machine
+- industrial-bread-slicer-line: Vintage photographs of a building, not a bread slicer machine
+- industrial-juice-press: Glass of juice being poured, not a press machine
+- industrial-label-printer: Historical printing cooperative label design, not an industrial label printer machine
+- industrial-shredder: Car engine interior, not a shredder
+- industrial-ups: Diagram of industrial revolution stages, not UPS equipment
+- infant-scale: Historical portrait of a man, not an infant scale
+- inflatable-advertising-arch: Colorful inflatable balloons, not specifically an advertising arch
+- injector-cleaning-machine: Debris/rubble material, not a cleaning machine
+- inkjet-coder: Consumer inkjet printer, not an industrial continuous inkjet coder
+- inline-duct-fan: Man using duct testing equipment, not an inline duct fan
+- insulated-panel-line: Diagram/illustration (cross-section schematic), not a photo of the product
+- interferential-therapy-unit: Patient in hospital bed (portrait/medical scene), not the therapy device
+- ip-camera: Google WiFi logo (company branding), not a camera image
+- iqf-tunnel-freezer: Astronaut in spacecraft tunnel, not a freezer
+- island-range-hood: Car engine under hood at car show, not kitchen range hood
+- jacquard-loom: Historical portrait/engraving of a person, not a photo of the machine
+- janitor-cart: Person actively mopping (portrait in action), not a cart
+- jewelry-laser-welder: Wine glass with etched design (finished product), not a laser welder machine
+- jewelry-rolling-mill: Gold pendant jewelry (finished product), not a rolling mill machine
+- jib-crane: Large port container cranes (wrong scale/type), not a small jib crane
+- jigger-dyeing-machine: Technical schematic diagram with engineering drawings, not a photo
+- jigsaw: Band performing on stage (portrait/concert), not a jigsaw tool
+- joint-sealing-machine: Aerial road/highway view (landscape), not a joint sealing machine
+- juice-bubbler-dispenser: Bubble tea drink (food product), not a dispensing machine
+- kaplan-turbine: Abstract pink/purple sculpture art, not a water turbine
+- kayak-cart: Horse-drawn cart (different vehicle type), not a kayak cart
+- kebab-skewer-machine: Prepared kebab dish on plate (food/finished product), not a skewering machine
+- keg-filling-machine: Close-up of beer bottle caps/crown seals, not a filling machine
+- keg-racking-machine: Wine bottles on display (beverage product), not a keg racking machine
+- keg-washer: Person bowling in bowling alley (portrait/recreation), not a keg washing machine
+- keyway-broaching-machine: Technical diagram/schematic of broaching tools, not a photo of a machine
+- lab-water-purifier: Particle physics detector data visualization (scientific chart), not water purification equipment
+- label-printing-press: Image of Mercury planet with geographical labels (astronomical/map), not a printing press
+- label-shrink-sleeve-applicator: USDA Organic certification label/seal (document/graphic), not a machine applicator
+- labeling-machine-rotary: Vintage rotary telephone dial (different product), not a labeling machine
+- ladder-hoist: Architectural stone archway/window (building element), not a ladder hoist
+- laden-container-handler: Storefront with red doors (building/commerce scene), not a container handler
+- laminator: Hand-written instructional diagram (document/sketch), not a laminating machine
+- landfill-gas-blower-skid: Internal engine/generator components close-up, not a complete gas blower skid assembly
+- landscape-spotlight: Historical sepia landscape paintings/prints (artwork), not a spotlight device
+- lapping-and-polishing-machine: Aged metal seal/badge (object product), not a polishing machine
+- laser-coder: Data visualization chart with colored dots (diagram/chart), not a laser coder
+- laser-hair-growth-cap: Black and white historical photo of people (portrait/group), not medical device
+- laser-plastic-welder: Neon sign art (artistic display), not a laser welding machine
+- laser-tag-arena-system: Photon arcade laser tag badge/ID card (accessory/document), not arena system
+- laser-tube-cutting-machine: Decorative dishes/plates on surface (finished products), not a laser cutting machine
+- laser-welding-robot: Engineering schematic/diagram of metal components (technical drawing), not a robot
+- lat-pulldown-machine: Male athlete/wrestler portrait in ring (sports portrait), not a fitness machine
+- lav-cart-truck: Interior of aircraft lavatory/toilet (building interior component), not a service truck
+- lawn-edger: Church/building with landscaped grounds (architecture/landscape scene), not a lawn edger tool
+- leather-embossing-press: Leather product/wallet on fabric (finished leather product), not an embossing press machine
+- led-price-sign: Street scene with scooters and canopy (urban scene), no visible LED price sign
+- led-ticker-display: News broadcast screenshot showing building fire (broadcast content/scene), not an LED ticker display
+- lens-blocker: Camera lenses with bokeh reflections (camera optics), not a lens blocker tool
+- lens-groover: Male musician performing with guitar on stage (concert/portrait), not optical equipment
+- letter-opener: Image shows a Chrysler SUV sedan, not a letter opener
+- letterpress-proof-press: Image shows printed document pages, not a proof press machine
+- li-cell-21700: Image shows battery organizers/holders, not individual 21700 lithium cells
+- library-rfid-gate: Image is a diagram/infographic of RFID, not a physical library gate
+- lidar-mapping-payload: Image shows laptop and headphones on desk, not LiDAR equipment
+- lifeboat-davit: Image shows coastal pier/dock landscape, not a lifeboat davit system
+- lift-top-coffee-table: Image shows cafe setting with people, not a lift-top coffee table product
+- lighted-makeup-mirror: Image shows a primate at a fence, not a makeup mirror
+- lighthouse-beacon: Image is a technical diagram/schematic, not a photo of actual beacon equipment
+- line-array-speaker: Image shows antenna array for radio/telecommunications, not a speaker
+- livestock-scale: Image shows live cattle/cows on grass, not the weighing scale equipment
+- load-balancer-appliance: Image is a network diagram with servers, not an appliance
+- loft-bed: Image is a portrait painting of a woman, not a bed
+- lollipop-forming-machine: Image shows giant lollipop sculpture at tech campus, not a forming machine
+- longline-fishing-system: Image is a collage of birds, not a fishing system
+- longwall-shearer: Image is a portrait of a man, not mining equipment
+- lora-gateway: Image shows natural rock formation/landscape, not a LoRaWAN gateway
+- loss-in-weight-feeder: Image is a diagram of an impact wrench, not a loss-in-weight feeder
+- lumber-stacker-stickering: Image shows laminated wood cross-section, not a stacker machine
+- lymphedema-pump: Image shows swollen feet/medical condition, not the compression pump device
+- lyophilizer: Image shows frozen raspberries (product output), not a freeze dryer machine
+- machine-tending-robot: Image shows underwater robot in pool, not an industrial machine tending robot
+- makeup-air-unit: Image shows human face (medical/theatrical moulage), not an HVAC makeup air unit
+- mandrel-tube-bender: Image shows single metal rod/pin on cloth, not a tube bender machine
+- manipulator-arm-industrial: Image shows simple white mechanical arm with person, not an industrial manipulator
+- maple-syrup-evaporator: Image shows bottle of finished maple syrup, not an evaporator machine
+- marble-crystallization-machine: Image shows raw marble stone texture, not a crystallization machine
+- marine-capstan: Image shows retail storefront building named Capstan Station, not a marine capstan winch
+- marine-hydraulic-steering: Image is a vintage advertisement/document page, not actual steering equipment
+- marine-incinerator: Image shows decorative architectural sphere/tower structure, not an incinerator
+- marshmallow-extruder: Image shows candied marshmallows (product output), not an extruder machine
+- mash-filter: Image is vintage brewery engraving with barrels, not a mash filter machine
+- massage-gun: Image shows corporate office building exterior, not a massage gun
+- match-making-machine: Image shows blank aged paper/document page, not a match-making machine
+- mattress-carousel: Image shows woman wearing headphones (person portrait), not a mattress carousel
+- mattress-roll-packer: Image is a diagram of load-carrying equipment components, not mattress roll-packing machinery
+- meat-brine-injector: Image shows aerial brine mining/extraction scene, not meat injection equipment
+- meat-emulsifier: Image shows wooden boards with decorative cylinders, not meat emulsifier machine
+- meat-wrapping-machine: Image shows prepared meat dish with garnish on serving platter, not wrapping equipment
+- mechanical-pencil: Image shows pencil sharpener with shavings, not a mechanical pencil
+- mechanical-power-press: Image shows person posing with solar power tree monument at event, not press equipment
+- media-server: Image shows person being interviewed with broadcast camera, not media server hardware
+- metal-planer: Image is a historical portrait of a man, not machinery
+- metal-roof-roll-former: Image shows historical swimming pool/reservoir with person, not roofing machinery
+- micro-injection-molder: Image shows small mark/speck on paper, unclear and not clearly depicting a micro-injection molding machine
+- microbrewery-system: Image shows beer bottles (finished product), not brewery equipment
+- microfinishing-machine: Image is technical drawing of Bonsack machine (tobacco equipment), not microfinishing equipment
+- mig-welding-machine-industrial: Image shows stone church building in rural landscape, not a welding machine
+- military-drone: Image shows large military transport aircraft, not a reconnaissance UAV
+- milk-reception-unit: Image is black and white portrait photograph of a man (Harvey Milk), not equipment
+- milkshake-spindle-mixer: Image shows prepared milkshake drink in glass with garnish, not a mixer machine
+- mine-cooling-plant: Image shows people in mining/demining gear, not a cooling plant facility
+- mine-hoist: Image shows woman with hand cart/wheelbarrow, not a mine hoist
+- mine-shaft-cage: Image shows landscape terrain/geology, not a mine shaft cage
+- mobile-clinic: Portrait of two women in educational setting with chalkboard—people image, not a medical clinic facility
+- mobile-column-lift: Boat lifts on water canal system—not mobile column lifts for vehicles
+- mobile-crusher: Crushed automobiles in scrap pile—shows the crushed product, not the crushing machine
+- mobile-dental-clinic: Office building facade—architecture, not a mobile dental clinic
+- mobile-genset-trailer: Historic railway trolley equipment—not a power generator trailer
+- mobile-harbor-crane: Liebherr corporate building—architecture, not a mobile harbor crane
+- mobile-veterinary-clinic: Man writing/working indoors—portrait/action photo, not a clinic facility
+- mochi-maker: Finished mochi product (pale blocks)—shows the output, not the maker machine
+- model-trimmer: Person grooming a dog—grooming action, not a dental model trimmer machine
+- mold-temperature-controller: Microscopic crystalline material under magnification—microscope image, not temperature control equipment
+- molecular-sieve-dehydrator: 3D geometric diagram with purple/yellow lattice structure—pure diagram, not equipment
+- monitor-controller: Mission control room with operators and monitors—control room environment, not a device
+- mortuary-body-lift: Three men holding a body bag—people/portrait image, not a mechanical lift device
+- motion-control-turntable: Historical black-and-white photo of person at vintage piano/keyboard—person at instrument, not turntable
+- motorized-awning: Illustrated diagram of passive solar building design—pure diagram/illustration, not a photo
+- motorized-duck-decoy: Motorized small watercraft/fishing boat on water—boat, not a duck decoy
+- motorized-projection-screen: Abandoned old truck in desert—vehicle, not a projection screen
+- motorized-skylight: Modern building with distinctive curved architecture—building exterior, not a skylight
+- movable-glass-wall: The Great Wall of China—historical landmark, not a movable glass wall
+- mozzarella-stretcher: Empty wooden stretcher frame with no machinery—not a mozzarella stretcher machine
+- mud-logging-unit: Historical black-and-white photo of people in front of mud cabin—historical structure with people, not drilling equipment
+- multi-blanking-line: Soldiers in military gear running through grassy field—military training exercise, not manufacturing equipment
+- multi-spindle-drill-head: Corroded archaeological metal ring with scale bar—archaeological artifact, not a drill head
+- municipal-air-monitoring-station: City skyline obscured by heavy smog—shows air quality condition, not monitoring station equipment
+- muon-detector: Physics diagram with colored geometric shapes labeled S1, S2, P—pure diagram/illustration, not a detector
+- musical-jewelry-box: Portrait of a man with glasses and facial hair—portrait image, not a jewelry box
+- nail-art-printer: Geometric string art pattern on canvas—handmade string art, not a printer
+- nail-making-machine: Single metal nail on dark background—shows the finished product, not the maker machine
+- narrow-belt-sorter: Archaeological artifact—ancient metal belt fitting with scale bar, not a modern sorter
+- natural-gas-generator: Pickup truck loaded with hay bales—truck vehicle with agricultural cargo, not a generator
+- net-drum-reel: Person (DJ/musician) working at turntables—person at audio equipment, not a net drum
+- network-cable-certifier: Portrait of a man outdoors in casual clothing—portrait image, not network testing equipment
+- ninja-course-system: Two people grappling/wrestling in combat training—military/combat action, not an obstacle course system
+- nut-forming-machine: Archaeological artifact—ancient metal U-shaped object with scale bar, not modern equipment
+- nut-shaker: Close-up of roasted pistachios—shows the harvested product, not the shaker machine
+- o-ring-molding-press: Dark landscape or geological formation—landscape image, not molding press equipment
+- offshore-wind-monopile: Diagram/infographic showing foundation installation steps—illustration, not an actual structure
+- oil-deodorizer: Bowl of red/orange sauce or paste—food product, not oil deodorizing equipment
+- oil-evacuator: Satellite aerial photo of oil spill—environmental disaster image, not equipment
+- oil-fired-boiler: Steam locomotive (train engine)—transportation vehicle, not an oil-fired boiler
+- onion-harvester: Close-up of Brussels sprouts on plant—shows a different vegetable (not onions) being grown
+- open-end-spinning-machine: Brick/industrial building exterior—building facade, not spinning machinery
+- open-mouth-bagging-machine: Aerial photograph of river mouth and coastline landscape—geographical landscape, not bagging equipment
+- operable-partition-wall: Museum wall display with Japanese calligraphy and text—museum display, not a partition wall
+- operating-table: Wooden bench/seat (museum piece)—historical furniture, not a modern medical operating table
+- optical-interferometer: Control room with multiple computer monitors and operators—control room environment, not the interferometer device
+- optical-sorting-machine-food: Vintage railway advertisement poster—historical poster/document, not food sorting equipment
+- orbital-floor-machine: Inside view of spacecraft cabin/middeck with equipment—spacecraft interior, not a floor machine
+- orthopedic-traction-frame: X-ray image of bones is a medical image, not a photo of orthopedic traction equipment
+- overfill-prevention-valve: Image shows a green mesh compost bin/cage, completely unrelated to a valve
+- overhead-line-recording-car: Hockey player in uniform is a portrait/person photo, not recording car equipment
+- overhead-power-and-free-conveyor: Image shows an industrial power plant building, not a conveyor system
+- oxygen-facial-machine: Close-up portrait of person's face is a portrait photo, not the facial machine equipment
+- oyster-grading-machine: Urban street scene with buildings and cars is unrelated to oyster grading equipment
+- ozone-laundry-system: Technical diagram of oxygen-to-ozone cycle is an illustration, not a photo of laundry equipment
+- pa-active-speaker: Abstract icons representing listening concepts is a diagram/illustration, not a speaker photo
+- pad-printing-machine: Computer keyboard is a completely different device from a pad printing machine
+- paella-burner-system: Fresnel lens system from a lighthouse, not a paella burner system
+- paint-dispersion-mill: Japanese railway map is a document/map, not a photo of paint dispersing equipment
+- pallet-shuttle-lift: Space Shuttle on runway is aerospace equipment, not a pallet shuttle lift
+- pallet-shuttle-system: Satellite deployment in space is completely unrelated to pallet shuttle warehouse systems
+- pantograph-charger: Passenger train image is wrong vehicle type (train, not bus) and wrong equipment
+- paper-folding-machine: Toilet paper dispenser/holder is not a paper folding machine
+- paper-sheeter: Consumer items (All-Bran box, paper towel, egg carton) are not a paper sheeter machine
+- paraffin-embedding-station: PlayStation 5 gaming console is unrelated to paraffin tissue embedding equipment
+- parallel-kinematic-robot: Technical mechanical linkage diagram is an illustration, not a photo of robotic equipment
+- parcel-dimensioner: Aerial shipping facility photo shows building/logistics facility, not dimensioning machine
+- patch-bay: Pumpkin patch field is a landscape/farm scene unrelated to studio patch bay equipment
+- pattern-grading-machine: Gleason prostate cancer grading diagram is a medical chart, not a pattern grading machine
+- patty-forming-machine: Military personnel indoors is a person/portrait photo, not a patty forming machine
+- pavement-profiler: Natural tessellated rock formations landscape photo is unrelated to pavement profiler equipment
+- pc-water-cooling-kit: Industrial cooling tower facility is a power plant, not PC water cooling equipment
+- pellet-mill-feed: Cattle herd in feedlot is livestock/farm scene, not a pellet mill machine
+- pem-electrolyzer-stack: Technical diagram of PEM electrolysis is an illustration, not a photo of electrolyzer stack
+- penny-farthing: Historic group photo with building is not a photo of the penny-farthing bicycle
+- perforating-press: Archaeological metal artifact with measurement scale is not a perforating press machine
+- periscope: Man photographing artwork in museum is a person photo, not a periscope
+- personal-blender: Notebook and pen are office supplies, completely unrelated to a blender
+- pet-incubator: Aquarium with aquatic plants is not a pet incubator
+- pickling-line: Ammunition projectiles arranged in rows are completely unrelated to metal pickling equipment
+- pile-driver: Painting/artwork of construction scene is an artwork, not a photo of pile driver equipment
+- pin-tumbler-rekey-kit: Light rail train at station is wrong vehicle type and unrelated to lock rekeying kits
+- pipe-bending-machine-hydraulic: White PVC pipe fitting is a component, not a pipe bending machine
+- pipe-crawler-robot: Urban street with small drainage channel is a landscape scene, not crawler robot equipment
+- pipe-facing-machine: Skate park blue half-pipe ramp is unrelated to industrial pipe facing machinery
+- pipe-threading-machine: Red pipe wrench hand tool is not a pipe threading machine
+- planetary-gearbox: Turbofan engine cross-section diagram is a technical illustration, not a photo
+- plansifter: Farmhouse building exterior is not a photo of grain processing plansifter equipment
+- plastic-granulator-machine: Plastic sugar bags stacked together are consumer product bags, not granulator machine
+- plastic-washing-line: Colorful clothespins on clothesline are accessories, not plastic washing line equipment
+- plate-freezer: Colored tectonic plate geological map is a diagram, not a plate freezer
+- plate-shear: Wooden timber connector is a structural component, not a plate shear machine
+- pleating-machine: Portrait painting of person is artwork, not a photo of pleating machinery
+- plunger-lift-system: Historical street scene photograph with no plunger lift visible; completely unrelated to the product category
+- pneumatic-resistance-machine: Physics diagram showing rolling resistance forces, not an actual machine or equipment
+- pneumatic-ship-unloader: Landscape photo of industrial port/dock facility with buildings; shows the location context but not the equipment itself
+- pneumatic-vacuum-elevator: Technical blueprints and diagrams of pneumatic tube systems; illustration/diagram, not a photo of real equipment
+- pocket-welting-machine: Close-up photo of embroidered buttonhole detail on fabric; shows product output rather than the machine equipment
+- polarimeter: Observatory building with dome in snowy mountain setting; landscape/architecture, not the polarimeter device
+- pond-pump: Close-up photo of cooked koi fish; food item completely unrelated to pond pumping equipment
+- pool-pump: Technical diagram of internal combustion engine with labeled components; schematic diagram, not equipment
+- popcorn-industrial-popper: Close-up photo of puffed rice cereal; food product and wrong type of snack for this category
+- porcelain-furnace: Photo of dental crown/tooth restoration; shows product output from the furnace, not the furnace equipment itself
+- portable-fridge-freezer: Interior frost/ice buildup in full-size Samsung refrigerator; not portable and shows interior malfunction not the product
+- portable-tire-inflator: Photo of flat tire on vehicle; depicts the problem that the tool solves, not the tool itself
+- post-peeler: Portrait photograph of older man in professional attire; person/portrait as subject, unrelated to peeler tool
+- post-processing-depowder-station: Interior photo of Kyoto train station; architectural space photograph, not depowdering station equipment
+- postal-scale: Documents and papers on a surface; document/paperwork photo, not a scale device
+- potato-chip-fryer-line: People standing at beach/rocky area (Potato Chip Rock landmark); landmark location, not production equipment
+- pothole-patcher: Photo of car wheel in pothole; depicts the problem that equipment solves, not the equipment itself
+- poultry-plucker: Vintage black-and-white photo of barber/hairdresser styling woman's hair; person activity unrelated to poultry equipment
+- powder-coating-line: Empty field/landscape with distant industrial buildings; landscape photo, not coating equipment
+- power-carpet-stretcher: Vintage newspaper ad text; document/advertisement, not equipment
+- power-conditioner: High voltage power transmission lines and electrical tower; outdoor electrical infrastructure, not a power conditioner device
+- power-optimizer: Binary optimizer flowchart/diagram with boxes and arrows; abstract technical diagram, not actual equipment
+- powered-conference-table: American football game action with players; sports activity completely unrelated to office furniture
+- precision-planter: Agricultural field landscape with irrigation tower; landscape photo, not planter machinery
+- press-brake-servo-electric: Person examining white sculptural object in workshop; depicts unrelated sculptural object, not a press brake
+- press-tending-robot: Artistic sketch/drawing of humanoid figure; illustration/drawing, not a photograph of real equipment
+- pressotherapy-system: Colorful abstract sphere made of flowers and pompoms; art object, not medical/pressotherapy equipment
+- pressure-forming-machine: Historical technical diagram of pressure cooker components; historical diagram/illustration, not forming machine
+- pretzel-warmer: M&M candy display; different food product (candy), not pretzel warming equipment
+- profile-projector: Patent or technical drawing schematic; patent drawing/diagram, not a photo of the projector equipment
+- proportional-valve: Technical CFD diagram showing valve flow simulation; schematic diagram, not actual valve equipment
+- prowler-sled: Street festival scene with people and signage; festival event photo, not the push sled equipment
+- pugmill-mixer: DJ mixer booth sign in music venue; music equipment signage, not pugmill industrial mixer
+- push-around-lift: V-22 Osprey military aircraft in flight; aircraft completely unrelated to vertical lift platforms
+- queue-ticket-dispenser: Vintage railway ticket with printed text; historical document, not a ticket dispenser machine
+- radar-level-transmitter: Duga radar array - massive Soviet military radar installation; military radar equipment, not a level transmitter
+- raid-storage-array: RAID partition diagram showing cylindrical data storage blocks; schematic diagram, not actual hardware
+- rail-lubricator: Statue/monument sculpture, not equipment
+- rail-saw: Historical steam locomotive on tracks, not a rail saw machine
+- rain-effect-system: Satellite weather image showing lake-effect rain phenomenon, not a machine
+- raise-climber: Person climbing a snow-covered mountain peak, not climbing platform equipment
+- raman-spectrometer: Portrait photograph of a man, completely unrelated to scientific equipment
+- raschel-knitting-machine: Technical diagram/schematic showing loop formation, not a photo of the machine
+- raw-cattle-hide: World map data visualization of production, not the product material
+- raw-cobalt-hydroxide: Scientific microscopy documentation with marked structures, not the material
+- raw-copper-concentrate: Industrial facility/construction site, not the concentrate material
+- raw-crude-oil: Bar chart showing price data over time, not the material
+- raw-ilmenite-concentrate: Bar chart showing production data by source, not the material
+- raw-kaolin-clay: Museum artifact anthropomorphic clay figure, not kaolin clay material
+- raw-lead-concentrate: Historical black-and-white photo of workers in agricultural/industrial scene, not the material
+- raw-lithium-brine: Molecular model diagram, not a photo of the material
+- raw-nickel-laterite-ore: Historical marker/plaque on red stone, not ore material
+- raw-phosphate-rock: Line graph of production data, not the material
+- raw-rare-earth-concentrate: Vintage advertisement/promotional document with facility photo, not the material
+- raw-salt-brine: Infographic showing process steps, not the brine material
+- raw-thermal-coal: Power plant landscape aerial photo, not the coal material
+- raw-tin-concentrate: Interior of mining facility with processing equipment, not the concentrate material
+- raw-wood-pulp: Historical worker loading pulp into a vat, showing process not the material
+- raw-zinc-concentrate-feed: Historical World's Fair mining exhibit display/museum piece, not the concentrate
+- ream-wrapping-machine: Vintage advertisement postcard for Coates Bros. & Co., not a machine
+- reclaim-apron-feeder: Patent diagram/technical drawing, not a photograph of the machine
+- record-cleaning-machine: Old postcard or document, not a record cleaning machine
+- reflow-oven: Computer spreadsheet graph showing temperature curves, not the oven
+- rehabilitation-robot-arm: Collage of various robot arm images/drawings, not a single coherent photo
+- relay-test-set: Bare electrical relay component with copper coil, not a test set instrument
+- rendering-cooker: Prepared food dish in a pot, not a rendering cooker machine
+- resin-wash-cure-station: Portrait photograph of a man, completely unrelated to a 3D printing station
+- retort-sterilizer: Wooden/metal curved pipe artifact, not a sterilizer
+- revolving-stage-drive: Aerial photo of NYC and Central Park, completely unrelated
+- rfid-reader-fixed: Person standing in a hallway, not an RFID reader device
+- ribbon-blender-food: 3D rendered human head with hair and ribbon, not a food blender machine
+- riflescope-thermal: Thermal/infrared image of a building facade, not the scope device itself
+- right-angle-drill: Close-up of drill bits in a row, not a right-angle drill tool
+- ring-rolling-machine: People with raised fists on stage, not a ring rolling machine
+- ring-stretcher: Military naval personnel performing stretcher rescue, not a ring jewelry tool
+- riverine-fish-counter: Rural river landscape, structure not clearly visible
+- robot-window-cleaner: Arched windows with people visible through glass panes, not a robot device
+- rock-bolter: Fish caught in a net, not a rock bolter machine
+- roll-crusher: Archaeological specimen on white background, not a roll crusher
+- roll-tapping-machine: Military personnel performing field emergency medical procedure
+- roller-leveler: Historical patent drawing, not a photo of the equipment
+- roller-tool-cabinet: Kitchen interior with cabinets, not a tool cabinet
+- roof-drain-system: Cityscape aerial urban landscape, not a roof drain system
+- roof-hatch: Armored riot control vehicle, not a roof hatch
+- roof-tile-press: Archaeological ceramic pottery fragments, not a roof tile press machine
+- room-scheduling-panel: Meeting room with people at dining table, not a scheduling panel device
+- roro-ship: Map showing Ro-Ro Ports and Inland Waterways, geographic diagram not a ship
+- rotary-bottle-filler: Image shows the Finley Rotary Park Bottle Tree (an art installation), not a filling machine
+- rotary-deposit-safe: Historic black and white photo of people in an interior scene, not a safe or equipment
+- rotary-water-well-rig: Historic photo of water geyser/blowout, not the drilling rig equipment itself
+- roving-frame: Image shows a Lunar Roving Vehicle from Apollo mission, not a textile roving frame
+- rubber-calender: Technical schematic diagram of roll configurations, not an actual machinery image
+- rudder-stock-assembly: Aerial view of industrial shipyard facility, not a rudder stock assembly
+- runway-light: Aerial view of airport runway, not a runway light fixture
+- sack-tipping-station: Historic promotional artwork depicting coal worker, not actual equipment
+- safety-laser-scanner: Person holding a handheld laser scanner in ruins—wrong product category (industrial safety device vs. handheld survey tool)
+- safety-light-curtain: Window with decorative household curtains, not a safety light curtain device
+- salon-backwash-unit: Vintage car at an outdoor event, not salon furniture
+- salon-styling-station: Vintage car from 1970s, not salon styling furniture
+- sand-classifying-tank: Small steam locomotive train, not sand classifying equipment
+- sand-reclamation-system: Sign prohibiting beach material removal, not equipment
+- sausage-stuffer: Prepared food platter (meats, sausages, broth), not a machine
+- sawmill-headrig: Field with hay bales and rainbow—landscape scene, not equipment
+- scraped-surface-heat-exchanger: Archaeological artifacts/bones with measurement scale, not a heat exchanger
+- screen-printing-machine: Historical newspaper printing press artwork, not a screen printing machine
+- sealant-cartridge-filler: Historical artwork showing ammunition cartridge filling, not sealant equipment
+- seamless-pipe-piercing-mill: Coiled blue plastic pipes/hoses in storage, not a seamless pipe piercing mill
+- seamless-ring-roller: Person's hands holding a ruler/measuring tape, not a ring rolling mill
+- searchlight: Military jet aircraft in flight, not a searchlight
+- seasoning-coating-drum: Historical street market scene sketch, not a seasoning drum
+- seat-assembly: Colorful fabric cushions/blankets on clothesline, not a seat assembly
+- secondary-cone-crusher: Shaved ice frozen drink (snow cone), not a cone crusher
+- section-bending-machine: Wooden agricultural equipment/wagon parts in field, not a metal bending machine
+- security-patrol-robot: Storefront/building exterior with people, no robot visible
+- seedling-grafting-machine: Close-up of manual plant grafting on tree branch, not a mechanical grafting machine
+- seismic-vibrator-truck: Beach landscape scene, not a seismic vibrator truck
+- selective-demolition-robot: Control panel/interface with buttons and readout, not a demolition robot
+- self-propelled-modular-transporter: Astronaut on lunar surface during Apollo mission, not a modular transporter
+- sewer-jetting-truck: Commercial building storefront with people, not a sewer jetting truck
+- shaft-mounted-reducer: Industrial mining towers/headframes, not a shaft-mounted reducer
+- sheet-pile-press: Technical patent drawing/schematic, not a photo of actual equipment
+- shell-molding-machine: Landscape painting visible through window frame, not a molding machine
+- shoe-polisher-machine: NYC street scene with buildings and yellow cabs, not a shoe polisher
+- shore-power-pedestal: Statue of a woman, not a marina power pedestal
+- shotcrete-sprayer-mining: Case IH agricultural crop sprayer, not an underground shotcrete sprayer
+- shrimp-peeling-machine: Prepared shrimp pasta (food dish), not a machine
+- side-loader-forklift: Toyota forklift specification label/documentation, not an actual forklift
+- side-loading-forklift: Historical cargo ship loading scene from 1959, not a side-loading forklift
+- sidecar-rig: Yellow drilling rig and orange construction vehicles, not a motorcycle sidecar rig
+- singeing-machine: Antique Singer sewing machine—different product category (sewing vs. textile singeing)
+- single-needle-lockstitch-machine: Technical diagram of stitching types—schematic/illustration, not a photo of actual equipment
+- sizing-machine: Technical diagram of textile machinery—schematic/illustration, not an actual equipment photo
+- ski-erg: Residential house exterior. Completely unrelated to a skiing ergometer machine.
+- skin-pass-mill: Technical circuit/process diagram. Not a photo of equipment.
+- sleeper-laying-machine: Railroad tracks with concrete sleepers/ties. Not equipment for laying sleepers.
+- slide-in-range: Compass or dial instrument. Not a kitchen slide-in range.
+- sliding-wardrobe: Stone blocks or pavers. Not furniture or a wardrobe.
+- slotter-machine: Gambling slot machines. Not a slotting machine (industrial cutting tool).
+- slotting-machine: Gambling slot machines. Not a slotting machine (industrial cutting tool).
+- smart-bench: Portrait of a basketball player in action. A person is the subject, not a smart bench.
+- smart-body-scale: Antique balance scale with weights. Not a modern smart body composition scale.
+- smart-pest-monitor: Cityscape landscape photograph. Not pest monitoring equipment.
+- smoke-exhaust-fan: Plaque or sign text only ('SMOKE OUTLET FROM BASEMENT'). Not equipment or a fan.
+- smt-stencil-printer: Solder paste container/consumable. Not the stencil printer equipment itself.
+- snow-clearing-robot: Military tank vehicle. Not a snow clearing robot.
+- soap-stamping-machine: Red stamp/ticket vending machine. Not soap stamping equipment.
+- soil-stabilization-spreader: Technical diagram of Vetiver system. Not a photo of actual equipment.
+- solar-camp-shower: Diagram of solar system with planets. Not shower equipment.
+- solar-garden-light: Greenhouse interior with plants and water features. Not a garden light.
+- solar-inverter: Total solar eclipse photograph. Not electrical equipment.
+- solar-roof-tile: Aerial landscape view of red tile roofs in town. Not solar roof tiles.
+- solar-sail: Framed artwork or portrait in space. Not a solar sail spacecraft.
+- solar-water-pump: Technical schematic or diagram of thermosiphon system. Not a photo of actual equipment.
+- solvent-extractor-oil: Cannabis/hash oil extraction product. While tangentially related to extraction, this shows the product, not the equipment.
+- sonic-drill-rig: Drill pipe or string detail. Too unclear and appears to be a component, not the drilling rig equipment.
+- sonobuoy: People handling military ammunition or ordnance. Not a sonobuoy device.
+- soup-kettle: Historical engraving of sailing ships. Not a soup kettle.
+- sour-water-stripper: Brown muddy river or water landscape. Not industrial equipment.
+- spinal-decompression-table: Person receiving medical treatment/procedure. A person is the subject, not the equipment table itself.
+- spindle-cotton-harvester: Historical painting of people harvesting cotton in field. Not a mechanical cotton picker machine.
+- spindle-sander: Historical black and white photograph of a person (woodworker). A person is the subject, not the sander equipment.
+- spiral-concentrator: Ornate orange and yellow government building (architecture). Not mining equipment.
+- spiral-freezer: Aerial photograph of a circular sports stadium/arena complex. Not a spiral freezer machine.
+- spiral-pipe-mill: Historic ruin or structure with arches and a large pipe. Not a pipe mill.
+- spiralizer-electric: Vintage printed instruction sign about Edison Electric lights. Not a vegetable spiralizer.
+- spline-rolling-machine: Scientific graph/chart showing seismic or geological data. Not equipment.
+- spot-welding-gun: Disassembled M3 submachine gun with components. Not welding equipment.
+- spray-drying-tower: Historical drawing/sketch of Niagara Falls with Terrapin Tower. Not industrial equipment.
+- spreader-stacker-mining: Snow spreader vehicle. While a spreader, not a mining spreader/stacker.
+- spring-coiling-machine: Coil spring component on blue background. Shows the product output, not the machine that makes it.
+- spunlace-nonwoven-line: Consumer tissue/wipes storage containers and dispensers. Not industrial production line equipment.
+- squeeze-casting-machine: Small ancient coin on ruler scale (archaeological artifact). Not casting equipment.
+- stadium-ribbon-display: Exterior of a football stadium building. Not a ribbon display system.
+- stage-barricade: Historical portrait painting of a person in formal indoor clothing. A person is the subject, not equipment.
+- stand-mixer: Hand mixer appliance with whisks. Not a stand mixer.
+- stand-mixer-tilt-head: Portrait photograph of a woman posing for fashion photo. A person is the subject, not equipment.
+- standing-desk-converter: Red and white train on railway tracks, completely unrelated to standing desk converter
+- staple-forming-machine: Person singing/performing with microphone, unrelated to staple forming machine
+- star-tracker-mount: Handheld gaming device (PSP), unrelated to star tracker mount
+- steam-humidifier: Industrial water treatment trough/gutter system, unrelated to steam humidifier
+- steam-oven: Historic brick coke ovens/ruins, not a built-in steam oven for cooking
+- stone-picker: Shorebird (plover), completely unrelated to stone picker machine
+- street-sweeper: Person manually sweeping street, page is about street sweeper machine not manual labor
+- stroke-delimber: Person in forest, page is about delimber machine not manual delimbing
+- studio-floor-monitor: Television studio interior with set design, not a monitor product
+- studio-jib-arm: Camera dolly being moved by crew, wrong equipment (dolly not jib arm)
+- submarine-rov: Agricultural machine/trailer, not an ROV
+- subsurface-drip-machine: Rural landscape with bare trees and dirt roads, no machine visible
+- sugar-mill-roller: Industrial factory complex/mill facility from distance, not the roller machinery itself
+- surgical-aspirator: Close-up of human body undergoing liposuction, not the suction unit equipment
+- surgical-stapler: Close-up of surgical staple closure on human head, not the stapler device itself
+- surveying-level: Book page with historical landscape photographs, document not surveying equipment
+- sushi-robot: Street/building exterior, not sushi or sushi robot machine
+- switch-tamper: Yellow pedestrian crossing button, unrelated to railway switch & crossing tamper
+- system-scaffolding: Building/factory exterior with no visible scaffolding in frame
+- tab-welding-machine: PK machine gun weapon, completely unrelated to tab welding machine
+- tablet-coating-pan: Historical indoor scene photograph, unrelated to tablet coating pan machine
+- tablet-counting-machine: Video game controller, unrelated to tablet counting machine
+- taffy-pulling-machine: Wrapped candies and taffy (finished product), not the machine itself
+- takoyaki-machine: Prepared takoyaki food on plate (finished product), not the machine
+- takoyaki-maker: Potato chips close-up, unrelated to takoyaki maker
+- tattoo-power-supply: Line drawing/diagram of tattoo machine, pure diagram not photograph of equipment
+- telegraph-set: Old stone mill building, completely unrelated to telegraph set
+- teller-cash-recycler: Roadside field with rusty vehicle in distance, not a cash recycler machine
+- temperature-transmitter: Building exterior/company signage, not a temperature transmitter
+- tennis-ball-machine: Single yellow tennis ball, the ball not the launching machine
+- terry-towel-loom: Close-up texture of terry towel fabric (finished textile), not a loom machine
+- tethered-drone-system: Large military aircraft (C-141A) in flight, not a tethered drone system
+- thermal-transfer-overprinter: Scientific diagram of thermal transfer mechanisms, diagram not photograph of equipment
+- three-phase-separator: Person performing music on stage, completely unrelated to oil/gas separator
+- tile-saw: Decorative tile artwork/ornamental design, not a tile saw machine
+- tire-building-machine: Portrait of man in formal dress (historical), person portrait not machine
+- tire-curing-press: Bicycle tire close-up, page is about automotive tire curing press
+- tire-inflation-kiosk: Military aircraft in flight, completely unrelated to tire inflation kiosk
+- tire-tread-scanner: Object partially buried in concrete/material (unclear), unrelated to tire tread scanning
+- tire-uniformity-machine: Historical WWII button hole machine document/photo, garment manufacturing not tire equipment
+- tissue-converting-line: Diagram of tissue engineering biological processes, diagram not converting line machine
+- tissue-processor: Histology microscopy image of biological tissue cells, not a tissue processor machine
+- tofu-maker: Finished tofu skin/product on plate (finished product), not tofu-making machine
+- tortilla-press-line: The image shows a cooked tortilla on a plate (finished product), not manufacturing equipment. A reader would expect to see a machine or production line, not food.
+- total-station: Interior of modern train/subway station. A total station is a surveying instrument, not an architectural space. Clear mismatch.
+- tote-stacking-robot: A luxury leather handbag/tote bag, not a warehouse handling robot. Completely unrelated product category.
+- touch-pool-life-support: Band performing on stage (music group). This has no relation to aquarium life support systems. Readers would immediately notice the mismatch.
+- tow-plow: Building exterior with blue siding and parked cars. Not a tow plow device or trailer at all.
+- tower-clock: Downtown cityscape with tall building (appears to be a modern skyscraper). A tower clock mechanism is a specific device, not a building.
+- traction-transformer: Technical blueprint/schematic drawing, not a photograph of the actual device. A reader expects to see the equipment itself.
+- transfer-stamping-system: Postage stamp from India. Completely unrelated to stamping machinery. This is a small decorative object, not equipment.
+- transit-passenger-display: Passengers boarding a vessel/ferry. A display device is equipment, not people. Clear category mismatch.
+- transponder-key-programmer: Vintage synthesizer/music keyboard control panel, not an automotive key programmer. Different industries entirely.
+- transport-platform-hoist: Interior view of railway/transit platform. This is architecture, not construction equipment or hoisting machinery.
+- trash-compactor-kitchen: Large landfill compactor (heavy equipment). A kitchen trash compactor is a small home appliance. Different categories.
+- traveling-gun-irrigator: Historical photo of a naturalist/explorer with gun and equipment. Has nothing to do with irrigation equipment.
+- tray-former: Warehouse interior with cable trays and structural elements. A tray forming machine manufactures trays; this shows building infrastructure.
+- trench-drain-system: Abstract aerial photo of circular drain opening. While drain-related, this is an architectural/abstract image, not equipment machinery.
+- trenching-machine: Vintage black and white photo of a person (driver), not showing trenching/digging equipment. Portrait-focused, not product-focused.
+- tunnel-luminaire: Monument structure at top of tower. A tunnel luminaire is a light fixture; this is an architectural landmark, not lighting equipment.
+- tunnel-oven: Domestic electric double-chamber kitchen oven. An industrial tunnel oven is large-scale manufacturing equipment, not a home appliance.
+- turkish-coffee-machine: Manual hand-pouring of Turkish coffee into a cup. This shows the brewing method, not a machine device.
+- turret-truck: Person standing in sports field next to small vehicle with supplies. Not a warehouse turret lift truck (orderpicking equipment).
+- twist-wrapping-machine: Pile of colorful candies/sweets at market. This is the finished product, not the wrapping machinery.
+- two-hand-control-station: Vintage landscape photo of park or garden with water feature. Completely unrelated to industrial control equipment.
+- two-post-lift: Diagram of rockets and missiles at different scales. This is space/military hardware, not a vehicle lift for automotive shops.
+- two-shot-injection-molder: Computer keyboard keycaps close-up. These are small plastic peripherals, not injection molding manufacturing equipment.
+- uht-processing-system: Three people in white coats with a cow (portrait/farm scene). A processing system is industrial equipment, not people.
+- ultrasonic-rail-tester: Yellow/green locomotive on railroad tracks. This is a train vehicle, not a specialized rail testing trolley.
+- ultrasonic-scaler: Close-up of a dental hand tool/pick on wooden surface. A dental ultrasonic scaler is a powered electrical device, not a manual hand tool.
+- under-vehicle-inspection-system: Exterior of gas station/service facility building. This is infrastructure/building, not inspection equipment.
+- underwater-pool-light: Large ship or barge structure photographed from below. This is maritime infrastructure, not a pool lighting fixture.
+- universal-cylindrical-grinder: Wooden cabinet or shrine with decorative panels. This is furniture/decorative object, not grinding machinery.
+- utility-solar-inverter: Bar chart showing solar capacity additions over time. This is a data visualization, not the equipment itself.
+- uv-curing-lamp: Diagram of UV curing process showing molecular structures. This is an instructional diagram, not a photograph of lamp equipment.
+- uv-flatbed-printer: Store interior/showroom space. This is retail architecture, not a UV flatbed printing machine.
+- uv-nail-lamp: Human hand with decorated artificial fingernails. This shows the result of using the lamp, but focuses on nail art, not the lamp device itself.
+- v-blender: 3D rendering software (Blender) interface screenshot. This is a software tool, not a V-blender industrial mixing machine.
+- vacuum-blender: Hardware store shelf with various items. This is a retail shelf, not a vacuum blender machine.
+- vacuum-ejector: Internal automotive engine components (hoses, wires). These are engine parts, not a vacuum ejector system.
+- vacuum-infusion-system: Aircraft (drone/UAV) on runway. This is a vehicle, not a vacuum infusion manufacturing system.
+- vacuum-mixer-dental: City street/plaza with buildings. This is urban architecture, not a dental vacuum mixer device.
+- vacuum-pan-sugar: Vintage steam locomotive with vacuum brake equipment. While vacuum-related, this is a train vehicle, not sugar processing equipment.
+- vacuum-sausage-stuffer: Processed meat/sausage products hanging. This shows the finished food product, not the stuffer machine.
+- vacuum-tumbler-marinator: Red thermos/vacuum flask (beverage container). A tumbler/marinator is food processing equipment, not a beverage storage container.
+- vav-terminal-box: Diagram/schematic of VAV system layout. This is a technical drawing, not a photograph of actual equipment.
+- vehicle-turntable: Man at desk with vintage turntable equipment (record player). This is audio equipment, not a vehicle turntable (industrial train/vehicle rotation platform).
+- vein-finder: Historical mining/coal vein photograph. This is geological/mining documentation, not a medical vein-finding device.
+- velvet-weaving-machine: Velvet fabric textile sample. This is the finished product, not the weaving machine that creates it.
+- vertical-broaching-machine: Vintage advertisement for industrial slacker machine. While machine-related, it's advertising different equipment, not a broaching machine.
+- vertical-climber: Woman at social dining/wine tasting event. This is a social setting, not exercise equipment.
+- vertical-turbine-pump: Cross-section diagram of large turbine (Francis turbine). While turbine-related, this is a diagram, not a pump device.
+- vet-hydrotherapy-treadmill: Interior building scene with decorative bannister/railing. This is architectural interior, not veterinary equipment.
+- vet-icu-cage: Zoo sign with trees. This is signage/landscaping, not a veterinary ICU cage device.
+- vet-surgical-table: Exterior of modern building with glass windows. This is commercial building architecture, not surgical equipment.
+- veterinary-anesthesia-machine: Image shows surgical operating field with exposed animal anatomy and organs, not an anesthesia machine
+- veterinary-dental-unit: Image is a heraldic eagle seal/emblem, completely unrelated to dental equipment
+- vibrating-grizzly-feeder: Image shows a bear danger warning sign in wilderness, not a grizzly feeder machine
+- vibratome: Image shows fluorescent-stained tissue cross-section under microscopy, not a vibratome machine
+- vineyard-harvester: Image shows hands holding harvested grapes, not a harvesting machine
+- vineyard-robot: Image is a professional headshot of a woman's face at an event, not a vineyard robot
+- visitor-kiosk: Image shows a wooden ranch gate at trail entry, not a visitor management kiosk
+- wafer-prober: Image shows ornate wooden decorative panel with carved sun motif, unrelated to probe cards
+- walk-behind-sweeper: Close-up of tire tread with water droplets has no connection to a sweeper machine
+- walkie-stacker: Image shows modern glass building exterior with no forklift or stacker visible
+- walking-beam-furnace: Image is a historical technical drawing/schematic, not a photo of actual equipment
+- warp-knitting-machine: Image is an abstract diagram of knit loops/stitches, not a machine
+- warping-machine: Image is a technical diagram/schematic drawing, not an actual machine
+- washer-stamping-press: Image shows a vintage postage stamp with historical illustration, unrelated to a stamping press
+- water-fed-pole-system: Image shows distilled water bottle in display cabinet, not a water-fed pole system
+- water-gun: Image shows HVAC outdoor compressor unit, unrelated to water guns
+- water-refill-station: Image shows water being poured into a glass, not a refill station
+- water-softener: Image is a chemical reaction/molecular structure diagram, not a water softener machine
+- wax-injector: Image shows modern urban architecture with buildings, no wax injection equipment
+- weld-inspection-crawler: Image shows people in hazmat suits with hazardous materials, not weld inspection equipment
+- wheel-alignment-machine: Image shows dumbbells/weights with blue rod, unrelated to wheel alignment
+- wide-belt-sander: Image shows bicycle chainring/drivetrain component, not a belt sander machine
+- wind-turbine-yaw-drive: Image shows bolts/fasteners on white background with no wind turbine context
+- wine-press: Image is a classical Roman fresco/artwork, not a pneumatic wine press machine
+- wire-arc-additive-machine: Image shows industrial building exterior, no wire arc additive manufacturing equipment
+- wireless-video-transmitter: Image shows white luxury SUV/car with no wireless video equipment visible
+- wraparound-case-packer: Image shows woman performing/dancing on stage, not packaging equipment
+- yarn-doubling-machine: Image is a blank cream-colored document page with no actual content
+- yarn-twisting-machine: Image shows person in contorted/inverted position indoors with curtains, not a machine
+- zigzag-sewing-machine: Image shows Art Deco building architecture, not a sewing machine
+- zigzag-spring-former: Image shows person in contorted acrobatic pose, matched to 'Zigzag' title word only
+- zoo-habitat-filtration: Image shows Dublin Zoo entrance building sign, not filtration equipment
+
+## Flagged then kept on second look (245)
+
+Pass-1 flags overturned by the reader-test rubric; left mapped. The pass-1
+complaint is preserved so a human can re-judge any of these later.
+
+- acoustic-guitar: A person's hands playing a guitar with sheet music visible, not a close-up of a guitar product
+- adjustable-kettlebell: A rusty kettlebell weight outdoors in grass, not an adjustable kettlebell
+- airblast-orchard-sprayer: A bare orchard in winter/dormant season, no sprayer visible
+- airport-checkin-kiosk: Airport counter area with staff and passengers, possibly service counter rather than self-service kiosk
+- ais-transponder: Dark interior workspace with navigation screens and equipment, appears to be ship bridge rather than specific AIS device
+- apheresis-machine: Medical collection bags and equipment that may relate to apheresis
+- aquarium-chiller: Reef aquarium with coral and fish, shows full system rather than chiller component
+- ballast-undercutter: Close-up of railroad ballast stones and wooden ties, depicts material not equipment
+- cable-blowing-machine: Fiber-optic cable with light endpoints - not a cable blowing machine that installs cables
+- cable-coiling-machine: Close-up of copper wire strands - not a machine that coils cables
+- cable-plow: Historical black and white photo of vintage cable pulling equipment with two men - too old and unclear to confirm it's a cable plow
+- camping-cooler: Cooler box with ice packs/blood bags - this appears to be medical/military cooler, not a camping cooler
+- capsule-filling-machine: Pharmaceutical capsules (product output, not the filling machine)
+- case-erecting-robot: Internal electronic/mechanical components of a robot, not the assembled robot
+- catamaran: Sailing catamaran with sail - not a power catamaran
+- central-telemetry-station: Hand holding a telemetry monitoring device - component, not station
+- column-still: Distillation equipment and bottles in an indoor setting, but appears to be laboratory or decorative display rather than industrial column still.
+- commodity-ethylene: Containers on a table which may represent ethylene storage, but image is ambiguous.
+- commodity-palladium-sponge: Brown powder (described as palladium acetate, not palladium sponge)
+- commodity-pvc-resin: Decorative PVC stands/objects (exclamation mark symbols), not resin
+- commodity-tin-ingot: Tin ingot display piece with plaque (appears to be a historical artifact or sculpture)
+- commodity-urea: Industrial turbine rotor assembly (from urea factory, not the commodity itself)
+- compact-refrigerator: Compact kitchen interior with refrigerator and cabinets, not the product itself
+- concrete-pump-truck: Rural landscape with abandoned concrete pump equipment, not a functional truck
+- confetti-cannon: Man at a wedding being showered with confetti
+- confined-space-winch: Industrial metal pipe or vessel with bolted flanges, unclear if winch or tank component
+- construction-hoist: Historic black and white photo of construction site with concrete towers
+- continuous-belt-furnace: Historic black and white industrial machinery, appears to be blast furnace with internal structure
+- continuous-butter-churn: Historic black and white photo of woman operating a hand churn/butter-making equipment
+- coral-propagation-system: Underwater coral reef ecosystem
+- core-orientation-tool: Interior of archive/storage facility with cored samples on shelves
+- core-winding-machine: Grid of transformer coil cores mounted on frame
+- cotton-picker: Historic painting of people picking cotton in field
+- cotton-stripper: Cotton plant with cotton bolls
+- crab-boat: A person holding a crab trap over water, but not showing the boat itself clearly
+- crankshaft-grinder: Technical diagram/sketch of a machine, not actual equipment
+- crawler-tractor: Black and white photo of an old tracked tractor at a factory
+- cryosurgery-unit: Liquid nitrogen being poured, but not showing the cryosurgery equipment unit
+- curling-stone: Curling sport being played, not a curling stone alone
+- deburring-machine: Close-up photo of a slit/edge, not a deburring machine
+- demand-response-controller: Electrical/smart home device mounted on wall
+- demolition-pulverizer: Pile of concrete wires/reinforcement at demolition site
+- dental-laser: Welding arc/bright light, not dental laser equipment
+- dental-sintering-furnace: Close-up of sintered zirconia material/powder, not furnace
+- dental-xray: Dental radiographs showing tooth decay/pathology images
+- digital-billboard: Times Square street scene with people and multiple billboards (landscape, not product)
+- dock-leveler: Warehouse dock area with multiple dock levelers (landscape, not product detail)
+- dust-extractor: Sawdust or wood dust pile, not a HEPA dust extractor machine
+- electric-moped: Yellow and white electric moped/scooter with pedals
+- electric-skateboard: Person holding skateboard at outdoor event, not skateboard itself
+- electronic-key-cabinet: Equipment/machinery in what appears to be a cabinet or enclosure
+- embroidery-machine: Close-up photograph of embroidered fabric with decorative stitching pattern, not the machine itself
+- emg-machine: Patient hands with electromyography electrode placement for nerve testing, not the EMG machine itself
+- evaporative-cooler: Large pottery jug or vessel covered with fabric in water, appears to be ancient artifact or demo setup, not a modern cooler
+- fabric-spreading-machine: A woman manually spreading/holding red fabric, not an automated spreading machine
+- fan-filter-unit: An interior ceiling of a clean room or warehouse, not a fan filter unit itself
+- field-shower-system: A person using a shower, not a field shower system apparatus
+- fire-truck: An overhead/angled view of a fire truck with blue and yellow lights, unclear if it's actual fire truck or artistic rendition.
+- floor-buffer: Shop window display with various cleaning/maintenance equipment, not a floor buffer in use
+- floor-shot-blaster: Person operating sandblasting equipment on glass/metal surface, not a floor shot blaster
+- flow-forming-machine: Black and white industrial equipment in workshop setting, too blurry to clearly identify specific machine type
+- foam-fire-extinguisher: Firefighters spraying foam on snow/training ground, not showing the extinguisher product
+- foam-molding-machine: Close-up of EPS foam beads in hand, not the molding machine equipment
+- foam-proportioner: Truck spraying water/foam on road surface, could be foam system application but unclear if product itself
+- followspot: Black and white historical image of spotlight operation/theater lighting, unclear if actual product
+- fuel-polishing-system: Container of separated fuel with sediment layers - not a machine
+- generator-paralleling-switchgear: A historical black-and-white photo of an old hydroelectric or industrial facility interior; historical infrastructure, not modern switchgear
+- golf-simulator: Water splashing with screen display, unclear simulator setup
+- grapple-skidder: Historic logging equipment in snowy forest, may be vintage skidder
+- gravity-die-casting-machine: Engine piston or casting component, not a casting machine
+- ground-anchor-drill: An excavator or heavy machinery digging into earth, not a drilling rig
+- guitar-amplifier: Multiple vintage guitar amplifiers and musical equipment stacked together
+- gum-removal-machine: A piece of machinery or equipment that does not clearly depict gum removal
+- hitch-bike-rack: Vehicle tow hitch coupling device, not a bike rack
+- honing-machine: A close-up texture shot of fine parallel lines or scratches on a surface, not depicting a honing machine itself.
+- hot-towel-cabinet: A vintage photograph of women receiving a spa/vapor cabinet treatment (historical image from a bathhouse), not a towel cabinet.
+- hydraulic-shear: Industrial machinery photographed at odd angle, appears to be metal working equipment
+- ice-cream-maker: Cylindrical object with yellow/white coloring, unclear function
+- in-pit-crusher-conveyor: Historical industrial facility building (Superior Industries)
+- industrial-bandsaw: Person operating a band saw machine
+- industrial-battery-charger: Industrial battery storage/charging racks
+- industrial-exoskeleton: Collage of various exoskeleton types and research images
+- industrial-steam-press: Vintage photograph of a woman using pressing equipment
+- jet-well-pump: A boat engine or pump mounted on a vessel with water/spray, unclear if pump-jet specifically.
+- jukebox: A Dell digital music player/MP3 device, not a jukebox.
+- karaoke-microphone: A person holding red vegetables/produce, not using karaoke microphone properly.
+- key-copying-kiosk: Hands holding/inserting something into a device, unclear if key-copying machine.
+- kids-camera: Canon EOS professional DSLR camera, not a kids camera
+- laser-show-projector: Laser light scanning pattern on dark surface, not a projector
+- laundry-folding-machine: Industrial laundry facility with large stacks of white folded textiles
+- laundry-sink-pump: Modern residential bathroom sink vanity, not a laundry-specific pump system
+- lawn-tractor: Small vintage tractor with farm equipment attached, appears to be a farm tractor not a lawn tractor
+- leaf-vacuum-loader: Ford Super Duty pickup truck, possibly equipped for leaf collection but not clearly showing vacuum loader
+- leak-testing-machine: Vintage black and white photo of person at early scientific/testing equipment, unclear apparatus
+- led-television: Close-up of laptop/device screen edge showing LED backlighting, not a television set
+- lens-edger: Lens or optical element with light passing through, possibly lens optics demonstration
+- lens-polisher: Metallic cylindrical hat or vessel on dark background, not lens polishing equipment
+- lens-tinting-unit: Large Fresnel lens structure, not a tinting/dyeing machine
+- light-meter: Male photographer holding light meter toward female subject during photo shoot, not just the meter
+- limousine: Vintage black and white photo of early 1900s stretch vehicle/motorcar, historically interesting but not modern limousine
+- marine-sewage-treatment: Hyperion wastewater treatment plant facility exterior, large industrial complex
+- metal-detector-conveyor: Laboratory metal detector conveyor system on white floor (not food/industrial conveyor)
+- microwave-backhaul-radio: Wireless/microwave transmission tower with satellite dishes (not backhaul radio equipment)
+- mine-ventilation-fan: Old building interior with ventilation structure, unclear if this is actual fan or facility
+- mobile-pallet-rack: Single blue plastic pallet on ground, not mobile racking system
+- mortar-mixer: A concrete/mortar mixer vehicle - could be confusion with concrete mixer, but the title matches the source
+- motorcycle-alarm-system: A car alarm speaker/siren mounted on a vehicle, not a motorcycle alarm system
+- mud-pump: Museum display of historical antique pumps and mechanical parts, not a drilling mud pump
+- mudline-suspension-system: The rear view of a bus/vehicle with suspension system visible, but title suggests something different
+- multispectral-survey-payload: Satellite instrument with golden protective covering, appears to be a satellite component or payload
+- narrowbody-airliner: Aircraft fuselage section viewed from above/side—museum display piece
+- nebulizer: Medical professional (person in blue scrubs) using a nebulizer mask
+- needle-punch-machine: Ticket punch tool (handheld metal device)
+- nut-harvester-sweeper: A red mechanical sweeper/street cleaning machine parked among trees
+- nyckelharpa: A person holding a nyckelharpa (Swedish string instrument) - a portrait/people image, not the product itself
+- oilseed-flaking-mill: A grain flaker device (machine appears designed for grain/seed processing)
+- overhead-projector: Museum or gallery display with decorative lighting
+- overlock-serger: Sewing machine presser foot detail, not a serger
+- paddle-mixer-food: Industrial machinery on concrete floor in poor visibility
+- paint-thickness-gauge: Containers of paint or liquid samples
+- panoramic-camera: Panoramic photograph of ornate interior room
+- paraffin-wax-warmer: A person applying paraffin wax to their hand/arm, not a paraffin wax warmer machine
+- party-foam-machine: A hand pressing into memory foam material, not a foam machine
+- penguin-chiller-habitat: A facility with dome structures and penguin habitat buildings, not showing a chiller unit
+- ph-meter: Vintage wooden box with lid containing what appears to be historical instruments, not a pH meter
+- photo-enlarger: Single lens board component, not a complete photographic enlarger machine
+- photography-studio-strobe: Bright blue neon light inside a case, not a photography studio strobe light
+- pick-and-place-robot: Industrial robotic arm in a workshop setting, but the scale and context suggest general-purpose manufacturing equipment rather than a typical pick-and-place robot
+- pillow-filling-machine: People stuffing fabric into a teddy bear or pillow by hand in outdoor setting, not automated stuffing machinery
+- piston-filling-machine: Vintage photograph showing person filling water trough on a farm, not an industrial piston filling machine
+- plastic-profile-extruder: Wood-plastic composite material samples, not an extruder machine
+- pneumatic-saddle-stool: Bicycle saddles mounted on display racks, not pneumatic stools
+- pool-access-lift: Overhead view of a swimming pool facility with lane markings
+- pool-sand-filter: Industrial wastewater treatment facility with multiple blue rectangular tanks
+- portable-car-lift: Vintage/antique automobile (Model T or similar), not a car lift
+- portable-monitor: PSP gaming device connected to PC monitor setup (not a standalone portable monitor)
+- portable-vocal-booth: Full professional recording studio with multiple people and equipment (not a portable booth)
+- pos-customer-display: Retail store display shelf with products (not a POS customer display monitor)
+- potable-water-truck: Water pouring from a tap/faucet (generic water imagery, not a truck)
+- power-transformer-large: Industrial factory interior with equipment/machinery (appears to be turbine/generator facility, not transformer)
+- presentation-clicker: Theater/auditorium with projection screen and people, not a presentation clicker remote
+- press-brake-hydraulic: Close-up of mechanical component with cylinder, unclear if press brake part
+- pretzel-twisting-line: Store display or food court with signage, not a pretzel production line
+- primary-jaw-crusher: Junkyard with crushed cars/scrap metal, not a jaw crusher machine
+- process-ph-analyzer: Hand holding cylindrical measurement instrument (looks like particle accelerator diagram), not pH analyzer
+- pultrusion-machine: Industrial cooling fan or rotor part, not pultrusion machine
+- pupilometer: Optometry eye examination with person and technician, not a pupilometer device
+- quadracycle: Street scene with festival and pedal vehicles/tricycles, not a quadracycle
+- race-timing-system: Finish line at foot race with runners crossing, race bib visible - shows race event not the timing chip system equipment
+- racing-tire-warmer: Close-up of a car tire tread and wheel rim - shows a tire itself, not tire warming equipment
+- raclette-tabletop-grill: Dining table with multiple dishes and tableware during a meal - shows a raclette dining setup, not the grill equipment itself
+- radial-forging-machine: Van Dorn brand logo/text on equipment - shows branding, not actual forging machine
+- radiator: Vintage car front grille from 1926 Bean automobile - shows car exterior, not a radiator component
+- rail-drilling-machine: Annular cutter tools - drilling bits/cutting tools, not a rail drilling machine
+- raise-borer: Tunnel boring machine underground with worker - different type of boring equipment than raise borer
+- rebar-cage-welding-machine: Construction/military equipment or welding setup in a sandy outdoor area - unclear if this is a welding machine or unrelated equipment.
+- refrigerated-grocery-locker: A parcel locker machine (PopBox) - unclear if this is specifically a refrigerated grocery locker or just a standard parcel locker.
+- resin-reactor-vessel: Ion-exchange resin beads (amber/brown colored pellets) - plausibly related to resin reactors but shows resin material not the vessel.
+- ring-main-unit-distribution: Same electrical switchgear as previous item, or possibly a diagram-like rendering.
+- riot-shield: Police officer in riot gear holding a riot shield.
+- robot-arm-6axis: Black industrial robotic arm next to vintage computer equipment.
+- robotic-prosthetic-arm: Robotic arm or spacecraft component in space, not a prosthetic arm.
+- roll-grinding-machine: Black and white industrial machine with large flat surface, unclear equipment type.
+- roller-flour-mill: Commercial/industrial building with grain silos, not a roller flour mill.
+- rotary-bored-piling-rig: Urban street scene with construction drilling rig in background; architectural context, not equipment focus
+- rotary-die-cutter: Historic black and white photo of a person working at a machine; too blurry to identify as die cutter
+- rotary-rack-oven: Rotary rack oven viewed from above showing rack interior; overly abstract/cropped angle
+- sample-return-capsule: Coffee roaster machine (not return capsule)
+- screw-compressor: 3D-rendered metal screw component (unclear if compressor)
+- self-balancing-unicycle: Person standing on a skateboard or similar device near road with stop sign
+- seven-axis-robot: Historical technical drawing of mechanical apparatus with pulleys/weights
+- sewage-lift-station: Historic ornate Victorian-era building with domes and turrets, not a lift station
+- shoe-lasting-machine: wooden shoe lasts (forms), not the machine
+- shoe-sorter: boxes on conveyor system
+- shot-blasting-machine: antique metal vessel or apparatus
+- shotcrete-pump: weathered vehicle with equipment
+- shrink-bundler-beverage: shrink-wrapped product in grocery cart
+- silage-trailer: trailers and farm equipment in warehouse
+- sitar: sitar musical instrument
+- ski-boot: ski bindings instead of boots
+- sleeper-car: sedan automobile
+- sleeve-labeling-machine: shrink sleeve on product with snowy background
+- smart-bike-lock: Parked bicycles with locks; cannot clearly identify smart lock mechanism
+- smart-padlock: Bicycle locked with regular padlock, not a smart padlock
+- smokeless-fire-pit: Traditional campfire; ambiguous whether product is generic fire pit photo or actual smokeless pit design
+- soda-blaster: construction worker on platform with pressurized equipment
+- sofc-power-module: tall rectangular heat exchanger units with metal fins, not fuel cell module
+- soil-sterilizer: orange equipment with hose at construction site
+- solar-attic-fan: white metal attic fan mounted in ceiling
+- solar-carport: residential carport/garage structure without clear solar panels
+- solar-panel-cleaning-robot: close-up of single solar cell or panel
+- solar-pv-recycling-machine: field of operating solar panels, not recycling equipment
+- spiral-cooling-conveyor: An abstract close-up of a green spiral or coil against sky, not a spiral cooling conveyor machine.
+- stage-truss-system: A satellite or space equipment with solar panels in orbit, not a stage truss system.
+- stamp-cancelling-machine: A close-up of postage stamps and postmark cancellations on historical mail; may be related to stamp cancelling but shows stamps not the machine.
+- stenter-frame: A single tenterhook - a metal hook device, not a full stenter/tenter frame machine.
+- strapping-machine: A metal clamp or strap tensioning device - a component, not a complete strapping machine.
+- stroller: A person jogging with a jogging stroller/baby jogger - people and action scene, not product photo.
+- submarine-periscope: A submarine periscope mast extending above water - the actual mast, but labeled as 'photonics mast' source.
+- surface-broaching-machine: Vintage printing/engraving press mechanism
+- surgical-headlight: Interior of an operating theater room
+- surgical-microscope: Surgeon using a microscope during procedure
+- surgical-smoke-evacuator: Control panel menu interface on a device
+- suspended-scaffold: Building facade with temporary construction scaffolding
+- swaging-machine: Tools hanging on workshop wall
+- tallow-press: Decorative pot or container
+- tandem-parachute-rig: A person skydiving/parachuting in freefall with deployed parachute, not a tandem parachute rig equipment
+- tanning-bed: A red heart shape inside a tanning bed/UV chamber, symbolic/artistic image not a functional tanning bed
+- telecom-lattice-tower: A tall urban broadcast/telecom tower, not a lattice-type steel tower
+- test-separator-skid: A sunset/sunrise scene with oil platform structures in water, not an oil field test separator
+- thickener-rake: A vintage farm harvester/reaper machine (not a mining thickener rake)
+- thread-grinding-machine: A woman operating an internal thread milling machine during WWII, but it's a person portrait/historical photo, not the machine itself
+- tool-and-cutter-grinder: Vintage catalog/advertisement page showing tool grinder, not an actual machine
+- track-geometry-car: A red and white passenger train at a platform.
+- tractor-post-driver: A restored red and white antique tractor on grass, not a post driver attachment.
+- transfer-press: A historical printing press, not a transfer stamping machine.
+- trolley-conveyor: A vintage factory assembly line photograph, not specifically a trolley conveyor system.
+- ukulele: Person holding and playing a ukulele - this is a photo of someone with the instrument, not just the product
+- vacuum-tube-lifter: Vintage tube radio receiver (electronics museum piece), not a tube lifter
+- vav-box: Person holding round mechanical component; unclear product context
+- vibro-hammer: Historical black and white photograph of pile driving/construction machinery from early 1900s, architectural/historical record not modern equipment
+- video-village-cart: Black and white photograph of two adults holding a television set (vintage 1950s)
+- vinyl-pressing-machine: Industrial machinery/equipment that may be related to vinyl processing but image is unclear
+- vision-guided-robot: Military personnel in combat gear with quadruped robot device, demonstration/military context
+- wafer-dicing-saw: Laboratory or workshop interior with equipment racks, not a dicing saw
+- wall-climbing-robot: Soccer playing robots at a competition/demonstration event, not an inspection robot
+- warming-trolley: A person demonstrating table-side cooking or flambéing with flames, not a food warming trolley
+- watch-travel-case: A decorative pocket watch or fob watch with ornate lid, not a travel case
+- watch-winder: The back of an automatic watch showing internal mechanism, not a watch winder device
+- water-cooler-dispenser: A close-up of a water bottle with Aqua Clara branding, not the cooler dispenser unit itself
+- water-dispenser: A water dispenser with red and blue tap handles but no unit body visible, unclear product
+- water-ionizer: An industrial control panel or equipment module, not a water ionizer
+- water-rescue-drone: An underground cave or cavern with rescue/mining operations, not a water rescue drone
+- weaving-machine-projectile: A small projectile or shuttle artifact with measurement scale, not a weaving machine
+- weigh-price-labeler: Two red apples with price look-up code stickers, not a weigh-price labeler machine
+- weightlifting-platform: A beach gym or outdoor fitness area sign, not a weightlifting platform
+- well-development-pump: Children posing with a hand water pump in Pakistan, not a well development pump
+- well-screen-assembly: A woman standing near a well structure and sand excavation at an outdoor construction site
+- wet-wipes-machine: Wet wipes product sample package on wood, not a manufacturing machine
+- wheel-balancer: A small rectangular electronic device or weight, not a wheel balancer machine
+- window-vacuum: Vacuum chamber interior/sample holder, not a window vacuum cleaning tool
+- wine-cooler: Classical painting of wine vessels and still life, not a modern wine cooler appliance
+- wireless-lavalier-system: Person singing on stage with microphone, not a wireless lavalier system device
+- yogurt-maker: Bowl of finished yogurt/sour cream product, not the maker machine
+- zipper-making-machine: Close-up of finished zipper products, not the machine that makes them

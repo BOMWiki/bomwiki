@@ -1,0 +1,14 @@
+[Unit]
+Description=BOMwiki FFS graph sidecar
+After=network.target
+
+[Service]
+Type=simple
+User=bomwiki
+Group=bomwiki
+ExecStart=/bin/bash -c '[ -e /opt/bomwiki/data/ffs/catalog.ffs ] && C="" || C="--create"; exec /opt/bomwiki/ffs/ffsd --db /opt/bomwiki/data/ffs/catalog.ffs $C --listen 127.0.0.1:8464'
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,7 @@
 {
   "name": "bomwiki-engine",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "The engine behind bomwiki.com: an openly editable, versioned encyclopedia of bills of materials.",
   "scripts": {

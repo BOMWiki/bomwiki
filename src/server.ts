@@ -6,16 +6,21 @@ import http from 'node:http';
 import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PUBLIC_DIR } from './images.ts';
+import { ffsQuery, productsUsing } from './graphdb.ts';
+import { adminDashPage } from './render/admin.ts';
 import { DOMAINS, initDomains, setDomains, type Domain } from './domains.ts';
 import { isIndexableNode } from './seo.ts';
 import { domainPage } from './render/domain.ts';
-import { homePage } from './render/home.ts';
+import { homePage, productsPage } from './render/home.ts';
 import { searchPage } from './render/search.ts';
 import {
   aboutPage,
+  enginePage,
   governancePage,
+  helpEditingPage,
   intelligencePage,
   policiesPage,
+  projectPage,
   verificationPage,
 } from './render/static-pages.ts';
 import {
@@ -28,11 +33,14 @@ import {
 } from './auth.ts';
 import {
   decideChangeset,
+  getChangeset,
   isAutoconfirmed,
   listPending,
   massRevert,
+  pendingIdsForNode,
   proposeChangeset,
   revertNode,
+  withdrawChangeset,
   type ProposedEdit,
 } from './changesets.ts';
 import {
@@ -63,14 +71,17 @@ import {
 } from './render/community.ts';
 import { getSetting, setSetting, settingMeta } from './site-settings.ts';
 import { pool } from './db.ts';
-import { esc } from './html.ts';
+import { esc, stripNul } from './html.ts';
 import {
   allNodes,
   getNode,
   loadGraph,
   nodeCount,
+  productList,
   productsByDomain,
+  redirectOf,
   searchNodes,
+  setRedirectInMemory,
   setVerificationInMemory,
   totalCatalogParts,
   type Verification,
@@ -78,7 +89,7 @@ import {
 import { page } from './render/base.ts';
 import { historyPage, type RevisionRow } from './render/history.ts';
 import { itemPage } from './render/item.ts';
-import { reviewPage } from './render/review.ts';
+import { changesetPage, reviewPage } from './render/review.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const staticDir = join(here, '..', 'static');
@@ -119,6 +130,14 @@ function sendJson(res: http.ServerResponse, status: number, value: unknown): voi
 
 function redirect(res: http.ServerResponse, to: string): void {
   res.writeHead(303, { location: to });
+  res.end();
+}
+
+// For URL canonicalization (trailing slash, retired routes, renamed pages).
+// 301 tells crawlers the move is permanent so ranking signal consolidates on
+// the target; the 303 helper above stays for POST-redirect-GET flows.
+function redirectPermanent(res: http.ServerResponse, to: string): void {
+  res.writeHead(301, { location: to });
   res.end();
 }
 
@@ -164,8 +183,27 @@ async function requireReviewer(
   res: http.ServerResponse,
 ): Promise<Session | null> {
   const session = await getSession(req);
-  if (!session || (session.role !== 'admin' && session.role !== 'reviewer')) {
+  if (!session) {
     redirect(res, '/login');
+    return null;
+  }
+  if (session.role !== 'admin' && session.role !== 'reviewer') {
+    // Bouncing a signed-in contributor to the sign-in page reads as a broken
+    // session. Say what actually happened instead.
+    sendHtml(
+      res,
+      page({
+        title: 'Reviewers only | BOMwiki',
+        description: 'This action needs reviewer rights.',
+        path: '/reviewers-only',
+        indexable: false,
+        body: `<div class="review"><h1>Reviewers only</h1>
+          <p>You are signed in as <a href="/user/${esc(session.handle)}">${esc(session.handle)}</a>, but this action needs <b>reviewer</b> rights. Reviewers are promoted from contributors with a track record of accepted edits; how that works is on the <a href="/about/governance">governance page</a>.</p>
+          <p>What you can do today: propose changes with any page's Edit button (they go through review), raise problems on a page's Discussion tab, and track your proposals from <a href="/user/${esc(session.handle)}">your profile</a>.</p></div>`,
+        extraCss: ['/static/edit.css'],
+      }),
+      403,
+    );
     return null;
   }
   return session;
@@ -215,7 +253,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   if (path === '/sitemap.xml') {
     // Only earned URLs: home, domain hubs, and human-verified indexable pages.
-    const urls: string[] = ['https://bomwiki.com/'];
+    const urls: string[] = ["https://bomwiki.com/", "https://bomwiki.com/products", "https://bomwiki.com/project", "https://bomwiki.com/project/engine", "https://bomwiki.com/help/editing"];
     for (const d of DOMAINS) {
       if (productsByDomain(d.slug).length > 0) urls.push(`https://bomwiki.com/domain/${d.slug}/`);
     }
@@ -241,7 +279,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (!type) return notFound(res);
     try {
       const content = readFileSync(join(staticDir, name));
-      res.writeHead(200, { 'content-type': type, 'cache-control': 'public, max-age=300' });
+      // Pages link assets with ?v=<content hash> (see assets.ts), so a
+      // versioned URL never changes meaning and can be cached forever.
+      // Unversioned requests (vendor libs loaded from graph.js, hotlinks)
+      // stay short so a deploy propagates within minutes.
+      const cache = url.searchParams.has('v')
+        ? 'public, max-age=31536000, immutable'
+        : 'public, max-age=300';
+      res.writeHead(200, { 'content-type': type, 'cache-control': cache });
       res.end(content);
     } catch {
       notFound(res);
@@ -251,8 +296,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   // --- auth ---
   const setSessionAndGo = (token: string, to: string) => {
+    // Secure in production (bomwiki.com is HTTPS end to end through Cloudflare);
+    // left off in local dev so login works over plain http://localhost.
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
     res.writeHead(303, {
-      'set-cookie': `bw_sess=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax`,
+      'set-cookie': `bw_sess=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax${secure}`,
       location: to,
     });
     res.end();
@@ -339,6 +387,30 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return redirect(res, `/review?m=${encodeURIComponent(m)}`);
   }
 
+  // --- changeset pages: where contributors track their proposals ---
+  const csView = path.match(/^\/changeset\/(\d+)$/);
+  if (csView && method === 'GET') {
+    const cs = await getChangeset(Number(csView[1]));
+    if (!cs) return notFound(res, `changeset ${csView[1]}`);
+    const session = await getSession(req);
+    return sendHtml(
+      res,
+      changesetPage(cs, { userId: session?.userId ?? null, role: session?.role ?? null }),
+    );
+  }
+  const csWithdraw = path.match(/^\/changeset\/(\d+)\/withdraw$/);
+  if (csWithdraw && method === 'POST') {
+    const session = await getSession(req);
+    if (!session) return redirect(res, '/login');
+    await withdrawChangeset(Number(csWithdraw[1]), session.userId);
+    return redirect(res, `/changeset/${csWithdraw[1]}`);
+  }
+  if (path === '/api/pending' && method === 'GET') {
+    const nodeId = url.searchParams.get('node') ?? '';
+    if (!/^[A-Za-z0-9._-]+$/.test(nodeId)) return sendJson(res, 422, { error: 'bad node id' });
+    return sendJson(res, 200, { pending: await pendingIdsForNode(nodeId) });
+  }
+
   // --- history ---
   const history = path.match(/^\/item\/([A-Za-z0-9._-]+)\/history$/);
   if (history) {
@@ -398,6 +470,101 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         notice: url.searchParams.get('m') ?? undefined,
       }),
     );
+  }
+
+  // --- operator dashboard (admin) ---
+  if (path === '/admin') {
+    const session = await getSession(req);
+    if (!session || session.role !== 'admin') return redirect(res, '/login');
+    const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
+    const [usersQ, recentUsersQ, csQ, recentCsQ, commentsQ, vfQ, vfe7Q] = await Promise.all([
+      pool.query(
+        `select count(*)::int total,
+                count(*) filter (where created_at > now() - interval '7 days')::int new7,
+                count(*) filter (where role = 'reviewer')::int reviewers,
+                count(*) filter (where role = 'admin')::int admins,
+                count(*) filter (where blocked)::int blocked
+         from users where role <> 'system'`,
+      ),
+      pool.query(
+        `select u.handle, u.role, u.blocked, u.created_at,
+                (select count(*)::int from changesets c where c.author_id = u.id) edits
+         from users u where u.role <> 'system' order by u.created_at desc limit 12`,
+      ),
+      pool.query(
+        `select count(*) filter (where status = 'pending')::int pending,
+                count(*) filter (where status = 'accepted')::int accepted,
+                count(*) filter (where status = 'rejected')::int rejected,
+                count(*) filter (where created_at > now() - interval '7 days')::int proposed7,
+                count(*) filter (where status = 'accepted' and decided_at > now() - interval '7 days')::int accepted7
+         from changesets`,
+      ),
+      pool.query(
+        `select c.id, u.handle as author, c.status, coalesce(c.summary, '') as summary, c.created_at
+         from changesets c join users u on u.id = c.author_id order by c.id desc limit 10`,
+      ),
+      pool.query(
+        `select count(*)::int total,
+                count(*) filter (where created_at > now() - interval '7 days')::int last7
+         from comments`,
+      ),
+      pool.query(`select verification, count(*)::int n from nodes group by verification`),
+      pool.query(
+        `select count(*)::int n from verification_events where created_at > now() - interval '7 days'`,
+      ),
+    ]);
+    const intelUrl = process.env.INTEL_URL ?? 'http://127.0.0.1:8799';
+    const intel = await fetch(intelUrl, { signal: AbortSignal.timeout(1000) })
+      .then((r) => r.ok)
+      .catch(() => false);
+    const ffsRows = await ffsQuery('MATCH (n:Item) RETURN count(n) AS n');
+    return sendHtml(
+      res,
+      adminDashPage({
+        users: usersQ.rows[0],
+        recentUsers: recentUsersQ.rows.map((u) => ({
+          handle: u.handle,
+          role: u.role,
+          blocked: u.blocked,
+          joined: iso(u.created_at),
+          edits: u.edits,
+        })),
+        changes: csQ.rows[0],
+        recentChangesets: recentCsQ.rows.map((c) => ({
+          id: Number(c.id),
+          author: c.author,
+          status: c.status,
+          summary: String(c.summary).split('\n')[0].slice(0, 90),
+          when: iso(c.created_at),
+        })),
+        comments: commentsQ.rows[0],
+        verification: Object.fromEntries(vfQ.rows.map((r) => [r.verification, r.n])),
+        verifyEvents7: vfe7Q.rows[0].n,
+        health: { intel, ffs: ffsRows ? Number(ffsRows[0]?.n ?? 0) : null, mail: Boolean(process.env.MAIL_API_KEY) },
+      }, url.searchParams.get('m') ?? undefined),
+    );
+  }
+
+  // Merge duplicate pages: 301 the duplicate to the canonical page and drop
+  // it from listings and search. Node and history stay untouched in the
+  // database, so a merge is reversible by deleting the redirect row.
+  if (path === '/admin/redirect' && method === 'POST') {
+    const session = await getSession(req);
+    if (!session || session.role !== 'admin') return redirect(res, '/login');
+    const body = new URLSearchParams(await readBody(req));
+    const fromId = (body.get('from') ?? '').trim();
+    const toId = (body.get('to') ?? '').trim();
+    const fail = (m: string) => redirect(res, `/admin?m=${encodeURIComponent(m)}`);
+    if (!getNode(fromId)) return fail(`No page with id "${fromId}".`);
+    if (!getNode(toId)) return fail(`No page with id "${toId}".`);
+    if (fromId === toId) return fail('A page cannot redirect to itself.');
+    if (redirectOf(toId)) return fail(`"${toId}" is itself redirected; pick its target.`);
+    await pool.query(
+      'insert into redirects (from_id, to_id) values ($1, $2) on conflict (from_id) do update set to_id = $2',
+      [fromId, toId],
+    );
+    setRedirectInMemory(fromId, toId);
+    return redirect(res, `/admin?m=${encodeURIComponent(`"${fromId}" now redirects to "${toId}".`)}`);
   }
 
   // --- domain taxonomy curation (reviewers) ---
@@ -529,9 +696,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (method === 'POST') {
       const body = new URLSearchParams(await readBody(req));
       await updateProfile(session.userId, {
-        displayName: body.get('displayName')?.trim().slice(0, 60) || undefined,
-        affiliation: body.get('affiliation')?.trim().slice(0, 120) || undefined,
-        bio: body.get('bio')?.trim().slice(0, 1000) || undefined,
+        displayName: stripNul(body.get('displayName')?.trim().slice(0, 60) || '') || undefined,
+        affiliation: stripNul(body.get('affiliation')?.trim().slice(0, 120) || '') || undefined,
+        bio: stripNul(body.get('bio')?.trim().slice(0, 1000) || '') || undefined,
       });
       return redirect(res, '/settings?saved=1');
     }
@@ -606,7 +773,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     await pool.query('update nodes set verification = $2 where id = $1', [node.id, status]);
     await pool.query(
       'insert into verification_events (node_id, status, user_id, note) values ($1, $2, $3, $4)',
-      [node.id, status, session.userId, body.get('note')?.trim().slice(0, 500) || null],
+      [node.id, status, session.userId, stripNul(body.get('note')?.trim().slice(0, 500) || '') || null],
     );
     setVerificationInMemory(node.id, status as Verification);
     return redirect(res, `/item/${node.id}/`);
@@ -629,19 +796,38 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   // --- read path ---
   if (path === '/about' || path === '/about/') return sendCacheableHtml(res, aboutPage());
+  if (path === '/project') return sendCacheableHtml(res, projectPage());
+  if (path === '/project/engine') return sendCacheableHtml(res, enginePage());
+  if (path === '/help/editing') return sendCacheableHtml(res, helpEditingPage());
   if (path === '/about/verification') return sendCacheableHtml(res, verificationPage());
   if (path === '/about/governance') return sendCacheableHtml(res, governancePage());
   if (path === '/intelligence') return sendCacheableHtml(res, intelligencePage());
-  if (path === '/about/numbers' || path === '/about/numbers/') return redirect(res, '/about/');
+  if (path === '/about/numbers' || path === '/about/numbers/') return redirectPermanent(res, '/about/');
   if (path === '/policies') return sendCacheableHtml(res, policiesPage());
 
   const domain = path.match(/^\/domain\/([a-z0-9-]+)(\/?)$/);
   if (domain) {
-    if (!domain[2]) return redirect(res, `/domain/${domain[1]}/`);
+    if (!domain[2]) return redirectPermanent(res, `/domain/${domain[1]}/`);
     const html = domainPage(domain[1]);
     if (!html) return notFound(res, domain[1]);
     return sendCacheableHtml(res, html);
   }
+
+  // Legacy routes from the static site. Old links must keep working: anything
+  // that was ever live gets a permanent redirect to its closest current page.
+  const legacyItem = path.match(/^\/(?:part|assembly)\/([A-Za-z0-9._-]+)\/?$/);
+  if (legacyItem) {
+    const id = redirectOf(legacyItem[1]) ?? legacyItem[1];
+    if (getNode(id)) return redirectPermanent(res, `/item/${id}/`);
+    return notFound(res, legacyItem[1]);
+  }
+  const legacyCategory = path.match(/^\/category\/([a-z0-9-]+)\/?$/);
+  if (legacyCategory) {
+    const slug = legacyCategory[1];
+    if (DOMAINS.some((d) => d.slug === slug)) return redirectPermanent(res, `/domain/${slug}/`);
+    return redirectPermanent(res, `/search?q=${encodeURIComponent(slug.replace(/-/g, ' '))}`);
+  }
+  if (path === '/scan' || path === '/scan/') return redirectPermanent(res, '/');
 
   if (path === '/search') {
     return sendHtml(res, searchPage(url.searchParams.get('q') ?? ''));
@@ -650,14 +836,35 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   const item = path.match(/^\/item\/([A-Za-z0-9._-]+)(\/?)$/);
   if (item) {
     const [, id, slash] = item;
+    const target = redirectOf(id);
+    if (target) {
+      res.writeHead(301, { location: `/item/${target}/` });
+      res.end();
+      return;
+    }
     const node = getNode(id);
     if (!node) return notFound(res, id);
-    if (!slash) return redirect(res, `/item/${id}/`);
-    return sendCacheableHtml(res, itemPage(node));
+    if (!slash) return redirectPermanent(res, `/item/${id}/`);
+    // Transitive where-used comes from the FFS graph sidecar; products are
+    // never contained by anything, so skip the lookup for them.
+    const usedIn = node.kind === 'product' ? null : await productsUsing(id);
+    return sendCacheableHtml(res, itemPage(node, { productsUsing: usedIn }));
   }
 
   if (path === '/') {
     return sendCacheableHtml(res, await homePage());
+  }
+
+  if (path === '/products' || path === '/products/') {
+    return sendCacheableHtml(res, productsPage());
+  }
+
+  if (path === '/random') {
+    const products = productList();
+    const pick = products[Math.floor(Math.random() * products.length)];
+    res.writeHead(302, { location: `/item/${pick.id}/`, 'cache-control': 'no-store' });
+    res.end();
+    return;
   }
 
   notFound(res);

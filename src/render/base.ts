@@ -1,3 +1,4 @@
+import { asset } from '../assets.ts';
 import { esc } from '../html.ts';
 import { nodeCount, totalCatalogParts } from '../nodes.ts';
 
@@ -31,7 +32,7 @@ export function page(opts: PageOpts): string {
     : `${SITE}/og-card-v2.png`;
   const ogType = opts.ogType ?? (opts.path === '/' ? 'website' : 'article');
   const css = ['/static/base.css', ...(opts.extraCss ?? [])]
-    .map((href) => `<link rel="stylesheet" href="${href}" />`)
+    .map((href) => `<link rel="stylesheet" href="${asset(href)}" />`)
     .join('\n    ');
   const jsonLd = (opts.jsonLd ?? [])
     .map(
@@ -89,10 +90,22 @@ export function page(opts: PageOpts): string {
     <main>
 ${opts.body}
     </main>
-    <footer class="site">
-      <span>BOMwiki · made by <a href="https://x.com/protosphinx" rel="me noopener">@protosphinx</a> on NEO · runs on <a href="https://ffsdb.com" rel="noopener">FFS</a> · <a href="/about/">about</a> · <a href="/intelligence">intelligence</a> · <a href="/about/verification">verification</a> · <a href="/about/governance">governance</a> · <a href="/policies">policies</a>.</span>
+    <footer class="site proj-footer">
+      <p class="pf-brand">
+        <img src="${asset('/static/mark.svg')}" width="18" height="18" alt="" />
+        <b>The BOMwiki Project</b>
+        <span class="pf-motto">How everything is made, free to everyone.</span>
+      </p>
+      <p class="pf-links">
+        <a href="/project">the project</a> · <a href="/project/engine">engine</a> · <a href="/about/">about</a> ·
+        <a href="/about/governance">governance</a> · <a href="/about/verification">verification</a> ·
+        <a href="/intelligence">intelligence</a> · <a href="/policies">policies</a> ·
+        <a href="/help/editing">how to edit</a> · <a href="/products">all products</a> ·
+        <a href="https://github.com/BOMWiki" rel="noopener">GitHub</a>
+      </p>
+      <p class="pf-credit">Engine <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">open source, AGPL-3.0</a> · made by <a href="https://x.com/protosphinx" rel="me noopener">@protosphinx</a> on NEO · graph queries on <a href="https://ffsdb.com" rel="noopener">FFS</a>.</p>
     </footer>
-    ${(opts.scripts ?? []).map((src) => `<script src="${src}" defer></script>`).join('\n    ')}
+    ${(opts.scripts ?? []).map((src) => `<script src="${asset(src)}" defer></script>`).join('\n    ')}
   </body>
 </html>
 `;
