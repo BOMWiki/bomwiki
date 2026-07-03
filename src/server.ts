@@ -73,6 +73,7 @@ import {
   contributorsPage,
   HOME_TALK,
   homepageAdminPage,
+  newPagePage,
   profilePage,
   profilePageEditor,
   settingsPage,
@@ -565,6 +566,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         extraCss: ['/static/edit.css'],
       }),
     );
+  }
+
+  if (path === '/new' && method === 'GET') {
+    const session = await getSession(req);
+    return sendHtml(res, newPagePage(Boolean(session)));
   }
 
   if (path === '/contributors' && method === 'GET') {

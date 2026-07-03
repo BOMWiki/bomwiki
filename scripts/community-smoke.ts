@@ -128,6 +128,35 @@ const changesHtml = await (await admin.req('/changes')).text();
 check('recent changes attributes the author', changesHtml.includes(`alice-${stamp}`));
 check('recent changes shows the summary', changesHtml.includes('note updated'));
 
+// --- create a new page from scratch ---
+// alice is autoconfirmed by now (5 accepted), so her create applies live.
+const newId = `smoke-widget-${stamp}`;
+const childId = `smoke-part-${stamp}`;
+const createRes = await propose(alice, [
+  { op: 'create', nodeId: childId, data: { name: 'Smoke Test Part', kind: 'part' } },
+  {
+    op: 'create',
+    nodeId: newId,
+    data: {
+      name: 'Smoke Test Widget',
+      kind: 'product',
+      domain: 'automobiles',
+      summary: 'Created by the smoke test.',
+      bom: [{ id: childId, qty: 2 }],
+    },
+  },
+]);
+check('create page applies for autoconfirmed author', createRes.status === 201 && createRes.body.applied === true, JSON.stringify(createRes.body));
+const newPage = await (await admin.req(`/item/${newId}/`)).text();
+check('new page is live', newPage.includes('Smoke Test Widget'));
+check('new page shows its inline-created child', newPage.includes('Smoke Test Part'));
+const productsHtml = await (await admin.req('/products')).text();
+check('new product appears in its domain listing', productsHtml.includes(newId));
+const dupCreate = await propose(alice, [
+  { op: 'create', nodeId: newId, data: { name: 'Dup', kind: 'product' } },
+]);
+check('duplicate id is rejected', dupCreate.status === 422 && JSON.stringify(dupCreate.body).includes('already exists'));
+
 // --- settings feed the public profile ---
 await alice.req('/settings', {
   method: 'POST',

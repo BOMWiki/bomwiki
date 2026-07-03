@@ -10,6 +10,7 @@ import type {
   WatchEvent,
 } from '../community.ts';
 import type { EmailPrefs } from '../emails.ts';
+import { DOMAINS } from '../domains.ts';
 import { esc, fmtWhen, summaryLines } from '../html.ts';
 import { renderArticle } from '../markdown.ts';
 import { getNode, verificationOfNode, type NodeData } from '../nodes.ts';
@@ -199,6 +200,26 @@ export function profilePageEditor(
         <div class="rv-actions"><button>Save</button></div>
       </form></div>`,
     extraCss: ['/static/edit.css'],
+  });
+}
+
+export function newPagePage(signedIn: boolean): string {
+  return page({
+    title: 'Create a page | BOMwiki',
+    description: 'Start a new product, assembly, or part page on BOMwiki.',
+    path: '/new',
+    indexable: false,
+    body: `<div class="review"><h1>Create a page</h1>
+      ${
+        signedIn
+          ? `<p class="stub">Start a new page for a product, assembly, or part. Give it a name, say what it is, and list the parts it is built from. New pages go through review before they go live, same as any edit. Not sure it is missing? <a href="/search">Search first</a>.</p>
+      <div id="bw-new" data-signedin="1"></div>
+      <script type="application/json" id="bw-domains">${JSON.stringify(DOMAINS.map((d) => ({ slug: d.slug, name: d.name }))).replaceAll('<', '\\u003c')}</script>
+      <noscript><p class="rv-notice">Creating a page needs JavaScript. You can still <a href="/search">search</a> and edit existing pages without it.</p></noscript>`
+          : `<p class="stub"><a href="/login">Sign in</a> to create a page. Reading is open to everyone; editing needs an account so every change has a name behind it.</p>`
+      }</div>`,
+    extraCss: ['/static/edit.css'],
+    scripts: ['/static/new.js'],
   });
 }
 

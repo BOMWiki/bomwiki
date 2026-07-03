@@ -74,6 +74,7 @@ export function page(opts: PageOpts): string {
           <input type="search" name="q" placeholder="Search BOMwiki" aria-label="Search the catalog" autocomplete="off" />
         </form>
         <nav class="site-nav">
+          <a href="/new">New page</a>
           <a href="/changes">Recent changes</a>
           <span id="bw-acct"><a href="/login">Sign in</a></span>
         </nav>
