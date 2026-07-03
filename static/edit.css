@@ -99,6 +99,8 @@
 .settings-form { display: flex; flex-direction: column; gap: 10px; max-width: 460px; margin: 0 0 14px; }
 .settings-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
 .settings-form input, .settings-form textarea { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 2px; color: var(--ink); }
+.settings-form label.opt { flex-direction: row; align-items: flex-start; gap: 8px; }
+.settings-form label.opt input { width: auto; margin-top: 2px; }
 .settings-form button { align-self: flex-start; font: inherit; font-size: 13px; padding: 6px 14px; border: 1px solid var(--rule); border-radius: 2px; background: var(--panel); cursor: pointer; }
 .talk-form { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
 .talk-form textarea { font: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 2px; }

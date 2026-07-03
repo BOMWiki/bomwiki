@@ -3,10 +3,13 @@
 import type {
   ChangeRow,
   ContributionStats,
+  ContributorRow,
+  ProfileExtras,
   PublicUser,
   Topic,
   WatchEvent,
 } from '../community.ts';
+import type { EmailPrefs } from '../emails.ts';
 import { esc, fmtWhen, summaryLines } from '../html.ts';
 import { getNode, verificationOfNode, type NodeData } from '../nodes.ts';
 import { page } from './base.ts';
@@ -80,7 +83,7 @@ export function changesPage(rows: ChangeRow[]): string {
     path: '/changes',
     indexable: false,
     body: `<div class="review"><h1>Recent changes</h1>
-      <p class="stub">Every accepted change, newest first. This is where patrolling happens.</p>
+      <p class="stub">Every accepted change, newest first. This is where patrolling happens. The people behind the edits are on the <a href="/contributors">contributors</a> page.</p>
       ${changeList(rows, false)}</div>`,
     extraCss: ['/static/edit.css'],
   });
@@ -89,8 +92,15 @@ export function changesPage(rows: ChangeRow[]): string {
 export function profilePage(
   user: PublicUser,
   stats: ContributionStats,
+  extras: ProfileExtras,
   rows: ChangeRow[],
-  opts: { adminView?: boolean; notice?: string } = {},
+  opts: {
+    adminView?: boolean;
+    ownProfile?: boolean;
+    /** Display names of the domains most of their accepted edits fall in. */
+    domains?: string[];
+    notice?: string;
+  } = {},
 ): string {
   const name = user.displayName ? `${esc(user.displayName)} (${esc(user.handle)})` : esc(user.handle);
   const modControls =
@@ -112,6 +122,25 @@ export function profilePage(
         </div>
       </section>`
       : '';
+  // The byline under the name: who they are, where they edit, when they were
+  // last seen. Only lines with content appear.
+  const byline = [
+    user.affiliation ? esc(user.affiliation) : '',
+    `joined ${esc(user.joined.slice(0, 10))}`,
+    extras.lastActive ? `last active ${fmtWhen(extras.lastActive)}` : '',
+    opts.domains?.length ? `edits mostly in ${opts.domains.map(esc).join(', ')}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const isReviewer = user.role === 'admin' || user.role === 'reviewer';
+  const website = user.website
+    ? `<p class="stub"><a href="${esc(user.website)}" rel="nofollow ugc noopener noreferrer">${esc(user.website.replace(/^https?:\/\//, ''))}</a></p>`
+    : '';
+  const emptyState = rows.length
+    ? ''
+    : opts.ownProfile
+      ? `<p class="stub">No edits yet. Open a <a href="/random">random page</a> and check one quantity against something you own, or start with the <a href="/help/editing">editing help</a>.</p>`
+      : `<p class="stub">No edits yet.</p>`;
   return page({
     title: `${user.handle} | BOMwiki`,
     description: `Contributions of ${user.handle} on BOMwiki.`,
@@ -121,35 +150,97 @@ export function profilePage(
       ${opts.notice ? `<p class="rv-notice">${esc(opts.notice)}</p>` : ''}
       <h1>${name}${user.role !== 'contributor' ? ` <span class="htag">${esc(user.role)}</span>` : ''}${user.blocked ? ' <span class="htag mod-blocked">blocked</span>' : ''}</h1>
       ${modControls}
-      <p class="stub">${user.affiliation ? esc(user.affiliation) + ' · ' : ''}joined ${esc(user.joined.slice(0, 10))}</p>
+      <p class="stub">${byline}${opts.ownProfile ? ` · <a href="/settings">edit your profile</a>` : ''}</p>
       ${user.bio ? `<p>${esc(user.bio)}</p>` : ''}
+      ${website}
       <section class="rv-cs"><div class="pf-stats">
         <span><b>${stats.accepted}</b> accepted</span>
         <span><b>${stats.nodesTouched}</b> pages touched</span>
         <span><b>${stats.pending}</b> pending</span>
         <span><b>${stats.rejected}</b> rejected</span>
+        <span><b>${extras.comments}</b> discussion posts</span>
+        ${isReviewer ? `<span><b>${extras.reviews}</b> reviews</span>` : ''}
+        ${isReviewer && extras.verifications ? `<span><b>${extras.verifications}</b> verifications</span>` : ''}
       </div></section>
       <h2 class="si-h">Contributions</h2>
+      ${emptyState}
       ${changeList(rows, true)}</div>`,
     extraCss: ['/static/edit.css'],
   });
 }
 
-export function settingsPage(user: PublicUser, saved = false): string {
+export function contributorsPage(rows: ContributorRow[], totalMembers: number): string {
+  return page({
+    title: 'Contributors | BOMwiki',
+    description: 'The people who build BOMwiki.',
+    path: '/contributors',
+    indexable: false,
+    body: `<div class="review"><h1>Contributors</h1>
+      <p class="stub">The people who build BOMwiki: everyone with at least one accepted edit, most edits first. ${totalMembers} ${totalMembers === 1 ? 'member' : 'members'} in total. <a href="/changes">Recent changes</a> shows what they are doing right now.</p>
+      ${rows.length === 0 ? '<p class="stub">Nobody yet. The first accepted edit puts you here.</p>' : ''}
+      ${rows
+        .map(
+          (u) => `<section class="rv-cs">
+        <div class="rv-head">
+          <p class="rv-node"><a href="/user/${esc(u.handle)}">${esc(u.displayName ? `${u.displayName} (${u.handle})` : u.handle)}</a>${u.role !== 'contributor' ? ` <span class="htag">${esc(u.role)}</span>` : ''}</p>
+          <span class="rv-meta">${u.accepted} accepted ${u.accepted === 1 ? 'edit' : 'edits'} · joined ${esc(u.joined.slice(0, 10))}${u.lastActive ? ` · last active ${fmtWhen(u.lastActive)}` : ''}</span>
+        </div>
+      </section>`,
+        )
+        .join('\n')}</div>`,
+    extraCss: ['/static/edit.css'],
+  });
+}
+
+export function unsubscribePage(handle: string | null): string {
+  return page({
+    title: 'Unsubscribed | BOMwiki',
+    description: 'Email preferences updated.',
+    path: '/email/unsubscribe',
+    indexable: false,
+    body: `<div class="review">
+      ${
+        handle
+          ? `<h1>You are unsubscribed</h1>
+      <p>No more digests or notifications for <b>${esc(handle)}</b>. Sign-in links still work; they are how you get into your account.</p>
+      <p class="stub">Changed your mind, or want just some of it back? <a href="/settings">Email preferences</a> has individual switches.</p>`
+          : `<h1>That link does not work</h1>
+      <p>The unsubscribe link is stale or was copied incompletely. You can change everything from your <a href="/settings">settings</a> instead.</p>`
+      }</div>`,
+    extraCss: ['/static/edit.css'],
+  });
+}
+
+export function settingsPage(user: PublicUser, prefs: EmailPrefs, saved = false): string {
+  const check = (on: boolean) => (on ? ' checked' : '');
+  const emailSection = prefs.hasEmail
+    ? `<h2 class="si-h">Email</h2>
+      <p class="stub">Your email is never shown to anyone. Sign-in links always work; everything below is optional.</p>
+      <form method="post" action="/settings/email" class="settings-form">
+        <label class="opt"><input type="checkbox" name="digest" value="weekly"${check(prefs.digest === 'weekly')} /> Weekly digest: changes to pages you watch, your edits under review, and what happened on the site</label>
+        <label class="opt"><input type="checkbox" name="decisions"${check(prefs.notifyDecisions)} /> When a change you proposed is accepted or rejected</label>
+        <label class="opt"><input type="checkbox" name="replies"${check(prefs.notifyReplies)} /> When someone replies to your discussion topic</label>
+        <button>Save email preferences</button>
+      </form>`
+    : `<h2 class="si-h">Email</h2>
+      <p class="stub">This account has no email address (admin token sign-in), so it gets no email.</p>`;
   return page({
     title: 'Settings | BOMwiki',
     description: 'Your public profile.',
     path: '/settings',
     indexable: false,
-    body: `<div class="review"><h1>Your public profile</h1>
+    body: `<div class="review"><h1>Settings</h1>
       ${saved ? '<p class="rv-notice">Saved.</p>' : ''}
+      <h2 class="si-h">Your public profile</h2>
       <p class="stub">Everything here is public. Signed in as ${esc(user.handle)} · <a href="/user/${esc(user.handle)}">view your page</a>.</p>
       <form method="post" action="/settings" class="settings-form">
         <label>Display name <input type="text" name="displayName" value="${esc(user.displayName ?? '')}" maxlength="60" /></label>
         <label>Affiliation <input type="text" name="affiliation" value="${esc(user.affiliation ?? '')}" maxlength="120" placeholder="Company, university, independent…" /></label>
+        <label>Website <input type="url" name="website" value="${esc(user.website ?? '')}" maxlength="200" placeholder="https://…" /></label>
         <label>Bio <textarea name="bio" rows="4" maxlength="1000">${esc(user.bio ?? '')}</textarea></label>
         <button>Save</button>
       </form>
+      ${emailSection}
       <form method="post" action="/logout" class="settings-form"><button>Sign out</button></form>
       </div>`,
     extraCss: ['/static/edit.css'],

@@ -11,6 +11,7 @@ export interface PublicUser {
   displayName?: string;
   affiliation?: string;
   bio?: string;
+  website?: string;
   joined: string;
 }
 
@@ -19,6 +20,15 @@ export interface ContributionStats {
   pending: number;
   rejected: number;
   nodesTouched: number;
+}
+
+/** The rest of a person's public footprint: discussions, review work, and
+ *  when they were last active anywhere (edit or comment). */
+export interface ProfileExtras {
+  comments: number;
+  reviews: number;
+  verifications: number;
+  lastActive: string | null;
 }
 
 export interface ChangeRow {
@@ -48,13 +58,14 @@ function mapUser(r: any): PublicUser {
     displayName: r.display_name ?? undefined,
     affiliation: r.affiliation ?? undefined,
     bio: r.bio ?? undefined,
+    website: r.website ?? undefined,
     joined: r.created_at.toISOString(),
   };
 }
 
 export async function getUserByHandle(handle: string): Promise<PublicUser | null> {
   const res = await pool.query(
-    'select id, handle, role, blocked, display_name, affiliation, bio, created_at from users where handle = $1',
+    'select id, handle, role, blocked, display_name, affiliation, bio, website, created_at from users where handle = $1',
     [handle],
   );
   return res.rows.length ? mapUser(res.rows[0]) : null;
@@ -87,12 +98,75 @@ export async function isBlocked(userId: number): Promise<boolean> {
 
 export async function updateProfile(
   userId: number,
-  fields: { displayName?: string; affiliation?: string; bio?: string },
+  fields: { displayName?: string; affiliation?: string; bio?: string; website?: string },
 ): Promise<void> {
   await pool.query(
-    'update users set display_name = $2, affiliation = $3, bio = $4 where id = $1',
-    [userId, fields.displayName ?? null, fields.affiliation ?? null, fields.bio ?? null],
+    'update users set display_name = $2, affiliation = $3, bio = $4, website = $5 where id = $1',
+    [
+      userId,
+      fields.displayName ?? null,
+      fields.affiliation ?? null,
+      fields.bio ?? null,
+      fields.website ?? null,
+    ],
   );
+}
+
+export async function profileExtras(userId: number): Promise<ProfileExtras> {
+  const res = await pool.query(
+    `select
+       (select count(*)::int from comments where author_id = $1) as comments,
+       (select count(*)::int from changesets
+          where reviewer_id = $1 and author_id <> $1 and status <> 'pending') as reviews,
+       (select count(*)::int from verification_events where user_id = $1) as verifications,
+       greatest(
+         (select max(created_at) from changesets where author_id = $1),
+         (select max(created_at) from comments where author_id = $1)
+       ) as last_active`,
+    [userId],
+  );
+  const r = res.rows[0];
+  return {
+    comments: r.comments,
+    reviews: r.reviews,
+    verifications: r.verifications,
+    lastActive: r.last_active ? r.last_active.toISOString() : null,
+  };
+}
+
+export interface ContributorRow {
+  handle: string;
+  displayName?: string;
+  role: string;
+  joined: string;
+  accepted: number;
+  lastActive: string | null;
+}
+
+/** Everyone with at least one accepted edit, most productive first, plus
+ *  reviewers and admins even before their first edit. Backs /contributors. */
+export async function listContributors(limit = 100): Promise<ContributorRow[]> {
+  const res = await pool.query(
+    `select u.handle, u.display_name, u.role, u.created_at,
+            count(c.id) filter (where c.status = 'accepted')::int as accepted,
+            max(c.created_at) as last_active
+     from users u
+     left join changesets c on c.author_id = u.id
+     where u.role <> 'system' and not u.blocked
+     group by u.id
+     having count(c.id) filter (where c.status = 'accepted') > 0
+        or u.role in ('reviewer', 'admin')
+     order by accepted desc, u.created_at asc
+     limit ${limit}`,
+  );
+  return res.rows.map((r) => ({
+    handle: r.handle,
+    displayName: r.display_name ?? undefined,
+    role: r.role,
+    joined: r.created_at.toISOString(),
+    accepted: r.accepted,
+    lastActive: r.last_active ? r.last_active.toISOString() : null,
+  }));
 }
 
 export async function contributionStats(userId: number): Promise<ContributionStats> {

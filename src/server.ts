@@ -48,6 +48,8 @@ import {
   contributionsOf,
   contributionStats,
   getUserByHandle,
+  listContributors,
+  profileExtras,
   recentChanges,
   setBlocked,
   setRole,
@@ -58,7 +60,16 @@ import {
   watchlistFeed,
 } from './community.ts';
 import {
+  getEmailPrefs,
+  notifyReply,
+  sendWelcome,
+  setEmailPrefs,
+  startDigestTicker,
+  unsubscribeByToken,
+} from './emails.ts';
+import {
   changesPage,
+  contributorsPage,
   HOME_TALK,
   homepageAdminPage,
   profilePage,
@@ -66,6 +77,7 @@ import {
   signinPage,
   talkPage,
   talkSubjectForNode,
+  unsubscribePage,
   watchlistPage,
   type TalkSubject,
 } from './render/community.ts';
@@ -322,9 +334,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
   const magic = path.match(/^\/auth\/([a-f0-9]{48})$/);
   if (magic && method === 'GET') {
-    const token = await verifyMagicLink(magic[1]);
-    if (!token) return sendHtml(res, signinPage({ error: 'That link is expired or already used.' }), 403);
-    return setSessionAndGo(token, '/');
+    const verified = await verifyMagicLink(magic[1]);
+    if (!verified) return sendHtml(res, signinPage({ error: 'That link is expired or already used.' }), 403);
+    // First sign-in gets the welcome email. Detached: mail must never make
+    // login slow or failable.
+    void sendWelcome(verified.userId).catch((err) => console.error('welcome email failed:', err));
+    return setSessionAndGo(verified.session, '/');
   }
   if (path === '/logout' && method === 'POST') {
     await logout(req);
@@ -463,13 +478,38 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const user = await getUserByHandle(profile[1]);
     if (!user) return notFound(res, profile[1]);
     const session = await getSession(req);
+    const rows = await contributionsOf(user.id);
+    // "Edits mostly in …" from the domains of their recent accepted edits;
+    // recent is enough, this is a flavor line, not a statistic.
+    const domainCounts = new Map<string, number>();
+    for (const c of rows) {
+      if (c.status !== 'accepted') continue;
+      for (const e of c.edits) {
+        const d = getNode(e.nodeId)?.domain;
+        if (d) domainCounts.set(d, (domainCounts.get(d) ?? 0) + 1);
+      }
+    }
+    const topDomains = [...domainCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([slug]) => DOMAINS.find((d) => d.slug === slug)?.name ?? slug);
     return sendHtml(
       res,
-      profilePage(user, await contributionStats(user.id), await contributionsOf(user.id), {
+      profilePage(user, await contributionStats(user.id), await profileExtras(user.id), rows, {
         adminView: session?.role === 'admin',
+        ownProfile: session?.handle === user.handle,
+        domains: topDomains,
         notice: url.searchParams.get('m') ?? undefined,
       }),
     );
+  }
+
+  if (path === '/contributors' && method === 'GET') {
+    const [rows, members] = await Promise.all([
+      listContributors(),
+      pool.query("select count(*)::int as n from users where role <> 'system' and not blocked"),
+    ]);
+    return sendHtml(res, contributorsPage(rows, members.rows[0].n));
   }
 
   // --- operator dashboard (admin) ---
@@ -695,15 +735,43 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (!session) return;
     if (method === 'POST') {
       const body = new URLSearchParams(await readBody(req));
+      // A profile website must be a plain http(s) URL or nothing.
+      const website = stripNul(body.get('website')?.trim().slice(0, 200) || '');
       await updateProfile(session.userId, {
         displayName: stripNul(body.get('displayName')?.trim().slice(0, 60) || '') || undefined,
         affiliation: stripNul(body.get('affiliation')?.trim().slice(0, 120) || '') || undefined,
         bio: stripNul(body.get('bio')?.trim().slice(0, 1000) || '') || undefined,
+        website: /^https?:\/\/\S+$/.test(website) ? website : undefined,
       });
       return redirect(res, '/settings?saved=1');
     }
     const user = await getUserByHandle(session.handle);
-    return sendHtml(res, settingsPage(user!, url.searchParams.has('saved')));
+    return sendHtml(
+      res,
+      settingsPage(user!, await getEmailPrefs(session.userId), url.searchParams.has('saved')),
+    );
+  }
+
+  if (path === '/settings/email' && method === 'POST') {
+    const session = await requireUser(req, res);
+    if (!session) return;
+    const body = new URLSearchParams(await readBody(req));
+    await setEmailPrefs(session.userId, {
+      digest: body.get('digest') === 'weekly' ? 'weekly' : 'off',
+      notifyDecisions: body.get('decisions') === 'on',
+      notifyReplies: body.get('replies') === 'on',
+    });
+    return redirect(res, '/settings?saved=1');
+  }
+
+  // Unsubscribe by emailed token: no session needed (email clients open
+  // these signed out). GET shows a confirmation page; POST is RFC 8058
+  // one-click for mail clients, answered plainly.
+  const unsub = path.match(/^\/email\/unsubscribe\/([a-f0-9]{48})$/);
+  if (unsub && (method === 'GET' || method === 'POST')) {
+    const handle = await unsubscribeByToken(unsub[1]);
+    if (method === 'POST') return send(res, handle ? 200 : 404, 'text/plain', handle ? 'unsubscribed' : 'unknown token');
+    return sendHtml(res, unsubscribePage(handle), handle ? 200 : 404);
   }
 
   // Talk subjects: any node, plus reserved page discussions (the homepage).
@@ -737,6 +805,16 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         trusted,
       );
       if (result.error) return sendJson(res, 422, result);
+      if (parentId) {
+        // Detached: the topic author hears about the reply, the replier
+        // never waits on mail.
+        void notifyReply(
+          parentId,
+          { userId: session.userId, handle: session.handle },
+          { title: subject.title, talkPath: subject.talkPath },
+          (body.get('body') ?? '').trim(),
+        ).catch((err) => console.error('reply email failed:', err));
+      }
       return redirect(res, subject.talkPath);
     }
     const canModerate = session?.role === 'admin' || session?.role === 'reviewer';
@@ -876,6 +954,7 @@ initDomains(await getSetting<Domain[] | null>('domains', null));
 console.log(
   `graph loaded: ${nodeCount().toLocaleString()} nodes, ${totalCatalogParts.toLocaleString()} catalog parts in ${Math.round(performance.now() - t0)}ms`,
 );
+startDigestTicker();
 
 http
   .createServer((req, res) => {

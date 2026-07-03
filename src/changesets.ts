@@ -665,6 +665,12 @@ export async function decideChangeset(
       applied.map((a) => ({ op: a.op, nodeId: a.nodeId, data: a.data as Snapshot })),
     );
   }
+  // Tell the author, detached and best-effort like the analysis above. The
+  // dynamic import mirrors auth.ts -> mailer.ts and keeps emails.ts (which
+  // imports TRUST_POLICY from here) out of a static cycle.
+  void import('./emails.ts')
+    .then((m) => m.notifyDecision(id, decision, reviewerId))
+    .catch((err) => console.error('decision email failed:', err));
   return { ok: true };
 }
 

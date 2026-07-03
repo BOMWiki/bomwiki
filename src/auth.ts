@@ -121,8 +121,12 @@ export async function requestMagicLink(email: string, handle?: string): Promise<
   return { sent: true };
 }
 
-/** Complete a magic link: one-time use, creates a session. */
-export async function verifyMagicLink(token: string): Promise<string | null> {
+/** Complete a magic link: one-time use, creates a session. Returns the user
+ *  id alongside the session so the caller can run first-sign-in work (the
+ *  welcome email) without a second lookup. */
+export async function verifyMagicLink(
+  token: string,
+): Promise<{ session: string; userId: number } | null> {
   const res = await pool.query(
     `update magic_links set used_at = now()
      where token = $1 and used_at is null and expires_at > now()
@@ -135,5 +139,5 @@ export async function verifyMagicLink(token: string): Promise<string | null> {
     `insert into sessions (token, user_id, expires_at) values ($1, $2, now() + interval '${SESSION_DAYS} days')`,
     [session, res.rows[0].user_id],
   );
-  return session;
+  return { session, userId: Number(res.rows[0].user_id) };
 }
