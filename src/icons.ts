@@ -36,6 +36,7 @@ const G: Record<string, () => string> = {
   panel: () => `<rect x="26" y="22" width="44" height="52" rx="3" fill="${M1}" ${S}/><rect x="32" y="28" width="32" height="22" rx="2" fill="${ACC}" stroke="${M3}" stroke-width="1"/>`,
   hose: () => `<path d="M26 28 q40 8 0 30 q-40 14 44 10" ${S} stroke-width="4"/>`,
   vehicle: () => `<path d="M18 56 q4 -16 14 -16 h8 l8 -10 h16 q8 0 12 12 l8 2 q6 2 6 8 v2 H18 z" fill="${M1}" ${S}/><circle cx="34" cy="60" r="7" fill="${M2}" ${S}/><circle cx="68" cy="60" r="7" fill="${M2}" ${S}/>`,
+  machine: () => `<rect x="24" y="34" width="40" height="32" rx="3" fill="${M1}" ${S}/><path d="M34 34 v-8 h20 v8" fill="${M2}" ${S}/><rect x="64" y="46" width="14" height="10" fill="${M2}" ${S}/><rect x="28" y="66" width="6" height="10" fill="${M3}" ${S}/><rect x="54" y="66" width="6" height="10" fill="${M3}" ${S}/><rect x="29" y="40" width="13" height="9" rx="1.5" fill="${ACC}" stroke="${M3}" stroke-width="1"/><circle cx="52" cy="54" r="6" fill="${M2}" ${S}/>`,
 };
 
 const RULES: [RegExp, string][] = [
@@ -67,8 +68,9 @@ const RULES: [RegExp, string][] = [
 export function nodeIcon(node: { name: string; kind: string }): string {
   const name = node.name.toLowerCase();
   for (const [re, key] of RULES) if (re.test(name)) return G[key]();
-  // Fallbacks by kind.
-  if (node.kind === 'product') return G.vehicle();
+  // Fallbacks by kind. Most unmatched products are machines of some sort;
+  // a generic machine reads as "no drawing yet", a car reads as a mistake.
+  if (node.kind === 'product') return G.machine();
   if (node.kind === 'assembly') return G.box();
   return G.fastener();
 }

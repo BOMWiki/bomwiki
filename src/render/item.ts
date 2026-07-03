@@ -233,7 +233,8 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
             <span class="ib-credit">${esc(heroImg.title)} · Commons ↗</span>
           </a>
           <a class="ib-report" href="/item/${node.id}/talk?topic=photo">Report photo</a>`
-              : `<svg class="ib-img ib-svg" viewBox="0 0 96 96" role="img" aria-label="${esc(node.name)}">${nodeIcon(node)}</svg>`
+              : `<svg class="ib-img ib-svg" viewBox="0 0 96 96" role="img" aria-label="${esc(node.name)}">${nodeIcon(node)}</svg>
+          ${historical ? '' : `<p class="ib-nophoto">No photo yet. Seen one of these? <a href="/item/${node.id}/talk?topic=add-photo">Suggest a photo</a>.</p>`}`
           }
           ${node.summary ? `<p class="ib-cap">${esc(node.summary)}</p>` : ''}
           <table class="ib-specs"><tbody>${specs}</tbody></table>

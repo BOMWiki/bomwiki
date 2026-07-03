@@ -60,6 +60,7 @@
       outline: 0;
     }
     .ib-cap { text-align: center; color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+    .ib-nophoto { text-align: center; color: var(--muted); font-size: 11.5px; margin: 0 0 10px; }
     .ib-specs { width: 100%; border-collapse: collapse; font-size: 12.5px; }
     .ib-specs th, .ib-specs td { text-align: left; vertical-align: top; padding: 4px; border-bottom: 1px solid #eaecf0; background: none; }
     .ib-specs th { font-size: 12.5px; color: var(--ink); font-weight: 600; width: 42%; }

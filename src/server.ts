@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PUBLIC_DIR } from './images.ts';
+import { imageFor, PUBLIC_DIR } from './images.ts';
 import { ffsQuery, productsUsing } from './graphdb.ts';
 import { adminDashPage } from './render/admin.ts';
 import { DOMAINS, initDomains, setDomains, type Domain } from './domains.ts';
@@ -530,6 +530,43 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return sendHtml(res, profilePageEditor(target, { adminEdit }));
   }
 
+  // The photo worklist: every product page still showing a line-art icon.
+  // Exists so "no photo" is a queue anyone can work, not a dead end.
+  if (path === '/photos-needed' && method === 'GET') {
+    const missing = productList().filter((p) => !imageFor(p));
+    const total = productList().length;
+    const byDomain = new Map<string, typeof missing>();
+    for (const p of missing) {
+      const key = p.domain ?? 'other';
+      if (!byDomain.has(key)) byDomain.set(key, []);
+      byDomain.get(key)!.push(p);
+    }
+    const sections = [...byDomain.entries()]
+      .map(([slug, nodes]) => ({
+        name: DOMAINS.find((d) => d.slug === slug)?.name ?? 'Other',
+        nodes,
+      }))
+      .sort((a, b) => b.nodes.length - a.nodes.length)
+      .map(
+        (s) => `<h2 class="si-h">${esc(s.name)} <span class="rv-meta">(${s.nodes.length})</span></h2>
+        <p class="pn-list">${s.nodes.map((n) => `<a href="/item/${n.id}/">${esc(n.name)}</a>`).join(' · ')}</p>`,
+      )
+      .join('\n');
+    return sendCacheableHtml(
+      res,
+      page({
+        title: 'Pages needing photos | BOMwiki',
+        description: 'Product pages that still show a placeholder drawing.',
+        path: '/photos-needed',
+        indexable: false,
+        body: `<div class="review"><h1>Pages needing photos</h1>
+          <p class="stub">${missing.length.toLocaleString()} of ${total.toLocaleString()} products still show a line drawing instead of a photo. A good photo is openly licensed (Wikimedia Commons is ideal) and clearly shows the real thing. Open a page you can vouch for and use "Suggest a photo" there.</p>
+          ${sections}</div>`,
+        extraCss: ['/static/edit.css'],
+      }),
+    );
+  }
+
   if (path === '/contributors' && method === 'GET') {
     const [rows, members] = await Promise.all([
       listContributors(),
@@ -844,10 +881,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return redirect(res, subject.talkPath);
     }
     const canModerate = session?.role === 'admin' || session?.role === 'reviewer';
+    const topic = url.searchParams.get('topic');
     const prefill =
-      url.searchParams.get('topic') === 'photo'
+      topic === 'photo'
         ? 'The photo on this page looks wrong or mismatched for this item. What it shows instead: '
-        : '';
+        : topic === 'add-photo'
+          ? 'A good photo for this page (openly licensed, Wikimedia Commons is ideal), and what it shows: '
+          : '';
     return sendHtml(
       res,
       talkPage(subject, await topicsFor(subject.key), Boolean(session), canModerate, prefill),

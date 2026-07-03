@@ -209,7 +209,7 @@ export function contributorsPage(rows: ContributorRow[], totalMembers: number): 
     path: '/contributors',
     indexable: false,
     body: `<div class="review"><h1>Contributors</h1>
-      <p class="stub">The people who build BOMwiki: everyone with at least one accepted edit, most edits first. ${totalMembers} ${totalMembers === 1 ? 'member' : 'members'} in total. Automated cleanup runs under <a href="/user/steward-bot">steward-bot</a> and is labeled as machine work. <a href="/changes">Recent changes</a> shows what everyone is doing right now.</p>
+      <p class="stub">The people who build BOMwiki: everyone with at least one accepted edit, most edits first. ${totalMembers} ${totalMembers === 1 ? 'member' : 'members'} in total. Automated cleanup runs under <a href="/user/steward-bot">steward-bot</a> and is labeled as machine work. <a href="/changes">Recent changes</a> shows what everyone is doing right now; <a href="/photos-needed">pages needing photos</a> is a good way to help without editing.</p>
       ${rows.length === 0 ? '<p class="stub">Nobody yet. The first accepted edit puts you here.</p>' : ''}
       ${rows
         .map((u) => {
