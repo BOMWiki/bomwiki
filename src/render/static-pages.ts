@@ -10,6 +10,7 @@ export function aboutPage(): string {
     title: 'About | BOMwiki',
     description: 'What BOMwiki is and how it works.',
     path: '/about/',
+    ogImage: '/og/page/about.png',
     indexable: true,
     body: `<div class="review">
       <h1>About BOMwiki</h1>
@@ -27,6 +28,7 @@ export function verificationPage(): string {
     title: 'How verification works | BOMwiki',
     description: 'Verification statuses, machine checks, and their limits.',
     path: '/about/verification',
+    ogImage: '/og/page/verification.png',
     indexable: true,
     body: `<div class="review">
       <h1>How verification works</h1>
@@ -54,6 +56,7 @@ export function intelligencePage(): string {
     description:
       'How the analysis engine behind BOMwiki works: function taxonomies, graph algorithms, machine review of every change, layered validators, and the open analysis interface.',
     path: '/intelligence',
+    ogImage: '/og/page/intelligence.png',
     indexable: true,
     body: `<div class="review bi">
       <h1>BOM Intelligence</h1>
@@ -266,6 +269,7 @@ export function governancePage(): string {
     title: 'Governance | BOMwiki',
     description: 'Who runs BOMwiki and how editorial decisions are made.',
     path: '/about/governance',
+    ogImage: '/og/page/governance.png',
     indexable: true,
     body: `<div class="review">
       <h1>Governance</h1>
@@ -307,6 +311,7 @@ export function projectPage(): string {
     description:
       'The mission: every bill of materials in the world, free to everyone. What the project is, why, and what is open.',
     path: '/project',
+    ogImage: '/og/page/project.png',
     indexable: true,
     body: `<div class="review">
       <h1>The BOMwiki Project</h1>
@@ -346,6 +351,7 @@ export function enginePage(): string {
     title: 'The engine | BOMwiki',
     description: 'About the open source software that runs BOMwiki.',
     path: '/project/engine',
+    ogImage: '/og/page/engine.png',
     indexable: true,
     body: `<div class="review">
       <h1>The engine</h1>
@@ -369,6 +375,7 @@ export function helpEditingPage(): string {
     title: 'How to edit | BOMwiki',
     description: 'A practical guide to editing BOMwiki pages.',
     path: '/help/editing',
+    ogImage: '/og/page/help-editing.png',
     indexable: true,
     body: `<div class="review">
       <h1>How to edit</h1>
@@ -416,6 +423,7 @@ export function policiesPage(): string {
     title: 'Contribution policies | BOMwiki',
     description: 'The trust ladder, rate limits, and moderation rules.',
     path: '/policies',
+    ogImage: '/og/page/policies.png',
     indexable: true,
     body: `<div class="review">
       <h1>Contribution policies</h1>

@@ -559,6 +559,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         title: 'Pages needing photos | BOMwiki',
         description: 'Product pages that still show a placeholder drawing.',
         path: '/photos-needed',
+        ogImage: '/og/page/photos-needed.png',
         indexable: false,
         body: `<div class="review"><h1>Pages needing photos</h1>
           <p class="stub">${missing.length.toLocaleString()} of ${total.toLocaleString()} products still show a line drawing instead of a photo. A good photo is openly licensed (Wikimedia Commons is ideal) and clearly shows the real thing. Open a page you can vouch for and use "Suggest a photo" there.</p>

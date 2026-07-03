@@ -208,6 +208,7 @@ export function newPagePage(signedIn: boolean): string {
     title: 'Create a page | BOMwiki',
     description: 'Start a new product, assembly, or part page on BOMwiki.',
     path: '/new',
+    ogImage: '/og/page/new.png',
     indexable: false,
     body: `<div class="review"><h1>Create a page</h1>
       ${
@@ -228,6 +229,7 @@ export function contributorsPage(rows: ContributorRow[], totalMembers: number): 
     title: 'Contributors | BOMwiki',
     description: 'The people who build BOMwiki.',
     path: '/contributors',
+    ogImage: '/og/page/contributors.png',
     indexable: false,
     body: `<div class="review"><h1>Contributors</h1>
       <p class="stub">The people who build BOMwiki: everyone with at least one accepted edit, most edits first. ${totalMembers} ${totalMembers === 1 ? 'member' : 'members'} in total. Automated cleanup runs under <a href="/user/steward-bot">steward-bot</a> and is labeled as machine work. <a href="/changes">Recent changes</a> shows what everyone is doing right now; <a href="/photos-needed">pages needing photos</a> is a good way to help without editing.</p>
