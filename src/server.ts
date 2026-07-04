@@ -267,7 +267,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (path === '/sitemap.xml') {
-    // Only earned URLs: home, domain hubs, and human-verified indexable pages.
+    // Only indexable URLs: home, domain hubs, and nodes that clear the tier +
+    // content floor in isIndexableNode (currently substantive products).
     const urls: string[] = ["https://bomwiki.com/", "https://bomwiki.com/products", "https://bomwiki.com/project", "https://bomwiki.com/project/engine", "https://bomwiki.com/help/editing"];
     for (const d of DOMAINS) {
       if (productsByDomain(d.slug).length > 0) urls.push(`https://bomwiki.com/domain/${d.slug}/`);

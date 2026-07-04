@@ -1,14 +1,20 @@
-// Ported from src/lib/seo.ts so engine pages present identically in search —
-// with one wiki-era addition: indexability is earned. A page reaches search
-// engines only when its tier allows AND a human has verified it, so the
-// machine-generated backlog never rides the domain's reputation.
-import { lineCount, totalParts, verificationOfNode, type NodeData } from './nodes.ts';
+// Ported from src/lib/seo.ts so engine pages present identically in search.
+// Indexability is staged by node kind (INDEX_TIER) and gated by a content
+// floor, not by human verification: verification still shows on-page as a
+// trust signal, but requiring it kept ~everything noindexed (nothing is
+// human-verified yet), which deindexed the site. A page reaches search
+// engines when its tier allows AND it has real content, so empty
+// machine-generated stubs stay out while substantive pages get in.
+import { lineCount, totalParts, type NodeData } from './nodes.ts';
 
 export const INDEX_TIER = 1;
 export const SITE = 'https://bomwiki.com';
 
 export function isIndexableNode(node: NodeData): boolean {
-  if (verificationOfNode(node.id) !== 'human-verified') return false;
+  // Content floor: a real bill of materials or a written article. Keeps
+  // thin/empty stubs from riding the domain's reputation.
+  const hasSubstance = lineCount(node.id) >= 2 || Boolean(node.article?.trim());
+  if (!hasSubstance) return false;
   if (node.kind === 'product') return INDEX_TIER >= 1;
   if (node.kind === 'assembly') return INDEX_TIER >= 2;
   return INDEX_TIER >= 3;
