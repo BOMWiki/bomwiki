@@ -10,6 +10,7 @@ import net from 'node:net';
 import { join, resolve } from 'node:path';
 import { allNodes, loadGraph } from '../src/nodes.ts';
 import { pool } from '../src/db.ts';
+import { persistWhereUsed } from '../src/where-used.ts';
 
 const outDir = resolve(process.argv[2] ?? 'reports/ffs-export');
 const csvOnly = process.argv.includes('--csv-only');
@@ -62,6 +63,12 @@ const edgesCsv = join(outDir, 'edges.csv');
 writeFileSync(nodesCsv, nodeLines.join('\n') + '\n');
 writeFileSync(edgesCsv, edgeLines.join('\n') + '\n');
 console.log(`${nodeLines.length - 1} nodes, ${edgeLines.length - 1} edges -> ${outDir}`);
+
+// Materialize the transitive where-used index in Postgres from the same
+// in-memory graph. This is what /item/ pages read at request time instead of
+// re-running a full-catalog ffsd traversal per view.
+const wuCount = await persistWhereUsed();
+console.log(`where_used: ${wuCount} items indexed`);
 
 if (!csvOnly) {
   console.log(await ffsCommand(`LOAD_NODES Item id ${nodesCsv}`));

@@ -6,6 +6,7 @@
 // never an error. Protocol: one "QUERY <cypher>" line over TCP, response
 // framed as "OK query ..." / COLUMNS / ROW / END (see ffsd docs).
 import net from 'node:net';
+import { pool } from './db.ts';
 
 const FFS_HOST = process.env.FFS_HOST ?? '127.0.0.1';
 const FFS_PORT = Number(process.env.FFS_PORT ?? 8464);
@@ -84,7 +85,19 @@ export async function productsUsing(id: string): Promise<UsedInProducts | null> 
   if (!/^[A-Za-z0-9._-]+$/.test(id)) return null;
   const hit = cache.get(id);
   if (hit && Date.now() - hit.at < hit.ttl) return hit.v;
-  // One traversal: fetch every distinct containing product and count here.
+
+  // Fast path: read the materialized index built at export time
+  // (scripts/export-ffs.ts -> where_used table). A single indexed lookup,
+  // versus the full-catalog ffsd traversal below. If the row is absent
+  // because the export hasn't run yet, fall through to the live traversal so
+  // the feature still works on a fresh database.
+  const wu = await whereUsedFromTable(id);
+  if (wu !== undefined) {
+    cache.set(id, { at: Date.now(), ttl: CACHE_TTL_MS, v: wu });
+    return wu;
+  }
+
+  // Fallback traversal: fetch every distinct containing product and count here.
   // Even the most shared part in the catalog is in ~3,500 products, a
   // few hundred kilobytes on a loopback socket.
   const rows = await ffsQuery(
@@ -100,4 +113,39 @@ export async function productsUsing(id: string): Promise<UsedInProducts | null> 
   if (cache.size >= CACHE_MAX) cache.clear();
   cache.set(id, { at: Date.now(), ttl: rows === null ? FAIL_TTL_MS : CACHE_TTL_MS, v });
   return v;
+}
+
+// Whether the materialized index has been populated at least once. Cached for
+// the process lifetime after the first successful read of a present table, so
+// the common (post-export) case is a single-row lookup with no extra probe.
+let whereUsedReady = false;
+
+/** Read one item's where-used from the materialized table.
+ *  Returns the value (possibly `null` for "in zero products") when the index
+ *  is available, or `undefined` when it is not — table missing, empty, or the
+ *  query failed — signalling the caller to fall back to the live traversal. */
+async function whereUsedFromTable(id: string): Promise<UsedInProducts | null | undefined> {
+  try {
+    const res = await pool.query<{ count: number; top: { id: string; name: string }[] }>(
+      'select count, top from where_used where item_id = $1',
+      [id],
+    );
+    if (res.rows.length) {
+      whereUsedReady = true;
+      const r = res.rows[0];
+      return { count: Number(r.count), top: r.top ?? [] };
+    }
+    // No row for this id. Only trust that as "zero products" once we know the
+    // table has been populated; otherwise treat it as not-yet-available.
+    if (whereUsedReady) return null;
+    const any = await pool.query('select 1 from where_used limit 1');
+    if (any.rows.length) {
+      whereUsedReady = true;
+      return null;
+    }
+    return undefined;
+  } catch {
+    // Table absent (pre-migration) or transient DB error — fall back to ffsd.
+    return undefined;
+  }
 }
