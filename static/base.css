@@ -179,8 +179,9 @@
 .page-actions .pa-btn { white-space: nowrap; }
 .site-nav { justify-content: center; }
 .site-mid { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.hdr-search { flex: 1; min-width: 120px; }
-.hdr-search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+.hdr-search { flex: 1; min-width: 120px; position: relative; }
+.hdr-search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 48px 6px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+.hdr-search .scan-entry { right: 3px; width: 40px; height: 28px; }
 .hdr-search input:focus { outline: 0; border-color: var(--link); background: var(--bg); }
 .site-nav { flex: none; }
 

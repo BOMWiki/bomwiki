@@ -89,7 +89,9 @@ import { pool } from './db.ts';
 import { esc, stripNul } from './html.ts';
 import {
   allNodes,
+  children,
   getNode,
+  lineCount,
   loadGraph,
   nodeCount,
   productList,
@@ -99,8 +101,10 @@ import {
   setRedirectInMemory,
   setVerificationInMemory,
   totalCatalogParts,
+  totalParts,
   type Verification,
 } from './nodes.ts';
+import { scanPage } from './render/scan.ts';
 import { page } from './render/base.ts';
 import { historyPage, type RevisionRow } from './render/history.ts';
 import { itemPage } from './render/item.ts';
@@ -179,6 +183,58 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString('utf8');
+}
+
+// Scan images are JPEG data URLs, far over readBody's cap for text forms.
+async function readBodyLimited(req: http.IncomingMessage, limit: number): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new Error('body too large');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+const PHOTO_BOM_URL = process.env.PHOTO_BOM_URL ?? 'http://127.0.0.1:8791/api/photo-bom';
+
+// Catalog snapshot for the photo-BOM scanner. Walking totalParts over every
+// product costs real CPU, so the serialized result is memoized for an hour;
+// the scanner sidecar itself only refetches when its process restarts.
+let scanCatalogCache: { body: string; at: number } | undefined;
+function scanCatalogJson(): string {
+  if (scanCatalogCache && Date.now() - scanCatalogCache.at < 3_600_000) return scanCatalogCache.body;
+  const domainName = new Map(DOMAINS.map((d) => [d.slug, d.name]));
+  const items = productList().map((p) => {
+    const top = children(p.id)
+      .slice(0, 8)
+      .map(({ node, qty, note }) => ({
+        id: node.id,
+        name: node.name,
+        kind: node.kind,
+        qty,
+        note: note ?? '',
+        partsTotal: node.kind === 'part' ? 1 : totalParts(node.id),
+        directLines: lineCount(node.id),
+        url: `/item/${node.id}/`,
+      }));
+    return {
+      id: p.id,
+      name: p.name,
+      domain: p.domain ?? '',
+      domainName: domainName.get(p.domain ?? '') ?? p.domain ?? '',
+      summary: p.summary ?? '',
+      aliases: p.aliases ?? [],
+      partsTotal: totalParts(p.id),
+      directLines: lineCount(p.id),
+      url: `/item/${p.id}/`,
+      top,
+    };
+  });
+  const body = JSON.stringify({ v: 1, generatedAt: new Date().toISOString(), items });
+  scanCatalogCache = { body, at: Date.now() };
+  return body;
 }
 
 async function requireUser(
@@ -979,7 +1035,46 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (DOMAINS.some((d) => d.slug === slug)) return redirectPermanent(res, `/domain/${slug}/`);
     return redirectPermanent(res, `/search?q=${encodeURIComponent(slug.replace(/-/g, ' '))}`);
   }
-  if (path === '/scan' || path === '/scan/') return redirectPermanent(res, '/');
+  if (path === '/scan') return redirectPermanent(res, '/scan/');
+  if (path === '/scan/') return sendCacheableHtml(res, scanPage());
+
+  // Product catalog snapshot the photo-BOM scanner matches against
+  // (SCAN_CATALOG_URL in its unit points here). Same shape as the retired
+  // static site's scan-catalog.json; rebuilt lazily at most once an hour.
+  if (path === '/scan-catalog.json') {
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'public, max-age=3600',
+    });
+    res.end(scanCatalogJson());
+    return;
+  }
+
+  // Proxy scan images to the photo-BOM sidecar so the browser only ever
+  // talks to the engine. Images are ~0.2-1MB data URLs; cap matches the
+  // sidecar's own body limit.
+  if (path === '/api/photo-bom' && method === 'POST') {
+    let body: string;
+    try {
+      body = await readBodyLimited(req, 7_000_000);
+    } catch {
+      return sendJson(res, 413, { status: 'error', code: 'too_large', message: 'Image too large.' });
+    }
+    try {
+      const upstream = await fetch(PHOTO_BOM_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(30_000),
+      });
+      const text = await upstream.text();
+      res.writeHead(upstream.status, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(text);
+    } catch {
+      sendJson(res, 502, { status: 'error', code: 'scanner_offline', message: 'The scanner service is not reachable.' });
+    }
+    return;
+  }
 
   if (path === '/search') {
     return sendHtml(res, searchPage(url.searchParams.get('q') ?? ''));
