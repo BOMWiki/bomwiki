@@ -199,6 +199,46 @@ async function readBodyLimited(req: http.IncomingMessage, limit: number): Promis
 
 const PHOTO_BOM_URL = process.env.PHOTO_BOM_URL ?? 'http://127.0.0.1:8791/api/photo-bom';
 
+// Every scan is a paid vision-model call, so the proxy is rate limited on
+// two levels: a per-IP allowance for fairness, and a global hourly budget
+// that bounds worst-case spend even from a distributed abuser (who could
+// also spoof cf-connecting-ip when hitting the origin directly).
+const SCAN_IP_LIMIT = Number(process.env.SCAN_IP_LIMIT ?? 12); // per IP per window
+const SCAN_IP_WINDOW_MS = 10 * 60_000;
+const SCAN_GLOBAL_LIMIT = Number(process.env.SCAN_GLOBAL_LIMIT ?? 300); // per hour, all IPs
+const scanByIp = new Map<string, { count: number; windowStart: number }>();
+let scanGlobal = { count: 0, windowStart: 0 };
+
+function clientIp(req: http.IncomingMessage): string {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf) return cf;
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff) return xff.split(',')[0].trim();
+  return req.socket.remoteAddress ?? 'unknown';
+}
+
+function scanAllowed(req: http.IncomingMessage): boolean {
+  const now = Date.now();
+  if (now - scanGlobal.windowStart > 3_600_000) scanGlobal = { count: 0, windowStart: now };
+  if (scanGlobal.count >= SCAN_GLOBAL_LIMIT) return false;
+  // Windows are long, so a sweep on each call keeps the map from growing
+  // unbounded without needing a timer.
+  if (scanByIp.size > 10_000) {
+    for (const [ip, entry] of scanByIp) if (now - entry.windowStart > SCAN_IP_WINDOW_MS) scanByIp.delete(ip);
+  }
+  const ip = clientIp(req);
+  const entry = scanByIp.get(ip);
+  if (!entry || now - entry.windowStart > SCAN_IP_WINDOW_MS) {
+    scanByIp.set(ip, { count: 1, windowStart: now });
+  } else if (entry.count >= SCAN_IP_LIMIT) {
+    return false;
+  } else {
+    entry.count++;
+  }
+  scanGlobal.count++;
+  return true;
+}
+
 // Catalog snapshot for the photo-BOM scanner. Walking totalParts over every
 // product costs real CPU, so the serialized result is memoized for an hour;
 // the scanner sidecar itself only refetches when its process restarts.
@@ -1054,6 +1094,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   // talks to the engine. Images are ~0.2-1MB data URLs; cap matches the
   // sidecar's own body limit.
   if (path === '/api/photo-bom' && method === 'POST') {
+    if (!scanAllowed(req)) {
+      return sendJson(res, 429, {
+        status: 'error',
+        code: 'rate_limited',
+        message: 'Too many scans right now. Wait a few minutes and try again.',
+      });
+    }
     let body: string;
     try {
       body = await readBodyLimited(req, 7_000_000);
