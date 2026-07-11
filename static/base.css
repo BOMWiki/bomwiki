@@ -76,13 +76,14 @@
         outline: none; appearance: none; -webkit-appearance: none;
       }
       .search input:focus { border-color: var(--link); box-shadow: inset 0 0 0 1px var(--link); }
+      /* Standalone scan button beside the header search pill. */
       .scan-entry {
-        position: absolute; z-index: 3; top: 50%; right: 5px; width: 42px; height: 32px; transform: translateY(-50%);
+        flex: none; width: 40px; height: 30px;
         display: inline-flex; align-items: center; justify-content: center;
-        border: 0; border-radius: 4px; color: var(--muted); background: transparent;
+        border: 1px solid var(--line); border-radius: 15px; color: var(--muted); background: var(--panel);
         text-decoration: none; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
       }
-      .scan-entry:hover, .scan-entry:focus-visible { color: var(--link); text-decoration: none; background: var(--hl); outline: 0; }
+      .scan-entry:hover, .scan-entry:focus-visible { color: var(--link); border-color: var(--link); text-decoration: none; background: var(--hl); outline: 0; }
       .scan-glyph {
         position: relative; width: 20px; height: 15px; border: 1.75px solid currentColor; border-radius: 3px;
         display: inline-block; pointer-events: none;
@@ -162,7 +163,7 @@
         .rev { display: none; } /* stats don't fit beside brand+search on mobile */
         .b-name { font-size: 21px; }
         .search input { font-size: 16px; min-height: 39px; padding: 6px 58px 6px 10px; } /* 16px stops iOS zoom-on-focus */
-        .scan-entry { right: 3px; width: 44px; height: 34px; }
+        .scan-entry { width: 44px; height: 34px; border-radius: 17px; }
         h1 { font-size: 24px; }
         .grid-cards { grid-template-columns: 1fr; }
         table { font-size: 12px; }
@@ -173,6 +174,12 @@
 .site-nav { display: flex; gap: 12px; font-size: 12.5px; white-space: nowrap; }
 .site-nav a { color: var(--link); }
 @media (max-width: 640px) { .site-nav { font-size: 12px; gap: 8px; } }
+@media (max-width: 680px) {
+  /* Search + scan button get the full row; nav wraps to its own centered line. */
+  .site-mid { flex-wrap: wrap; gap: 6px 12px; }
+  .site-mid .site-nav { flex: 0 0 100%; }
+  .hdr-search input { font-size: 16px; min-height: 36px; } /* 16px stops iOS zoom-on-focus */
+}
 
 /* Page action row */
 .page-actions { flex-wrap: wrap; align-items: flex-start; }
@@ -180,8 +187,9 @@
 .site-nav { justify-content: center; }
 .site-mid { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .hdr-search { flex: 1; min-width: 120px; position: relative; }
-.hdr-search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 48px 6px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
-.hdr-search .scan-entry { right: 3px; width: 40px; height: 28px; }
+.hdr-search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+/* The scan button hugs the search pill it belongs with, not the nav. */
+.site-mid .scan-entry { margin-left: -8px; }
 .hdr-search input:focus { outline: 0; border-color: var(--link); background: var(--bg); }
 .site-nav { flex: none; }
 
