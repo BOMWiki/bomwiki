@@ -20,22 +20,23 @@ export function scanPage(): string {
   </head>
   <body>
   <section class="scan-shell" id="scanShell" data-state="starting">
+    <header class="scan-top">
+      <a class="scan-brand" href="/" aria-label="BOMwiki home">
+        <span class="b-name">BOMwiki</span>
+        <span class="b-sub">object scanner</span>
+      </a>
+      <div class="scan-readout" aria-live="polite">
+        <span id="scanMode">Starting camera</span>
+        <b id="scanReadout"></b>
+      </div>
+      <button class="scan-close" id="closeScan" type="button">Close</button>
+    </header>
+
+    <div class="scan-body">
     <div class="scan-stage" id="dropZone">
       <video id="scanVideo" autoplay muted playsinline></video>
       <img id="scanPhoto" alt="Captured object" hidden />
       <canvas id="scanHud" aria-hidden="true"></canvas>
-
-      <div class="scan-topbar">
-        <a class="scan-brand" href="/" aria-label="BOMwiki home">
-          <span>BOMwiki</span>
-          <small>scan</small>
-        </a>
-        <div class="scan-readout" aria-live="polite">
-          <span id="scanMode">Starting camera</span>
-          <b id="scanReadout">0%</b>
-        </div>
-        <button class="scan-plain" id="closeScan" type="button">Close</button>
-      </div>
 
       <div class="scan-guide" aria-hidden="true">
         <span class="g-corner g-tl"></span>
@@ -100,6 +101,7 @@ export function scanPage(): string {
         <p class="clues" id="scanClues"></p>
       </div>
     </aside>
+    </div>
   </section>
   <script src="${asset('/static/scan.js')}" defer></script>
   </body>

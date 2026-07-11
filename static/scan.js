@@ -51,7 +51,6 @@ let lock = 0;
 let lockedOnce = false;
 let lastBox = null;
 let analyzing = false;
-const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function setMode(mode, readout = '') {
   scanMode.textContent = mode;
@@ -114,78 +113,29 @@ function syncGuide(t) {
   guide.style.setProperty('--guide-h', `${t.h}px`);
 }
 
-function drawHud(now) {
+function drawHud() {
   const w = hud.clientWidth;
   const h = hud.clientHeight;
   ctx.clearRect(0, 0, w, h);
   const t = targetRect();
   syncGuide(t);
 
-  ctx.fillStyle = 'rgba(2, 8, 8, 0.12)';
+  // Dim everything outside the target frame; the frame itself stays clear.
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
   ctx.fillRect(0, 0, w, h);
   ctx.clearRect(t.x, t.y, t.w, t.h);
-
-  ctx.save();
-  ctx.strokeStyle = lock > 0.75 ? 'rgba(154, 255, 205, 0.86)' : 'rgba(88, 216, 255, 0.52)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([2, 14]);
-  for (let x = t.x + t.w / 5; x < t.x + t.w; x += t.w / 5) {
-    ctx.beginPath();
-    ctx.moveTo(x, t.y);
-    ctx.lineTo(x, t.y + t.h);
-    ctx.stroke();
-  }
-  for (let y = t.y + t.h / 4; y < t.y + t.h; y += t.h / 4) {
-    ctx.beginPath();
-    ctx.moveTo(t.x, y);
-    ctx.lineTo(t.x + t.w, y);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  const scanY = t.y + (reducedMotion ? 0.5 : ((now / 1300) % 1)) * t.h;
-  const grd = ctx.createLinearGradient(t.x, scanY - 24, t.x, scanY + 24);
-  grd.addColorStop(0, 'rgba(88, 216, 255, 0)');
-  grd.addColorStop(0.5, 'rgba(88, 216, 255, 0.24)');
-  grd.addColorStop(1, 'rgba(88, 216, 255, 0)');
-  ctx.fillStyle = grd;
-  ctx.fillRect(t.x, scanY - 24, t.w, 48);
-  ctx.strokeStyle = 'rgba(154, 255, 205, 0.62)';
-  ctx.beginPath();
-  ctx.moveTo(t.x, scanY);
-  ctx.lineTo(t.x + t.w, scanY);
-  ctx.stroke();
 
   if (lastBox) {
     const bx = t.x + lastBox.x * t.w;
     const by = t.y + lastBox.y * t.h;
     const bw = lastBox.w * t.w;
     const bh = lastBox.h * t.h;
-    ctx.save();
-    ctx.shadowColor = lock > 0.55 ? '#9affcd' : '#58d8ff';
-    ctx.shadowBlur = 18;
-    ctx.strokeStyle = lock > 0.55 ? 'rgba(154, 255, 205, 0.96)' : 'rgba(88, 216, 255, 0.82)';
+    ctx.strokeStyle = lock > 0.55 ? 'rgba(90, 200, 160, 0.95)' : 'rgba(255, 255, 255, 0.75)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(bx, by, bw, bh, 16);
+    ctx.roundRect(bx, by, bw, bh, 10);
     ctx.stroke();
-    ctx.restore();
   }
-
-  ctx.fillStyle = 'rgba(154, 255, 205, 0.86)';
-  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-  ctx.fillText(lock > 0.95 ? 'OBJECT LOCK' : 'FRAME OBJECT', t.x + 12, t.y + 20);
-  ctx.textAlign = 'right';
-  ctx.fillText(`${Math.round(lock * 100)}%`, t.x + t.w - 12, t.y + 20);
-  ctx.textAlign = 'left';
-
-  const meterX = t.x + 16;
-  const meterY = t.y + t.h - 18;
-  const meterW = t.w - 32;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
-  ctx.fillRect(meterX, meterY, meterW, 1.5);
-  ctx.fillStyle = 'rgba(154, 255, 205, 0.82)';
-  ctx.fillRect(meterX, meterY, meterW * lock, 1.5);
 }
 
 function sampleFrame(now, dt) {
@@ -271,7 +221,7 @@ function loop(now) {
   const dt = Math.min(80, now - lastFrame);
   lastFrame = now;
   sampleFrame(now, dt);
-  drawHud(now);
+  drawHud();
   raf = requestAnimationFrame(loop);
 }
 
