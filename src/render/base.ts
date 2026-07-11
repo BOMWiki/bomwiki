@@ -72,10 +72,10 @@ export function page(opts: PageOpts): string {
       <div class="site-mid">
         <form class="hdr-search" method="get" action="/search">
           <input type="search" name="q" placeholder="Search BOMwiki" aria-label="Search the catalog" autocomplete="off" />
+          <a class="scan-entry" href="/scan/" aria-label="Scan an object" title="Scan an object">
+            <span class="scan-glyph" aria-hidden="true"></span>
+          </a>
         </form>
-        <a class="scan-entry" href="/scan/" aria-label="Scan an object" title="Scan an object">
-          <span class="scan-glyph" aria-hidden="true"></span>
-        </a>
         <nav class="site-nav">
           <a href="/new">New page</a>
           <a href="/changes">Recent changes</a>

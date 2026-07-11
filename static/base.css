@@ -76,14 +76,15 @@
         outline: none; appearance: none; -webkit-appearance: none;
       }
       .search input:focus { border-color: var(--link); box-shadow: inset 0 0 0 1px var(--link); }
-      /* Standalone scan button beside the header search pill. */
+      /* Scan button: the right segment of the header search pill. Its left
+         border is the divider (the input drops its right border). */
       .scan-entry {
-        flex: none; width: 40px; height: 30px;
+        flex: none; width: 42px;
         display: inline-flex; align-items: center; justify-content: center;
-        border: 1px solid var(--line); border-radius: 15px; color: var(--muted); background: var(--panel);
+        border: 1px solid var(--line); border-radius: 0 16px 16px 0; color: var(--muted); background: var(--panel);
         text-decoration: none; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
       }
-      .scan-entry:hover, .scan-entry:focus-visible { color: var(--link); border-color: var(--link); text-decoration: none; background: var(--hl); outline: 0; }
+      .scan-entry:hover, .scan-entry:focus-visible { color: var(--link); text-decoration: none; background: var(--hl); outline: 0; }
       .scan-glyph {
         position: relative; width: 20px; height: 15px; border: 1.75px solid currentColor; border-radius: 3px;
         display: inline-block; pointer-events: none;
@@ -163,7 +164,7 @@
         .rev { display: none; } /* stats don't fit beside brand+search on mobile */
         .b-name { font-size: 21px; }
         .search input { font-size: 16px; min-height: 39px; padding: 6px 58px 6px 10px; } /* 16px stops iOS zoom-on-focus */
-        .scan-entry { width: 44px; height: 34px; border-radius: 17px; }
+        .scan-entry { width: 46px; border-radius: 0 18px 18px 0; }
         h1 { font-size: 24px; }
         .grid-cards { grid-template-columns: 1fr; }
         table { font-size: 12px; }
@@ -178,7 +179,7 @@
   /* Search + scan button get the full row; nav wraps to its own centered line. */
   .site-mid { flex-wrap: wrap; gap: 6px 12px; }
   .site-mid .site-nav { flex: 0 0 100%; }
-  .hdr-search input { font-size: 16px; min-height: 36px; } /* 16px stops iOS zoom-on-focus */
+  .hdr-search input { font-size: 16px; min-height: 36px; border-radius: 18px 0 0 18px; } /* 16px stops iOS zoom-on-focus */
 }
 
 /* Page action row */
@@ -186,11 +187,11 @@
 .page-actions .pa-btn { white-space: nowrap; }
 .site-nav { justify-content: center; }
 .site-mid { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.hdr-search { flex: 1; min-width: 120px; position: relative; }
-.hdr-search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
-/* The scan button hugs the search pill it belongs with, not the nav. */
-.site-mid .scan-entry { margin-left: -8px; }
-.hdr-search input:focus { outline: 0; border-color: var(--link); background: var(--bg); }
+.hdr-search { flex: 1; min-width: 120px; position: relative; display: flex; }
+.hdr-search input { flex: 1; min-width: 0; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-right: 0; border-radius: 16px 0 0 16px; background: var(--panel); }
+.hdr-search input:focus { outline: 0; background: var(--bg); }
+/* Focusing the input highlights the whole pill, divider included. */
+.hdr-search:focus-within input, .hdr-search:focus-within .scan-entry { border-color: var(--link); }
 .site-nav { flex: none; }
 
 /* Project footer */
