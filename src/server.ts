@@ -1,7 +1,8 @@
 // The BOMwiki engine server: plain node:http, no framework. Read path from
 // the in-memory graph; write path (propose -> review -> apply) from
 // milestone 2. Auth is a single admin session until milestone 3.
-import { readFileSync } from 'node:fs';
+import { createReadStream, readFileSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import http from 'node:http';
 import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,12 +63,27 @@ import {
 } from './community.ts';
 import {
   getEmailPrefs,
+  notifyModelDecision,
   notifyReply,
   sendWelcome,
   setEmailPrefs,
   startDigestTicker,
   unsubscribeByToken,
 } from './emails.ts';
+import {
+  createSubmission,
+  decideSubmission,
+  fileAccess,
+  listPendingSubmissions,
+  MODEL_MIME,
+  modelFilePath,
+  modelForNode,
+  myPendingForNode,
+  receiveUpload,
+  withdrawSubmission,
+  type ModelExt,
+} from './models.ts';
+import { modelUploadPage } from './render/models.ts';
 import {
   changesPage,
   contributorsPage,
@@ -239,6 +255,37 @@ function scanAllowed(req: http.IncomingMessage): boolean {
   return true;
 }
 
+// Model uploads write real bytes to disk, so they get the same two-level
+// limiter shape as scans: per-IP fairness plus a global cap that bounds
+// worst-case disk churn. Submissions are additionally rate limited per user
+// in createSubmission.
+const MODEL_IP_LIMIT = Number(process.env.MODEL_IP_LIMIT ?? 10); // per IP per window
+const MODEL_IP_WINDOW_MS = 10 * 60_000;
+const MODEL_GLOBAL_LIMIT = Number(process.env.MODEL_GLOBAL_LIMIT ?? 200); // per hour, all IPs
+const modelByIp = new Map<string, { count: number; windowStart: number }>();
+let modelGlobal = { count: 0, windowStart: 0 };
+
+function modelUploadAllowed(req: http.IncomingMessage): boolean {
+  const now = Date.now();
+  if (now - modelGlobal.windowStart > 3_600_000) modelGlobal = { count: 0, windowStart: now };
+  if (modelGlobal.count >= MODEL_GLOBAL_LIMIT) return false;
+  if (modelByIp.size > 10_000) {
+    for (const [ip, entry] of modelByIp)
+      if (now - entry.windowStart > MODEL_IP_WINDOW_MS) modelByIp.delete(ip);
+  }
+  const ip = clientIp(req);
+  const entry = modelByIp.get(ip);
+  if (!entry || now - entry.windowStart > MODEL_IP_WINDOW_MS) {
+    modelByIp.set(ip, { count: 1, windowStart: now });
+  } else if (entry.count >= MODEL_IP_LIMIT) {
+    return false;
+  } else {
+    entry.count++;
+  }
+  modelGlobal.count++;
+  return true;
+}
+
 // Catalog snapshot for the photo-BOM scanner. Walking totalParts over every
 // product costs real CPU, so the serialized result is memoized for an hour;
 // the scanner sidecar itself only refetches when its process restarts.
@@ -350,6 +397,41 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     } catch {
       notFound(res);
     }
+    return;
+  }
+
+  // Contributed 3D model files, content-addressed and immutable. Public only
+  // once an accepted submission references the hash; before that the uploader
+  // and reviewers can fetch it (uncached) to preview a pending submission —
+  // everyone else gets the same 404 as a hash that never existed.
+  const modelFile = path.match(/^\/models\/([a-f0-9]{64})\.(stl|step|fcstd|scad)$/);
+  if (modelFile && method === 'GET') {
+    const [, sha, ext] = modelFile;
+    const session = await getSession(req);
+    const access = await fileAccess(
+      sha,
+      session ? { userId: session.userId, role: session.role } : null,
+    );
+    if (access === 'none') return notFound(res);
+    const filePath = modelFilePath(sha, ext);
+    let size: number;
+    try {
+      size = (await stat(filePath)).size;
+    } catch {
+      return notFound(res);
+    }
+    const headers: Record<string, string> = {
+      'content-type': MODEL_MIME[ext as ModelExt],
+      'content-length': String(size),
+      'cache-control':
+        access === 'public' ? 'public, max-age=31536000, immutable' : 'no-store',
+    };
+    // STL streams to the in-page viewer; everything else is a download.
+    if (ext !== 'stl') {
+      headers['content-disposition'] = `attachment; filename="bomwiki-${sha.slice(0, 12)}.${ext}"`;
+    }
+    res.writeHead(200, headers);
+    createReadStream(filePath).pipe(res);
     return;
   }
 
@@ -481,11 +563,91 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     });
   }
 
+  // --- 3D models: two-step contribution (upload the bytes, then submit
+  // the metadata). Both require a session; the upload is IP-rate-limited
+  // because it writes real bytes to disk before any review happens. ---
+  if (path === '/api/models/upload' && method === 'POST') {
+    // Error paths here reject without reading the (possibly huge) body, which
+    // leaves unread bytes on the socket — a keep-alive reuse would then parse
+    // body bytes as the next request. Close the connection on every error.
+    const reject = (status: number, value: unknown): void => {
+      res.writeHead(status, {
+        'content-type': 'application/json',
+        connection: 'close',
+      });
+      res.end(JSON.stringify(value), () => req.destroy());
+    };
+    const session = await getSession(req);
+    if (!session) return reject(401, { error: 'sign in to add a model' });
+    if (!modelUploadAllowed(req)) {
+      return reject(429, {
+        error: 'Too many uploads right now. Wait a few minutes and try again.',
+        code: 'rate_limited',
+      });
+    }
+    const result = await receiveUpload(req, url.searchParams.get('ext') ?? '', session.userId);
+    if (!result.ok) return reject(result.status, { error: result.message, code: result.code });
+    return sendJson(res, 200, {
+      sha256: result.sha256,
+      bytes: result.bytes,
+      format: result.format,
+      triangles: result.triangles,
+    });
+  }
+  if (path === '/api/models/submit' && method === 'POST') {
+    const session = await getSession(req);
+    if (!session) return sendJson(res, 401, { error: 'sign in to add a model' });
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(await readBody(req));
+    } catch {
+      return sendJson(res, 400, { error: 'invalid JSON' });
+    }
+    const result = await createSubmission({ userId: session.userId, role: session.role }, parsed);
+    if ('errors' in result) return sendJson(res, 422, { errors: result.errors });
+    return sendJson(res, 201, { id: result.id, live: result.live });
+  }
+  const modelUpload = path.match(/^\/item\/([A-Za-z0-9._-]+)\/model\/upload$/);
+  if (modelUpload && method === 'GET') {
+    const node = getNode(modelUpload[1]);
+    if (!node) return notFound(res, modelUpload[1]);
+    const session = await getSession(req);
+    const mine = session ? await myPendingForNode(node.id, session.userId) : [];
+    return sendHtml(res, modelUploadPage(node, Boolean(session), mine));
+  }
+  const modelWithdraw = path.match(/^\/model\/(\d+)\/withdraw$/);
+  if (modelWithdraw && method === 'POST') {
+    const session = await getSession(req);
+    if (!session) return redirect(res, '/login');
+    const nodeId = await withdrawSubmission(Number(modelWithdraw[1]), session.userId);
+    return redirect(res, nodeId ? `/item/${nodeId}/model/upload` : '/');
+  }
+
   // --- review ---
   if (path === '/review' && method === 'GET') {
     const session = await requireReviewer(req, res);
     if (!session) return;
-    return sendHtml(res, reviewPage(await listPending(), url.searchParams.get('m') ?? undefined));
+    const [pending, pendingModels] = await Promise.all([listPending(), listPendingSubmissions()]);
+    return sendHtml(
+      res,
+      reviewPage(pending, url.searchParams.get('m') ?? undefined, pendingModels),
+    );
+  }
+  const modelDecide = path.match(/^\/review\/model\/(\d+)\/(accept|reject)$/);
+  if (modelDecide && method === 'POST') {
+    const session = await requireReviewer(req, res);
+    if (!session) return;
+    const decision = modelDecide[2] === 'accept' ? 'accepted' : 'rejected';
+    const result = await decideSubmission(Number(modelDecide[1]), session.userId, decision);
+    if (result.ok) {
+      void notifyModelDecision(Number(modelDecide[1]), decision, session.userId).catch((err) =>
+        console.error('model decision email failed:', err),
+      );
+    }
+    const m = result.ok
+      ? `Model #${modelDecide[1]} ${modelDecide[2]}ed.`
+      : `Model #${modelDecide[1]}: ${result.error}`;
+    return redirect(res, `/review?m=${encodeURIComponent(m)}`);
   }
   const decide = path.match(/^\/review\/(\d+)\/(accept|reject)$/);
   if (decide && method === 'POST') {
@@ -1141,8 +1303,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (!slash) return redirectPermanent(res, `/item/${id}/`);
     // Transitive where-used comes from the FFS graph sidecar; products are
     // never contained by anything, so skip the lookup for them.
-    const usedIn = node.kind === 'product' ? null : await productsUsing(id);
-    return sendCacheableHtml(res, itemPage(node, { productsUsing: usedIn }));
+    const [usedIn, model] = await Promise.all([
+      node.kind === 'product' ? null : productsUsing(id),
+      modelForNode(id),
+    ]);
+    return sendCacheableHtml(res, itemPage(node, { productsUsing: usedIn, model }));
   }
 
   if (path === '/') {

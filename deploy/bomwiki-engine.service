@@ -21,6 +21,10 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/opt/bomwiki
+# Writable store for contributed 3D model files (MODELS_DIR in engine.env
+# points here). systemd creates /var/lib/bomwiki-models owned by the service
+# user; it is the one place the engine can write besides /tmp.
+StateDirectory=bomwiki-models
 PrivateTmp=true
 
 [Install]

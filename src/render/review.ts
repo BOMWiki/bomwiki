@@ -1,7 +1,9 @@
 import type { ChangesetDetail, PendingChangeset } from '../changesets.ts';
 import { esc, fmtWhen, summaryLines } from '../html.ts';
+import type { PendingModel } from '../models.ts';
 import { getNode } from '../nodes.ts';
 import { page } from './base.ts';
+import { modelReviewCard } from './models.ts';
 
 /** One changeset as a card: header, per-node diff lines, machine findings,
  *  and whatever action row fits the viewer. Shared by the review queue and
@@ -39,12 +41,18 @@ const reviewActions = (id: number): string => `<div class="rv-actions">
         <form method="post" action="/review/${id}/reject"><button>Reject</button></form>
       </div>`;
 
-export function reviewPage(pending: PendingChangeset[], notice?: string): string {
+export function reviewPage(
+  pending: PendingChangeset[],
+  notice?: string,
+  pendingModels: PendingModel[] = [],
+): string {
   const body = `<div class="review">
     <h1>Review queue</h1>
     ${notice ? `<p class="rv-notice">${esc(notice)}</p>` : ''}
-    ${pending.length === 0 ? '<p class="stub">Nothing pending. All caught up.</p>' : ''}
+    ${pending.length === 0 && pendingModels.length === 0 ? '<p class="stub">Nothing pending. All caught up.</p>' : ''}
     ${pending.map((cs) => changesetCard(cs, reviewActions(cs.id))).join('\n')}
+    ${pendingModels.length ? `<h2 class="si-h">3D model submissions</h2>` : ''}
+    ${pendingModels.map((m) => modelReviewCard(m)).join('\n')}
   </div>`;
 
   return page({

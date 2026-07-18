@@ -228,6 +228,52 @@ The change: ${SITE_ORIGIN}/changeset/${changesetId}`;
   }
 }
 
+/** Tell an uploader their 3D model submission was decided. Same rules as
+ *  changeset decisions: self-decided (autoconfirmed) never notifies, and the
+ *  per-day notification cap applies. */
+export async function notifyModelDecision(
+  submissionId: number,
+  decision: 'accepted' | 'rejected',
+  reviewerId: number,
+): Promise<void> {
+  if (!mailerConfigured()) return;
+  const sub = await pool.query(
+    `select s.uploader_id, s.node_id, s.kind,
+            (select handle from users where id = $2) as reviewer
+     from model_submissions s where s.id = $1`,
+    [submissionId, reviewerId],
+  );
+  if (!sub.rows.length) return;
+  const uploaderId = Number(sub.rows[0].uploader_id);
+  if (uploaderId === reviewerId) return;
+  const r = await recipient(uploaderId);
+  if (!r || !r.notifyDecisions) return;
+  if (!(await underDailyCap(r.id))) return;
+
+  const nodeId: string = sub.rows[0].node_id;
+  const name = getNode(nodeId)?.name ?? nodeId;
+  const pageUrl = `${SITE_ORIGIN}/item/${nodeId}/`;
+  if (decision === 'accepted') {
+    const what =
+      sub.rows[0].kind === 'display'
+        ? `is live as the page's 3D view`
+        : `is listed under the page's CAD source files`;
+    await deliver(
+      r,
+      'decision',
+      'Your BOMwiki 3D model is live',
+      `Your 3D model for ${name} was accepted by ${sub.rows[0].reviewer} and ${what}.\n\n${pageUrl}`,
+    );
+  } else {
+    await deliver(
+      r,
+      'decision',
+      'Your BOMwiki 3D model was not accepted',
+      `Your 3D model for ${name} was reviewed by ${sub.rows[0].reviewer} and not accepted.\n\nA rejection usually means the reviewer could not confirm the model matches the real thing, or the license situation was unclear. If you can add context, raise it on the page's Discussion tab and submit again.\n\n${pageUrl}`,
+    );
+  }
+}
+
 /** Tell a topic author someone replied. Self-replies never notify. */
 export async function notifyReply(
   parentCommentId: number,

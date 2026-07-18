@@ -74,6 +74,32 @@ directories stay on disk untouched.
 pg_dump bomwiki | gzip > /var/backups/bomwiki-$(date +%F).sql.gz
 ```
 
+## 6. 3D model layer (CAD files)
+
+Contributed model files live outside the deployed tree, in
+`/var/lib/bomwiki-models` (created by the unit's `StateDirectory` — after
+updating the unit run `systemctl daemon-reload && systemctl restart
+bomwiki-engine`). `MODELS_DIR` in engine.env must point there; without it the
+engine falls back to `engine/var/models`, which is read-only under
+`/opt/bomwiki` and uploads will 500.
+
+Deploy steps when first shipping this feature:
+
+```
+npm run migrate                      # applies schema/0013_models.sql
+cp deploy/bomwiki-engine.service /etc/systemd/system/bomwiki-engine.service
+systemctl daemon-reload && systemctl restart bomwiki-engine
+ls -ld /var/lib/bomwiki-models       # owned by bomwiki, writable
+```
+
+Maintenance: `node --experimental-strip-types scripts/models-gc.ts` sweeps
+uploads that never became submissions (7-day grace), stray files, and dead
+tmp streams — sensible as a weekly cron. Model files are NOT in the pg_dump;
+include `/var/lib/bomwiki-models` in file backups.
+
+Smoke: `scripts/models-smoke.ts` (needs ENGINE_URL, ADMIN_TOKEN,
+DATABASE_URL, and DEV_SHOW_MAGIC_LINK=1, so dev/staging only).
+
 ## What CI does NOT yet do
 
 Deploys of engine code are manual (rsync + systemctl restart). Wiring the

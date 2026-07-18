@@ -19,8 +19,10 @@ import {
 import { snapshotOf } from '../changesets.ts';
 import { imageFor, ogCardPath } from '../images.ts';
 import { articleWordCount, renderArticle } from '../markdown.ts';
+import type { ItemModel } from '../models.ts';
 import { graphSection } from './graph-section.ts';
 import { gallerySection, sourcingSection } from './item-extras.ts';
+import { modelSection } from './models.ts';
 import { isIndexableNode, seoDescription, seoTitle } from '../seo.ts';
 import { page } from './base.ts';
 import { rail } from './rail.ts';
@@ -32,6 +34,9 @@ export interface ItemPageOpts {
   asOfRev?: number;
   /** Transitive where-used from the FFS graph sidecar; null/absent hides the line. */
   productsUsing?: { count: number; top: { id: string; name: string }[] } | null;
+  /** Accepted 3D model + source files for this node; null/absent renders the
+   *  "Add a 3D model" invitation instead of the viewer. */
+  model?: ItemModel | null;
 }
 
 export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
@@ -248,6 +253,7 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
           }
         </div>
         ${historical ? '' : gallerySection(node.id)}
+        ${historical ? '' : modelSection(node, opts.model ?? null)}
         ${historical ? '' : graphSection(node)}
         ${bomHtml}
         ${usedInHtml}
@@ -279,7 +285,20 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
     ogImage: ogCardPath(node.id),
     jsonLd: historical ? [] : [breadcrumbLd],
     body,
-    extraCss: ['/static/item.css', '/static/rail.css', '/static/edit.css'],
-    scripts: historical ? [] : ['/static/edit.js', '/static/graph.js'],
+    extraCss: [
+      '/static/item.css',
+      '/static/rail.css',
+      '/static/edit.css',
+      ...(historical ? [] : ['/static/model.css']),
+    ],
+    scripts: historical
+      ? []
+      : [
+          '/static/edit.js',
+          '/static/graph.js',
+          // The viewer script is a tiny activator; three.js itself loads only
+          // on click. Included only when there is a model to view.
+          ...(opts.model?.display ? ['/static/model-viewer.js'] : []),
+        ],
   });
 }
