@@ -173,6 +173,71 @@
   padding: 0 12px 10px;
 }
 
+/* /cad/:id player page */
+.cadplayer .cp-meta {
+  font-size: 13.5px;
+  color: #5b6774;
+  margin: 4px 0 14px;
+}
+.cp-stage {
+  aspect-ratio: 16 / 9;
+  max-height: 560px;
+}
+.cp-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 6px;
+}
+.cp-dl {
+  display: inline-block;
+  border: 1px solid #8aa0b8;
+  border-radius: 5px;
+  padding: 9px 16px;
+  text-decoration: none;
+  color: #1a3550;
+  font-size: 14.5px;
+  font-weight: 600;
+  background: #fff;
+}
+.cp-dl span {
+  display: block;
+  font-weight: 400;
+  font-size: 12px;
+  color: #5b6774;
+  margin-top: 1px;
+}
+.cp-dl:hover {
+  background: #f0f5fa;
+}
+.cp-dl-main {
+  border-color: #0b5cad;
+  background: #0b5cad;
+  color: #fff;
+}
+.cp-dl-main span {
+  color: #cfe2f3;
+}
+.cp-dl-main:hover {
+  background: #094c8f;
+}
+.cp-dl-main span a,
+.cp-dl span a {
+  color: inherit;
+}
+.cp-note {
+  font-style: italic;
+}
+.cp-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 12px;
+  border-top: 1px solid #e3e7ec;
+  font-size: 14px;
+}
+
 /* Upload form */
 .mu-license {
   border: 1px solid #d5d9de;

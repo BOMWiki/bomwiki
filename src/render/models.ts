@@ -74,7 +74,7 @@ export function modelSection(node: NodeData, model: ItemModel | null): string {
         </button>
         <p class="mv-hint">Loads the viewer and a ${fmtBytes(display.bytes)} model. Drag to rotate, scroll or pinch to zoom.</p>
       </div>
-      <p class="mv-credit">3D model: ${esc(display.attribution)} · ${licenseLink(display.license)} · <a href="${fileUrl(display)}" rel="nofollow">Download STL (${fmtBytes(display.bytes)})</a>${display.triangles ? ` · ${display.triangles.toLocaleString()} triangles` : ''}</p>`;
+      <p class="mv-credit">3D model: ${esc(display.attribution)} · ${licenseLink(display.license)} · <a href="/cad/${node.id}">Open in CAD player</a> · <a href="${fileUrl(display)}" rel="nofollow">Download STL (${fmtBytes(display.bytes)})</a></p>`;
 
   const data = !display
     ? ''
@@ -187,7 +187,7 @@ export function cadHubPage(items: ModeledItem[], totalItems: number): string {
     const meta = m.display
       ? `${m.display.triangles ? `${(m.display.triangles / 1000).toFixed(m.display.triangles < 10_000 ? 1 : 0)}k triangles · ` : ''}${esc(m.display.license)}`
       : `${m.sourceCount} source ${m.sourceCount === 1 ? 'file' : 'files'}`;
-    return `<a class="ch-card" href="/item/${node.id}/">
+    return `<a class="ch-card" href="/cad/${node.id}">
         <span class="ch-pic">${
           thumb
             ? `<img src="${thumb}" alt="3D model of ${esc(node.name)}" loading="lazy" decoding="async" width="480" height="360" />`
@@ -232,6 +232,114 @@ export function cadHubPage(items: ModeledItem[], totalItems: number): string {
       <p class="stub">Open the page for anything you've modeled and use its <b>Add a 3D model</b> link. STL up to 50&nbsp;MB / 1.5M triangles renders in the viewer; STEP (50&nbsp;MB), FreeCAD (25&nbsp;MB), and OpenSCAD (1&nbsp;MB) ride along as source downloads. You pick the license — CC0, <a href="https://creativecommons.org/licenses/by/4.0/" rel="license noopener">CC&nbsp;BY</a>, or <a href="https://creativecommons.org/licenses/by-sa/4.0/" rel="license noopener">CC&nbsp;BY-SA</a> — and your name goes in the credit line on the page, permanently. First submissions get human review, same trust ladder as edits. Not sure where to start? <a href="/products">Browse all products</a> or open a <a href="/random">random page</a> and see what's missing.</p>
     </div>`,
     extraCss: ['/static/edit.css', '/static/model.css'],
+  });
+}
+
+/** A dedicated CAD player page at /cad/:id — the model is the whole point:
+ *  auto-loading viewer, downloads, provenance, tools, and browsing through
+ *  the collection. The item page stays the encyclopedia entry and links here. */
+export function cadModelPage(
+  node: NodeData,
+  model: ItemModel,
+  usedIn: { count: number; top: { id: string; name: string }[] } | null,
+  prev: { id: string; name: string } | null,
+  next: { id: string; name: string } | null,
+): string {
+  const display = model.display;
+  const thumb = existsSync(join(PUBLIC_DIR, 'img', 'cad', `${node.id}.png`))
+    ? `/img/cad/${node.id}.png`
+    : null;
+
+  const stage = display
+    ? `<div class="mv-stage cp-stage" id="bw-model-stage" data-auto="1">
+        ${thumb ? `<img class="mv-poster" src="${thumb}" alt="" aria-hidden="true" decoding="async" />` : ''}
+        <button class="mv-activate" id="bw-model-activate" type="button">
+          <span class="mv-cube" aria-hidden="true"></span>View in 3D
+        </button>
+        <p class="mv-hint">Drag to rotate · scroll or pinch to zoom</p>
+      </div>
+      <script type="application/json" id="bw-model-data">${JSON.stringify({
+        url: fileUrl(display),
+        name: node.name,
+        triangles: display.triangles,
+        three: '/static/vendor/three.module.min.js',
+        stlLoader: '/static/vendor/STLLoader.js',
+        orbitControls: '/static/vendor/OrbitControls.js',
+      }).replaceAll('<', '\\u003c')}</script>`
+    : `<div class="mv-stage cp-stage">${
+        thumb
+          ? `<img class="mv-poster" src="${thumb}" alt="Render of ${esc(node.name)}" decoding="async" />`
+          : '<span class="ch-noshot" aria-hidden="true"></span>'
+      }</div>`;
+
+  const downloads = [
+    ...(display
+      ? [
+          `<a class="cp-dl cp-dl-main" href="${fileUrl(display)}" rel="nofollow">Download STL <span>${fmtBytes(display.bytes)} · ${esc(display.license)}</span></a>`,
+        ]
+      : []),
+    ...model.sources.map(
+      (f) =>
+        `<a class="cp-dl" href="${fileUrl(f)}" rel="nofollow">${f.ext === 'fcstd' ? 'FreeCAD source' : f.ext === 'scad' ? 'OpenSCAD source' : `${f.ext.toUpperCase()} source`} <span>${fmtBytes(f.bytes)} · ${esc(f.license)}</span></a>`,
+    ),
+  ].join('\n');
+
+  const provenance = display ?? model.sources[0];
+  const jsonLd = display
+    ? [
+        {
+          '@context': 'https://schema.org',
+          '@type': '3DModel',
+          name: `${node.name} 3D model`,
+          creator: { '@type': 'Person', name: provenance.attribution },
+          license: MODEL_LICENSES[provenance.license]?.url,
+          image: thumb ? `https://bomwiki.com${thumb}` : undefined,
+          encoding: [
+            {
+              '@type': 'MediaObject',
+              contentUrl: `https://bomwiki.com${fileUrl(display)}`,
+              encodingFormat: 'model/stl',
+            },
+          ],
+          isPartOf: 'https://bomwiki.com/cad',
+        },
+      ]
+    : [];
+
+  return page({
+    title: `${node.name} 3D model — free ${display ? 'STL' : 'CAD file'} (${provenance.license}) | BOMwiki`,
+    description: `Interactive 3D model of a ${node.name.toLowerCase()}: spin it in the browser, download the ${display ? 'STL' : 'CAD file'} free under ${provenance.license}, or contribute a better one. Part of BOMwiki's open CAD collection.`,
+    path: `/cad/${node.id}`,
+    indexable: true,
+    ogImage: thumb ?? undefined,
+    jsonLd,
+    body: `<div class="review cadplayer">
+      <nav class="trail"><a href="/cad">3D models</a><span class="sep">›</span><span class="cur">${esc(node.name)}</span></nav>
+      <h1>${esc(node.name)} <span class="htag">3D model</span></h1>
+      <p class="cp-meta">By ${esc(provenance.attribution)} · ${licenseLink(provenance.license)}${display?.triangles ? ` · ${display.triangles.toLocaleString()} triangles` : ''} · <a href="/item/${node.id}/">encyclopedia page: what it is and where it's used ›</a></p>
+      ${stage}
+      <div class="cp-downloads">${downloads}</div>
+      ${provenance.note ? `<p class="stub cp-note">${esc(provenance.note)}</p>` : ''}
+      ${
+        usedIn && usedIn.count > 0
+          ? `<p class="stub">This part appears in <b>${usedIn.count.toLocaleString()}</b> ${usedIn.count === 1 ? 'product' : 'products'} on BOMwiki, including ${usedIn.top
+              .slice(0, 5)
+              .map((p) => `<a href="/item/${p.id}/">${esc(p.name)}</a>`)
+              .join(', ')}.</p>`
+          : ''
+      }
+      <h2 class="si-h">Open it, remix it — with free tools</h2>
+      <p class="stub">Every file here works with free software: <a href="https://www.freecad.org/" rel="noopener">FreeCAD</a> for parametric solid modeling, <a href="https://openscad.org/" rel="noopener">OpenSCAD</a> for code-driven parts, <a href="https://www.blender.org/" rel="noopener">Blender</a> for meshes. The license${MODEL_LICENSES[provenance.license] ? ` (${esc(MODEL_LICENSES[provenance.license].name)})` : ''} lets you print it, modify it, and ship it in your own projects.</p>
+      <h2 class="si-h">Make it better</h2>
+      <p class="stub">This is ${provenance.attribution === 'BOMwiki parametric' ? 'generated reference geometry — accurate to published dimensions, but not a substitute for a properly modeled part' : 'a community contribution'}. If you've modeled the real thing, <a href="/item/${node.id}/model/upload">upload your version</a>; accepted replacements take over this page with your name in the credit.</p>
+      <nav class="cp-pager">
+        ${prev ? `<a href="/cad/${prev.id}">‹ ${esc(prev.name)}</a>` : '<span></span>'}
+        <a href="/cad">All 3D models</a>
+        ${next ? `<a href="/cad/${next.id}">${esc(next.name)} ›</a>` : '<span></span>'}
+      </nav>
+    </div>`,
+    extraCss: ['/static/edit.css', '/static/item.css', '/static/model.css'],
+    scripts: display ? ['/static/model-viewer.js'] : [],
   });
 }
 

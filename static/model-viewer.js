@@ -32,7 +32,7 @@
     }
   }
 
-  btn.addEventListener('click', async () => {
+  async function activate() {
     if (!hasWebGL()) {
       fail('Your browser has no WebGL support, so the 3D view cannot start.');
       return;
@@ -115,5 +115,10 @@
       controls.update();
       renderer.render(scene, camera);
     });
-  });
+  }
+
+  btn.addEventListener('click', activate);
+  // Dedicated CAD player pages opt into loading immediately; item pages
+  // stay click-to-activate so the encyclopedia read costs nothing.
+  if (stage.dataset.auto === '1') activate();
 })();

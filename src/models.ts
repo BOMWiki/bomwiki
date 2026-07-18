@@ -446,6 +446,7 @@ export interface ItemModelFile {
   triangles: number | null;
   license: string;
   attribution: string;
+  note: string | null;
 }
 
 export interface ItemModel {
@@ -458,7 +459,7 @@ export interface ItemModel {
 export async function modelForNode(nodeId: string): Promise<ItemModel | null> {
   const [displayQ, sourcesQ] = await Promise.all([
     pool.query(
-      `select s.sha256, s.license, s.attribution, f.ext, f.format, f.bytes, f.triangles
+      `select s.sha256, s.license, s.attribution, s.note, f.ext, f.format, f.bytes, f.triangles
        from node_models nm
        join model_submissions s on s.id = nm.submission_id
        join model_files f on f.sha256 = s.sha256
@@ -467,7 +468,7 @@ export async function modelForNode(nodeId: string): Promise<ItemModel | null> {
     ),
     pool.query(
       `select distinct on (s.sha256)
-              s.sha256, s.license, s.attribution, f.ext, f.format, f.bytes, f.triangles
+              s.sha256, s.license, s.attribution, s.note, f.ext, f.format, f.bytes, f.triangles
        from model_submissions s
        join model_files f on f.sha256 = s.sha256
        where s.node_id = $1 and s.status = 'accepted' and s.kind = 'source'
@@ -483,6 +484,7 @@ export async function modelForNode(nodeId: string): Promise<ItemModel | null> {
     triangles: r.triangles === null ? null : Number(r.triangles),
     license: String(r.license),
     attribution: String(r.attribution),
+    note: r.note === null || r.note === undefined ? null : String(r.note),
   });
   const display = displayQ.rows.length ? toFile(displayQ.rows[0]) : null;
   const sources = sourcesQ.rows.map(toFile);

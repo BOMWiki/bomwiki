@@ -84,7 +84,7 @@ import {
   withdrawSubmission,
   type ModelExt,
 } from './models.ts';
-import { cadHubPage, modelUploadPage } from './render/models.ts';
+import { cadHubPage, cadModelPage, modelUploadPage } from './render/models.ts';
 import {
   changesPage,
   contributorsPage,
@@ -455,6 +455,10 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     for (const node of allNodes()) {
       if (isIndexableNode(node)) urls.push(`https://bomwiki.com/item/${node.id}/`);
     }
+    // CAD player pages: one per item with an accepted model.
+    for (const m of await listModeledItems()) {
+      if (getNode(m.nodeId)) urls.push(`https://bomwiki.com/cad/${m.nodeId}`);
+    }
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls
       .map((u) => `  <url><loc>${u}</loc></url>`)
       .join('\n')}\n</urlset>\n`;
@@ -799,6 +803,31 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (path === '/cad/') return redirectPermanent(res, '/cad');
     const items = await listModeledItems();
     return sendCacheableHtml(res, cadHubPage(items, nodeCount()));
+  }
+
+  // Dedicated CAD player page per model. Nodes without a model bounce to
+  // their encyclopedia page rather than 404 (the model may come later).
+  const cadModel = path.match(/^\/cad\/([A-Za-z0-9._-]+)$/);
+  if (cadModel && method === 'GET') {
+    const node = getNode(cadModel[1]);
+    if (!node) return notFound(res, cadModel[1]);
+    const model = await modelForNode(node.id);
+    if (!model) return redirect(res, `/item/${node.id}/`);
+    const [items, usedIn] = await Promise.all([
+      listModeledItems(),
+      node.kind === 'product' ? null : productsUsing(node.id),
+    ]);
+    const ordered = items
+      .map((m) => getNode(m.nodeId))
+      .filter((n): n is NonNullable<typeof n> => Boolean(n))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const idx = ordered.findIndex((n) => n.id === node.id);
+    const prev = idx > 0 ? { id: ordered[idx - 1].id, name: ordered[idx - 1].name } : null;
+    const next =
+      idx >= 0 && idx < ordered.length - 1
+        ? { id: ordered[idx + 1].id, name: ordered[idx + 1].name }
+        : null;
+    return sendCacheableHtml(res, cadModelPage(node, model, usedIn, prev, next));
   }
 
   if (path === '/photos-needed' && method === 'GET') {
