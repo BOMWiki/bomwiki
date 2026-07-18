@@ -105,6 +105,7 @@ ${opts.body}
         <a href="/about/governance">governance</a> · <a href="/about/verification">verification</a> ·
         <a href="/intelligence">intelligence</a> · <a href="/policies">policies</a> ·
         <a href="/help/editing">how to edit</a> · <a href="/products">all products</a> ·
+        <a href="/cad">3D models</a> ·
         <a href="https://github.com/BOMWiki" rel="noopener">GitHub</a>
       </p>
       <p class="pf-credit">Engine <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">open source, AGPL-3.0</a> · made by <a href="https://x.com/protosphinx" rel="me noopener">@protosphinx</a> on NEO · graph queries on <a href="https://ffsdb.com" rel="noopener">FFS</a>.</p>

@@ -490,6 +490,49 @@ export async function modelForNode(nodeId: string): Promise<ItemModel | null> {
   return { display, sources };
 }
 
+export interface ModeledItem {
+  nodeId: string;
+  /** The current display model's metadata; absent when the node only has
+   *  accepted source files. */
+  display: { license: string; attribution: string; triangles: number | null } | null;
+  sourceCount: number;
+}
+
+/** Every node with an accepted model or source file, for the /cad hub. */
+export async function listModeledItems(): Promise<ModeledItem[]> {
+  const [displayQ, sourcesQ] = await Promise.all([
+    pool.query(
+      `select nm.node_id, s.license, s.attribution, f.triangles
+       from node_models nm
+       join model_submissions s on s.id = nm.submission_id
+       join model_files f on f.sha256 = s.sha256`,
+    ),
+    pool.query(
+      `select node_id, count(distinct sha256)::int as n
+       from model_submissions where status = 'accepted' and kind = 'source'
+       group by node_id`,
+    ),
+  ]);
+  const byNode = new Map<string, ModeledItem>();
+  for (const r of displayQ.rows) {
+    byNode.set(r.node_id, {
+      nodeId: r.node_id,
+      display: {
+        license: r.license,
+        attribution: r.attribution,
+        triangles: r.triangles === null ? null : Number(r.triangles),
+      },
+      sourceCount: 0,
+    });
+  }
+  for (const r of sourcesQ.rows) {
+    const item = byNode.get(r.node_id);
+    if (item) item.sourceCount = Number(r.n);
+    else byNode.set(r.node_id, { nodeId: r.node_id, display: null, sourceCount: Number(r.n) });
+  }
+  return [...byNode.values()];
+}
+
 export type FileAccess = 'public' | 'private' | 'none';
 
 /** Who may fetch a stored file: everyone once any accepted submission

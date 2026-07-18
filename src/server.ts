@@ -74,6 +74,7 @@ import {
   createSubmission,
   decideSubmission,
   fileAccess,
+  listModeledItems,
   listPendingSubmissions,
   MODEL_MIME,
   modelFilePath,
@@ -83,7 +84,7 @@ import {
   withdrawSubmission,
   type ModelExt,
 } from './models.ts';
-import { modelUploadPage } from './render/models.ts';
+import { cadHubPage, modelUploadPage } from './render/models.ts';
 import {
   changesPage,
   contributorsPage,
@@ -447,7 +448,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (path === '/sitemap.xml') {
     // Only indexable URLs: home, domain hubs, and nodes that clear the tier +
     // content floor in isIndexableNode (currently substantive products).
-    const urls: string[] = ["https://bomwiki.com/", "https://bomwiki.com/products", "https://bomwiki.com/project", "https://bomwiki.com/project/engine", "https://bomwiki.com/help/editing"];
+    const urls: string[] = ["https://bomwiki.com/", "https://bomwiki.com/products", "https://bomwiki.com/cad", "https://bomwiki.com/project", "https://bomwiki.com/project/engine", "https://bomwiki.com/help/editing"];
     for (const d of DOMAINS) {
       if (productsByDomain(d.slug).length > 0) urls.push(`https://bomwiki.com/domain/${d.slug}/`);
     }
@@ -792,6 +793,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   // The photo worklist: every product page still showing a line-art icon.
   // Exists so "no photo" is a queue anyone can work, not a dead end.
+  // The CAD layer's linkable front door: what it is, every item with a
+  // model, how to contribute. Session-independent, so edge-cacheable.
+  if ((path === '/cad' || path === '/cad/') && method === 'GET') {
+    if (path === '/cad/') return redirectPermanent(res, '/cad');
+    const items = await listModeledItems();
+    return sendCacheableHtml(res, cadHubPage(items, nodeCount()));
+  }
+
   if (path === '/photos-needed' && method === 'GET') {
     const missing = productList().filter((p) => !imageFor(p));
     const total = productList().length;

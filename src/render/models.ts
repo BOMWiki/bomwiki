@@ -6,10 +6,11 @@ import {
   MODEL_LICENSES,
   type ItemModel,
   type ItemModelFile,
+  type ModeledItem,
   type MyPendingModel,
   type PendingModel,
 } from '../models.ts';
-import type { NodeData } from '../nodes.ts';
+import { getNode, type NodeData } from '../nodes.ts';
 import { page } from './base.ts';
 
 export function fmtBytes(n: number): string {
@@ -54,7 +55,7 @@ export function modelSection(node: NodeData, model: ItemModel | null): string {
   if (!display && sources.length === 0) {
     return `<section class="cadsec">
         <div class="sec-head"><h2>3D model</h2></div>
-        <p class="stub">No 3D model yet. Have a CAD file of this? <a href="${addUrl}">Add a 3D model</a> — STL renders right on this page; STEP, FreeCAD, and OpenSCAD sources are welcome too (openly licensed).</p>
+        <p class="stub">No 3D model yet. Have a CAD file of this? <a href="${addUrl}">Add a 3D model</a> — STL renders right on this page; STEP, FreeCAD, and OpenSCAD sources are welcome too (openly licensed, like all <a href="/cad">3D models on BOMwiki</a>).</p>
       </section>`;
   }
 
@@ -160,6 +161,59 @@ export function modelUploadPage(
       }</div>`,
     extraCss: ['/static/edit.css', '/static/model.css'],
     scripts: signedIn ? ['/static/model-upload.js'] : [],
+  });
+}
+
+/** The /cad hub: what the model layer is, every item that has one, and how
+ *  to contribute. The site's linkable, indexable front door for CAD. */
+export function cadHubPage(items: ModeledItem[], totalItems: number): string {
+  const named = items
+    .map((m) => ({ m, node: getNode(m.nodeId) }))
+    .filter((x): x is { m: ModeledItem; node: NodeData } => Boolean(x.node))
+    .sort((a, b) => a.node.name.localeCompare(b.node.name));
+
+  const listHtml =
+    named.length === 0
+      ? `<p class="stub">No models yet — the layer is brand new. The first accepted contribution will be listed here.</p>`
+      : `<p class="pn-list">${named
+          .map(({ m, node }) => {
+            const bits = [
+              m.display ? `viewable` : '',
+              m.sourceCount ? `${m.sourceCount} source ${m.sourceCount === 1 ? 'file' : 'files'}` : '',
+              m.display?.license ?? '',
+            ]
+              .filter(Boolean)
+              .join(', ');
+            return `<a href="/item/${node.id}/">${esc(node.name)}</a> <span class="rv-meta">(${bits})</span>`;
+          })
+          .join(' · ')}</p>`;
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: '3D models on BOMwiki',
+    description:
+      'Openly licensed 3D models and CAD source files attached to BOMwiki product, assembly, and part pages.',
+    url: 'https://bomwiki.com/cad',
+  };
+
+  return page({
+    title: '3D models & CAD files | BOMwiki',
+    description:
+      'Openly licensed 3D models and CAD files for the products, assemblies, and parts on BOMwiki. View STL models in the browser, download STEP and FreeCAD sources, or contribute your own.',
+    path: '/cad',
+    indexable: true,
+    jsonLd: [jsonLd],
+    body: `<div class="review"><h1>3D models</h1>
+      <p class="stub">BOMwiki pages can carry an openly licensed 3D model next to their bill of materials. STL models render right on the page in an interactive viewer; STEP, FreeCAD, and OpenSCAD source files are offered as downloads. Every model names its author and carries a <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="license noopener">CC0</a>, <a href="https://creativecommons.org/licenses/by/4.0/" rel="license noopener">CC&nbsp;BY</a>, or <a href="https://creativecommons.org/licenses/by-sa/4.0/" rel="license noopener">CC&nbsp;BY-SA</a> license, so everything here is free to reuse.</p>
+
+      <h2 class="si-h">Items with 3D models <span class="rv-meta">(${named.length.toLocaleString()} of ${totalItems.toLocaleString()} pages)</span></h2>
+      ${listHtml}
+
+      <h2 class="si-h">Contribute a model</h2>
+      <p class="stub">Open the page for something you have modeled and use its <b>Add a 3D model</b> link (in the 3D model section). Uploads need an account; your first submissions go through review, the same trust ladder as edits. Accepted formats: STL up to 50&nbsp;MB and 1.5&nbsp;million triangles for the viewer, STEP up to 50&nbsp;MB, FreeCAD up to 25&nbsp;MB, and OpenSCAD up to 1&nbsp;MB as source downloads. You pick the license and attribution at upload. Not sure where to start? <a href="/products">Browse all products</a> or open a <a href="/random">random page</a>.</p>
+    </div>`,
+    extraCss: ['/static/edit.css'],
   });
 }
 
