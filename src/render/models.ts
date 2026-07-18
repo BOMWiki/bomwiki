@@ -1,7 +1,10 @@
 // Item-page 3D model section, the model upload page, and the review-queue
 // card for pending model submissions. Follows the item-extras.ts contract:
 // section helpers return '<section>…</section>' or ''.
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { esc, fmtWhen } from '../html.ts';
+import { PUBLIC_DIR } from '../images.ts';
 import {
   MODEL_LICENSES,
   type ItemModel,
@@ -164,29 +167,37 @@ export function modelUploadPage(
   });
 }
 
-/** The /cad hub: what the model layer is, every item that has one, and how
- *  to contribute. The site's linkable, indexable front door for CAD. */
+/** The /cad hub: a visual gallery selling the model layer — thumbnail cards
+ *  for every item with geometry, the story of how the seed set was built,
+ *  and the contribute pitch. The site's linkable, indexable front door. */
 export function cadHubPage(items: ModeledItem[], totalItems: number): string {
   const named = items
     .map((m) => ({ m, node: getNode(m.nodeId) }))
     .filter((x): x is { m: ModeledItem; node: NodeData } => Boolean(x.node))
     .sort((a, b) => a.node.name.localeCompare(b.node.name));
 
-  const listHtml =
+  const card = ({ m, node }: { m: ModeledItem; node: NodeData }): string => {
+    const thumb = existsSync(join(PUBLIC_DIR, 'img', 'cad', `${node.id}.png`))
+      ? `/img/cad/${node.id}.png`
+      : null;
+    const meta = m.display
+      ? `${m.display.triangles ? `${(m.display.triangles / 1000).toFixed(m.display.triangles < 10_000 ? 1 : 0)}k triangles · ` : ''}${esc(m.display.license)}`
+      : `${m.sourceCount} source ${m.sourceCount === 1 ? 'file' : 'files'}`;
+    return `<a class="ch-card" href="/item/${node.id}/">
+        <span class="ch-pic">${
+          thumb
+            ? `<img src="${thumb}" alt="3D model of ${esc(node.name)}" loading="lazy" decoding="async" width="480" height="360" />`
+            : `<span class="ch-noshot" aria-hidden="true"></span>`
+        }</span>
+        <span class="ch-name">${esc(node.name)}</span>
+        <span class="ch-meta">${meta} · spin it ↗</span>
+      </a>`;
+  };
+
+  const gallery =
     named.length === 0
-      ? `<p class="stub">No models yet — the layer is brand new. The first accepted contribution will be listed here.</p>`
-      : `<p class="pn-list">${named
-          .map(({ m, node }) => {
-            const bits = [
-              m.display ? `viewable` : '',
-              m.sourceCount ? `${m.sourceCount} source ${m.sourceCount === 1 ? 'file' : 'files'}` : '',
-              m.display?.license ?? '',
-            ]
-              .filter(Boolean)
-              .join(', ');
-            return `<a href="/item/${node.id}/">${esc(node.name)}</a> <span class="rv-meta">(${bits})</span>`;
-          })
-          .join(' · ')}</p>`;
+      ? `<p class="stub">Nothing yet — the first accepted model lands here.</p>`
+      : `<div class="ch-grid">${named.map(card).join('\n')}</div>`;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -200,20 +211,23 @@ export function cadHubPage(items: ModeledItem[], totalItems: number): string {
   return page({
     title: '3D models & CAD files | BOMwiki',
     description:
-      'Openly licensed 3D models and CAD files for the products, assemblies, and parts on BOMwiki. View STL models in the browser, download STEP and FreeCAD sources, or contribute your own.',
+      'Free, openly licensed 3D models for real hardware: spin them in the browser, download the STL, replace them with better ones. The CAD layer of the bill-of-materials encyclopedia.',
     path: '/cad',
     indexable: true,
     jsonLd: [jsonLd],
-    body: `<div class="review"><h1>3D models</h1>
-      <p class="stub">BOMwiki pages can carry an openly licensed 3D model next to their bill of materials. STL models render right on the page in an interactive viewer; STEP, FreeCAD, and OpenSCAD source files are offered as downloads. Every model names its author and carries a <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="license noopener">CC0</a>, <a href="https://creativecommons.org/licenses/by/4.0/" rel="license noopener">CC&nbsp;BY</a>, or <a href="https://creativecommons.org/licenses/by-sa/4.0/" rel="license noopener">CC&nbsp;BY-SA</a> license, so everything here is free to reuse.</p>
+    body: `<div class="review cadhub"><h1>3D models</h1>
+      <p class="ch-lede">An encyclopedia that tells you what a machine is made of should also <b>show you the parts</b>. That's this layer: real geometry on the pages of real hardware. Click a card, hit <b>View in 3D</b>, and grab it with your mouse — every model is openly licensed, so you can download the STL and use it for anything.</p>
 
-      <h2 class="si-h">Items with 3D models <span class="rv-meta">(${named.length.toLocaleString()} of ${totalItems.toLocaleString()} pages)</span></h2>
-      ${listHtml}
+      <h2 class="si-h">The collection <span class="rv-meta">${named.length.toLocaleString()} of ${totalItems.toLocaleString()} pages have geometry — help fix that ratio</span></h2>
+      ${gallery}
 
-      <h2 class="si-h">Contribute a model</h2>
-      <p class="stub">Open the page for something you have modeled and use its <b>Add a 3D model</b> link (in the 3D model section). Uploads need an account; your first submissions go through review, the same trust ladder as edits. Accepted formats: STL up to 50&nbsp;MB and 1.5&nbsp;million triangles for the viewer, STEP up to 50&nbsp;MB, FreeCAD up to 25&nbsp;MB, and OpenSCAD up to 1&nbsp;MB as source downloads. You pick the license and attribution at upload. Not sure where to start? <a href="/products">Browse all products</a> or open a <a href="/random">random page</a>.</p>
+      <h2 class="si-h">How the first models were built</h2>
+      <p class="stub">The seed set is <b>parametric</b>: a generator script turns published dimensions — ISO&nbsp;4014 for the hex bolt, ISO&nbsp;4032 for its nut, a 608 bearing's 8×22×7&nbsp;mm envelope, a module-2 helical gear pair — into watertight STL meshes, and the same script can emit any size on demand. They are honest reference geometry with simplifications noted on each page (threads drawn as a helix, bearing cages omitted), published as <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="license noopener">CC0</a> so there is nothing to ask permission for. Modeled the real thing properly in FreeCAD or SolidWorks? <b>Replace them.</b> Upgrades go through the same review as any edit.</p>
+
+      <h2 class="si-h">Put your parts in the encyclopedia</h2>
+      <p class="stub">Open the page for anything you've modeled and use its <b>Add a 3D model</b> link. STL up to 50&nbsp;MB / 1.5M triangles renders in the viewer; STEP (50&nbsp;MB), FreeCAD (25&nbsp;MB), and OpenSCAD (1&nbsp;MB) ride along as source downloads. You pick the license — CC0, <a href="https://creativecommons.org/licenses/by/4.0/" rel="license noopener">CC&nbsp;BY</a>, or <a href="https://creativecommons.org/licenses/by-sa/4.0/" rel="license noopener">CC&nbsp;BY-SA</a> — and your name goes in the credit line on the page, permanently. First submissions get human review, same trust ladder as edits. Not sure where to start? <a href="/products">Browse all products</a> or open a <a href="/random">random page</a> and see what's missing.</p>
     </div>`,
-    extraCss: ['/static/edit.css'],
+    extraCss: ['/static/edit.css', '/static/model.css'],
   });
 }
 

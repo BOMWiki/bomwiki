@@ -93,6 +93,72 @@
   margin: 2px 0;
 }
 
+/* /cad hub gallery */
+.cadhub .ch-lede {
+  font-size: 16.5px;
+  line-height: 1.55;
+  max-width: 46em;
+  margin: 6px 0 18px;
+}
+.ch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 14px 0 26px;
+}
+.ch-card {
+  display: block;
+  border: 1px solid #d5d9de;
+  border-radius: 6px;
+  background: #fff;
+  text-decoration: none;
+  color: inherit;
+  overflow: hidden;
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
+}
+.ch-card:hover {
+  box-shadow: 0 6px 18px rgba(26, 53, 80, 0.14);
+  transform: translateY(-2px);
+}
+.ch-pic {
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: linear-gradient(#f7f8fa, #e8ecf1);
+  border-bottom: 1px solid #e3e7ec;
+}
+.ch-pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  padding: 6%;
+  box-sizing: border-box;
+}
+.ch-noshot {
+  display: block;
+  width: 34px;
+  height: 34px;
+  margin: 60px auto;
+  border: 2px solid #b6c0cb;
+  transform: rotate(-8deg) skewY(-6deg);
+}
+.ch-name {
+  display: block;
+  font-weight: 600;
+  font-size: 14.5px;
+  padding: 9px 12px 2px;
+  color: #1a3550;
+}
+.ch-card:hover .ch-name {
+  color: #0b5cad;
+}
+.ch-meta {
+  display: block;
+  font-size: 12px;
+  color: #5b6774;
+  padding: 0 12px 10px;
+}
+
 /* Upload form */
 .mu-license {
   border: 1px solid #d5d9de;
