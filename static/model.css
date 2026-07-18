@@ -2,7 +2,7 @@
 
 .cadsec .mv-stage {
   position: relative;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 9;
   max-height: 420px;
   width: 100%;
   border: 1px solid #d5d9de;
@@ -26,7 +26,18 @@
   touch-action: none;
 }
 
+.mv-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3%;
+  box-sizing: border-box;
+}
+
 .mv-activate {
+  position: relative;
   font: inherit;
   font-size: 15px;
   padding: 10px 22px;
@@ -55,11 +66,14 @@
 }
 
 .mv-hint {
+  position: relative;
   font-size: 12.5px;
   color: #5b6774;
   margin: 0;
-  padding: 0 16px;
+  padding: 3px 10px;
   text-align: center;
+  background: rgba(255, 255, 255, 0.82);
+  border-radius: 4px;
 }
 
 .mv-error {

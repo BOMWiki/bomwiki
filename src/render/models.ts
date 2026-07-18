@@ -62,9 +62,13 @@ export function modelSection(node: NodeData, model: ItemModel | null): string {
       </section>`;
   }
 
+  const poster = existsSync(join(PUBLIC_DIR, 'img', 'cad', `${node.id}.png`))
+    ? `<img class="mv-poster" src="/img/cad/${node.id}.png" alt="" aria-hidden="true" loading="lazy" decoding="async" />`
+    : '';
   const viewerHtml = !display
     ? ''
     : `<div class="mv-stage" id="bw-model-stage">
+        ${poster}
         <button class="mv-activate" id="bw-model-activate" type="button">
           <span class="mv-cube" aria-hidden="true"></span>View in 3D
         </button>
