@@ -250,6 +250,47 @@
   background: #f0f5fa;
 }
 
+/* edge pick bar (fillet / chamfer) */
+.pick-bar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #d5d9de;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.pick-bar button {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border: 1px solid #c8ced5;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.pick-bar button.sr-accent {
+  background: #0b5cad;
+  color: #fff;
+  border-color: #0b5cad;
+  font-weight: 600;
+}
+.pick-bar input[type='number'] {
+  width: 60px;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 2px 5px;
+  border: 1px solid #c8ced5;
+  border-radius: 3px;
+}
+
 /* sketch overlay */
 #bw-sketch {
   position: absolute;

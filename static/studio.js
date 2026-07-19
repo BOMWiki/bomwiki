@@ -101,7 +101,7 @@
     return Math.random().toString(36).slice(2, 8);
   }
 
-  const OP_LABEL = { extrude: 'Extrude', cut: 'Cut', revolve: 'Revolve' };
+  const OP_LABEL = { extrude: 'Extrude', cut: 'Cut', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer' };
 
   function shapeToDrawing(s) {
     if (s.kind === 'rect') {
@@ -152,10 +152,21 @@
     let failed = null;
     for (const f of doc.features) {
       try {
-        const solid = featureSolid(f);
-        if (f.type === 'cut') {
+        if (f.type === 'fillet' || f.type === 'chamfer') {
+          if (!acc) throw new Error('nothing to round yet');
+          let hit = 0;
+          const next = acc[f.type]((edge) => {
+            const on = f.edges.some((sig) => sigMatches(sig, edge));
+            if (on) hit++;
+            return on ? f.r : 0;
+          });
+          if (!hit) throw new Error('the picked edges no longer exist — edit or delete this feature');
+          acc = next;
+        } else if (f.type === 'cut') {
+          const solid = featureSolid(f);
           if (acc) acc = acc.cut(solid);
         } else {
+          const solid = featureSolid(f);
           acc = acc ? acc.fuse(solid) : solid;
         }
         f.error = null;
@@ -174,11 +185,30 @@
     if (failed) say(OP_LABEL[failed.type] + ' failed: ' + failed.error);
   }
 
+  // Edge identity across rebuilds: OCCT hash codes are not stable between
+  // kernel runs, so features that reference edges (fillet/chamfer) store a
+  // geometric signature — midpoint + length — and re-match on rebuild.
+  const edgeSig = (edge) => {
+    const p = edge.pointAt(0.5);
+    return { p: [p.x ?? p[0], p.y ?? p[1], p.z ?? p[2]].map((v) => Math.round(v * 100) / 100), l: Math.round(edge.length * 100) / 100 };
+  };
+  const sigMatches = (sig, edge) => {
+    const p = edge.pointAt(0.5);
+    const q = [p.x ?? p[0], p.y ?? p[1], p.z ?? p[2]];
+    return (
+      Math.abs(edge.length - sig.l) < 0.05 &&
+      Math.hypot(q[0] - sig.p[0], q[1] - sig.p[1], q[2] - sig.p[2]) < 0.05
+    );
+  };
+
+  let edgeLines = []; // pickable Line objects with userData.sig
+
   function setMesh(shape) {
     while (partGroup.children.length) {
       const c = partGroup.children.pop();
       c.geometry?.dispose();
     }
+    edgeLines = [];
     if (!shape) return;
     const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
     const geo = new THREE.BufferGeometry();
@@ -187,7 +217,21 @@
     geo.setIndex(m.triangles);
     if (!m.normals) geo.computeVertexNormals();
     partGroup.add(new THREE.Mesh(geo, MAT));
-    partGroup.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), EDGE_MAT));
+    // Exact B-rep edges from the kernel, one pickable polyline per edge.
+    try {
+      const me = shape.meshEdges();
+      const byHash = new Map(shape.edges.map((e) => [e.hashCode, e]));
+      for (const g of me.edgeGroups || []) {
+        const pts = new Float32Array(me.lines.slice(g.start * 3, (g.start + g.count) * 3));
+        const lg = new THREE.BufferGeometry();
+        lg.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+        const line = new THREE.Line(lg, EDGE_MAT.clone());
+        const edge = byHash.get(g.edgeId);
+        if (edge) line.userData.sig = edgeSig(edge);
+        partGroup.add(line);
+        edgeLines.push(line);
+      }
+    } catch {}
   }
 
   // --- history panel -------------------------------------------------------
@@ -198,9 +242,11 @@
       const li = document.createElement('li');
       li.className = 'hist-item' + (f.error ? ' err' : '');
       const dims =
-        f.type === 'revolve'
-          ? 'profile ×' + f.sketch.shapes.length
-          : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's');
+        f.type === 'fillet' || f.type === 'chamfer'
+          ? 'r ' + f.r + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
+          : f.type === 'revolve'
+            ? 'profile ×' + f.sketch.shapes.length
+            : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's');
       li.innerHTML =
         '<span class="hi-n">' + (i + 1) + '. ' + OP_LABEL[f.type] + '</span>' +
         '<span class="hi-d">' + dims + (f.error ? ' · FAILED' : '') + '</span>' +
@@ -216,7 +262,11 @@
       save();
       rebuild();
     }
-    if (editId) sketch.open(doc.features.find((f) => f.id === editId));
+    if (editId) {
+      const f = doc.features.find((x) => x.id === editId);
+      if (f.type === 'fillet' || f.type === 'chamfer') picker.open(f);
+      else sketch.open(f);
+    }
   });
 
   // --- persistence ---------------------------------------------------------
@@ -552,11 +602,109 @@
     return { open, resize };
   })();
 
+  // --- edge picker (fillet / chamfer) --------------------------------------
+  const picker = (() => {
+    const bar = $('bw-pick');
+    let feature = null;
+    let isNew = false;
+    const SEL = 0xe67e22;
+
+    function open(f) {
+      if (!edgeLines.length) return say('Build something first — fillets round the edges of an existing part.');
+      feature = f;
+      isNew = !doc.features.includes(f);
+      bar.hidden = false;
+      $('bw-pick-title').textContent = (isNew ? 'New ' : 'Edit ') + OP_LABEL[f.type].toLowerCase();
+      $('bw-pick-r').value = f.r ?? 2;
+      // Preselect edges whose signature still matches (edit case).
+      for (const line of edgeLines) {
+        const on = line.userData.sig && f.edges.some((sig) => sigMatches2(sig, line.userData.sig));
+        line.material.color.setHex(on ? SEL : 0x2c3e50);
+        line.userData.picked = on;
+      }
+      syncCount();
+    }
+    // Signature-vs-signature comparison (both already quantized).
+    const sigMatches2 = (a, b) =>
+      Math.abs(a.l - b.l) < 0.05 && Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2]) < 0.05;
+
+    function close(applyIt) {
+      if (applyIt && feature) {
+        feature.r = Math.max(0.1, Number($('bw-pick-r').value) || 2);
+        feature.edges = edgeLines.filter((l) => l.userData.picked).map((l) => l.userData.sig);
+        if (!feature.edges.length) return say('Pick at least one edge (click the dark lines on the part).');
+        if (isNew) doc.features.push(feature);
+        save();
+        rebuild();
+      } else {
+        for (const line of edgeLines) line.material.color.setHex(0x2c3e50);
+      }
+      bar.hidden = true;
+      feature = null;
+    }
+    $('bw-pick-apply').addEventListener('click', () => close(true));
+    $('bw-pick-cancel').addEventListener('click', () => close(false));
+    function syncCount() {
+      $('bw-pick-count').textContent = edgeLines.filter((l) => l.userData.picked).length + ' picked';
+    }
+
+    // Click-to-toggle edges (with a drag guard so orbiting doesn't pick).
+    const ray = new THREE.Raycaster();
+    ray.params.Line = { threshold: 1.2 };
+    let down = null;
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      down = [e.clientX, e.clientY];
+    });
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (!feature || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      const ptr = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      ray.setFromCamera(ptr, camera);
+      const hit = ray.intersectObjects(edgeLines, false)[0];
+      if (!hit || !hit.object.userData.sig) return;
+      const line = hit.object;
+      line.userData.picked = !line.userData.picked;
+      line.material.color.setHex(line.userData.picked ? SEL : 0x2c3e50);
+      syncCount();
+    });
+
+    return { open, active: () => Boolean(feature) };
+  })();
+
+  // Debug handle for automated tests; not part of the public surface.
+  window.__bwStudio = {
+    edges: () => edgeLines.length,
+    pickAt: (fx, fy) => {
+      const ray = new THREE.Raycaster();
+      ray.params.Line = { threshold: 1.5 };
+      ray.setFromCamera(new THREE.Vector2(fx * 2 - 1, -(fy * 2 - 1)), camera);
+      const hit = ray.intersectObjects(edgeLines, false)[0];
+      return hit ? { sig: hit.object.userData.sig, dist: hit.distance } : null;
+    },
+    pickSigs: (n) => {
+      // Toggle the first n distinct pickable edges directly (test shortcut).
+      const out = [];
+      for (const l of edgeLines) {
+        if (out.length >= n) break;
+        if (l.userData.sig) {
+          l.userData.picked = true;
+          out.push(l.userData.sig);
+        }
+      }
+      return out;
+    },
+  };
+
   // --- feature buttons -----------------------------------------------------
   document.querySelectorAll('[data-feat]').forEach((b) =>
     b.addEventListener('click', () => {
       loadKernel(); // start the download while the user sketches
-      sketch.open({ id: newId(), type: b.dataset.feat, sketch: { shapes: [], z: 0 }, h: 20, through: b.dataset.feat === 'cut' });
+      const t = b.dataset.feat;
+      if (t === 'fillet' || t === 'chamfer') picker.open({ id: newId(), type: t, r: 2, edges: [] });
+      else sketch.open({ id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut' });
     }),
   );
 

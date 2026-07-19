@@ -379,6 +379,8 @@ export function cadStudioPage(): string {
           <button type="button" class="sr-accent" data-feat="extrude">⬒ Extrude</button>
           <button type="button" data-feat="cut">⛶ Cut</button>
           <button type="button" data-feat="revolve">◎ Revolve</button>
+          <button type="button" data-feat="fillet">◠ Fillet</button>
+          <button type="button" data-feat="chamfer">⟋ Chamfer</button>
           <span class="sr-h">History</span>
           <ol id="bw-history" class="hist"></ol>
           <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
@@ -391,6 +393,14 @@ export function cadStudioPage(): string {
           <button type="button" id="bw-clear">Clear</button>
         </div>
         <div id="bw-studio">
+          <div id="bw-pick" class="pick-bar" hidden>
+            <b id="bw-pick-title"></b>
+            <span class="sk-note">Click edges on the part to pick them</span>
+            <span id="bw-pick-count" class="sk-note">0 picked</span>
+            <label>Radius <input type="number" id="bw-pick-r" value="2" step="0.5" min="0.1" /> mm</label>
+            <button type="button" class="sr-accent" id="bw-pick-apply">✓ Apply</button>
+            <button type="button" id="bw-pick-cancel">Cancel</button>
+          </div>
           <p id="bw-studio-msg" hidden></p>
           <div id="bw-sketch" hidden>
             <div class="sk-top">
@@ -439,7 +449,7 @@ export function cadStudioPage(): string {
           </div>
           <div>
             <b>Features</b>
-            <p>Extrude raises your sketch by a height. Cut removes material downward — "through all" drills the whole part. Revolve treats the sketch as a lathe profile: x is the radius from the axis, y is height, spun around the vertical.</p>
+            <p>Extrude raises your sketch by a height. Cut removes material downward — "through all" drills the whole part. Revolve treats the sketch as a lathe profile: x is the radius from the axis, y is height, spun around the vertical. Fillet and Chamfer round or bevel edges: click the edges on the part, type a radius, Apply.</p>
           </div>
           <div>
             <b>Your files</b>
@@ -451,7 +461,7 @@ export function cadStudioPage(): string {
         <h2 class="si-h">Straight answers</h2>
         <p><b>Is it really free?</b> Yes. The studio is part of the open-source BOMwiki engine (AGPL-3.0). No tiers, no seat licenses, no expiring trial.</p>
         <p><b>Where does my design go?</b> Nowhere. Modeling happens entirely on your device; nothing is uploaded unless you choose to publish a model to a BOMwiki page.</p>
-        <p><b>Will it replace Fusion or SolidWorks?</b> Not yet — there's no sketch-on-face, fillets, or assemblies today, and big models will feel heavy. It's honest CAD for real parts: brackets, plates, spacers, knobs, lathe profiles. The STEP files it makes are first-class citizens anywhere.</p>
+        <p><b>Will it replace Fusion or SolidWorks?</b> Not yet — there's no sketch-on-face or assemblies today, and big models will feel heavy. It's honest CAD for real parts: brackets, plates, spacers, knobs, lathe profiles, now with fillets and chamfers. The STEP files it makes are first-class citizens anywhere.</p>
         <p><b>What runs underneath?</b> OpenCascade, a 25-year-old industrial B-rep kernel, compiled to WebAssembly — plus <a href="https://replicad.xyz" rel="noopener">replicad</a> and three.js. <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">Read the source</a>.</p>
         <p><b>Made something worth keeping?</b> <a href="/cad">Publish it to a BOMwiki page</a> — your name in the credit, your part in the encyclopedia.</p>
       </section>
