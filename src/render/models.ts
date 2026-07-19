@@ -384,6 +384,9 @@ export function cadStudioPage(): string {
           <button type="button" data-feat="fillet">◠ Fillet</button>
           <button type="button" data-feat="chamfer">⟋ Chamfer</button>
           <button type="button" data-feat="shell">▣ Shell</button>
+          <span class="sr-h">Parameters</span>
+          <div id="bw-params"></div>
+          <button type="button" id="bw-param-add">+ Add parameter</button>
           <span class="sr-h">History</span>
           <ol id="bw-history" class="hist"></ol>
           <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
@@ -410,7 +413,7 @@ export function cadStudioPage(): string {
             <span id="bw-shell-count" class="sk-note">0 openings</span>
             <button type="button" id="bw-shell-next">Next face</button>
             <button type="button" id="bw-shell-toggle">Toggle this face</button>
-            <label>Walls <input type="number" id="bw-shell-t" value="2" step="0.5" min="0.2" /> mm</label>
+            <label>Walls <input type="text" inputmode="decimal" id="bw-shell-t" value="2" /> mm</label>
             <button type="button" class="sr-accent" id="bw-shell-apply">✓ Apply</button>
             <button type="button" id="bw-shell-cancel">Cancel</button>
           </div>
@@ -418,7 +421,7 @@ export function cadStudioPage(): string {
             <b id="bw-pick-title"></b>
             <span class="sk-note">Click edges on the part to pick them</span>
             <span id="bw-pick-count" class="sk-note">0 picked</span>
-            <label>Radius <input type="number" id="bw-pick-r" value="2" step="0.5" min="0.1" /> mm</label>
+            <label>Radius <input type="text" inputmode="decimal" id="bw-pick-r" value="2" /> mm</label>
             <button type="button" class="sr-accent" id="bw-pick-apply">✓ Apply</button>
             <button type="button" id="bw-pick-cancel">Cancel</button>
           </div>
@@ -434,7 +437,7 @@ export function cadStudioPage(): string {
                 <button type="button" data-sktool="pan">✋ Pan</button>
               </span>
               <span class="sk-op">
-                <label id="bw-sk-h-row">Height <input type="number" id="bw-sk-op-h" value="20" step="1" /> mm</label>
+                <label id="bw-sk-h-row">Height <input type="text" inputmode="decimal" id="bw-sk-op-h" value="20" /> mm</label>
                 <label id="bw-sk-through-row"><input type="checkbox" id="bw-sk-through" /> through all</label>
                 <span id="bw-sk-pat-row">
                   <label>Pattern <select id="bw-sk-pat">
@@ -444,8 +447,8 @@ export function cadStudioPage(): string {
                   </select></label>
                   <span id="bw-sk-pat-nums" hidden>
                     <label>× <input type="number" id="bw-sk-pat-n" value="4" min="2" max="100" step="1" /></label>
-                    <label><span id="bw-sk-pat-la">ΔX</span> <input type="number" id="bw-sk-pat-a" value="10" step="1" /></label>
-                    <label><span id="bw-sk-pat-lb">ΔY</span> <input type="number" id="bw-sk-pat-b" value="0" step="1" /></label>
+                    <label><span id="bw-sk-pat-la">ΔX</span> <input type="text" inputmode="decimal" id="bw-sk-pat-a" value="10" /></label>
+                    <label><span id="bw-sk-pat-lb">ΔY</span> <input type="text" inputmode="decimal" id="bw-sk-pat-b" value="0" /></label>
                   </span>
                 </span>
               </span>
@@ -482,7 +485,7 @@ export function cadStudioPage(): string {
           </div>
           <div>
             <b>Features</b>
-            <p>Extrude raises your sketch by a height. Cut removes material downward — "through all" drills the whole part. Revolve treats the sketch as a lathe profile: x is the radius from the axis, y is height, spun around the vertical. Fillet and Chamfer round or bevel edges: click the edges on the part, type a radius, Apply.</p>
+            <p>Extrude raises your sketch by a height. Cut removes material downward — "through all" drills the whole part. Revolve treats the sketch as a lathe profile: x is the radius from the axis, y is height, spun around the vertical. Fillet and Chamfer round or bevel edges; Shell hollows the part with picked opening faces. Patterns repeat a sketch as rows or rings. Define parameters (<code>wall = 2.5</code>) and type <code>wall*2</code> in any dimension — change the parameter and the whole part rebuilds.</p>
           </div>
           <div>
             <b>Your files</b>

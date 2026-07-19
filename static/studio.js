@@ -105,8 +105,91 @@
 
   // --- document ------------------------------------------------------------
   const KEY = 'bw-studio-doc-v2';
-  let doc = { features: [] };
+  let doc = { features: [], params: [] };
   let currentShape = null; // last successful kernel shape
+
+  // --- named parameters + expressions --------------------------------------
+  // Dimensions may be plain numbers or expressions over the parameters
+  // panel ("wall*2 + 1"). Tiny recursive-descent evaluator — numbers,
+  // + - * / ( ) and parameter names only, no eval().
+  function evalExpr(input, params) {
+    if (typeof input === 'number') return input;
+    const s = String(input);
+    let i = 0;
+    const skip = () => {
+      while (s[i] === ' ') i++;
+    };
+    function factor() {
+      skip();
+      if (s[i] === '(') {
+        i++;
+        const v = expr();
+        skip();
+        if (s[i] !== ')') throw new Error('missing )');
+        i++;
+        return v;
+      }
+      if (s[i] === '-') {
+        i++;
+        return -factor();
+      }
+      let m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(s.slice(i));
+      if (m) {
+        i += m[0].length;
+        if (!(m[0] in params)) throw new Error('unknown parameter "' + m[0] + '"');
+        return params[m[0]];
+      }
+      m = /^\d+(\.\d+)?/.exec(s.slice(i));
+      if (m) {
+        i += m[0].length;
+        return Number(m[0]);
+      }
+      throw new Error('bad expression');
+    }
+    function term() {
+      let v = factor();
+      for (;;) {
+        skip();
+        if (s[i] === '*') {
+          i++;
+          v *= factor();
+        } else if (s[i] === '/') {
+          i++;
+          v /= factor();
+        } else return v;
+      }
+    }
+    function expr() {
+      let v = term();
+      for (;;) {
+        skip();
+        if (s[i] === '+') {
+          i++;
+          v += term();
+        } else if (s[i] === '-') {
+          i++;
+          v -= term();
+        } else return v;
+      }
+    }
+    const v = expr();
+    skip();
+    if (i < s.length) throw new Error('bad expression');
+    if (!Number.isFinite(v)) throw new Error('expression is not a number');
+    return v;
+  }
+  const paramMap = () => Object.fromEntries((doc.params || []).map((p) => [p.name, p.value]));
+  /** Strict: throws with a clear message (used at rebuild). */
+  const N = (v) => evalExpr(v, paramMap());
+  /** Safe: for canvas drawing — falls back so a bad expression can't blank
+   *  the sketcher while the user is mid-edit. */
+  const NS = (v, fb) => {
+    try {
+      return evalExpr(v, paramMap());
+    } catch {
+      return fb ?? 0;
+    }
+  };
 
   function newId() {
     return Math.random().toString(36).slice(2, 8);
@@ -118,13 +201,15 @@
   // hole grids). Done at drawing level: one boolean per copy in 2D beats a
   // 3D fuse per copy by an order of magnitude.
   function patternedDrawing(drawing, pat) {
-    if (!pat || !pat.n || pat.n <= 1) return drawing;
+    if (!pat) return drawing;
+    const n = Math.min(100, Math.max(1, Math.round(NS(pat.n, 1))));
+    if (n <= 1) return drawing;
     let out = drawing;
-    for (let i = 1; i < pat.n; i++) {
+    for (let i = 1; i < n; i++) {
       out = out.fuse(
         pat.kind === 'circular'
-          ? drawing.rotate((360 / pat.n) * i, [pat.cx || 0, pat.cy || 0])
-          : drawing.translate((pat.dx || 0) * i, (pat.dy || 0) * i),
+          ? drawing.rotate((360 / n) * i, [N(pat.cx ?? 0), N(pat.cy ?? 0)])
+          : drawing.translate(N(pat.dx ?? 0) * i, N(pat.dy ?? 0) * i),
       );
     }
     return out;
@@ -132,10 +217,10 @@
 
   function shapeToDrawing(s) {
     if (s.kind === 'rect') {
-      return rc.drawRectangle(s.w, s.h).translate(s.x, s.y);
+      return rc.drawRectangle(Math.max(0.1, N(s.w)), Math.max(0.1, N(s.h))).translate(N(s.x), N(s.y));
     }
     if (s.kind === 'circle') {
-      return rc.drawCircle(s.r).translate(s.x, s.y);
+      return rc.drawCircle(Math.max(0.05, N(s.r))).translate(N(s.x), N(s.y));
     }
     if (s.kind === 'poly') {
       let pen = rc.draw([s.pts[0][0], s.pts[0][1]]);
@@ -175,22 +260,23 @@
         const sk = drawing.sketchOnPlane('XZ');
         solids.push(sk.revolve());
       } else if (f.type === 'cut') {
+        const depth = f.through ? 0 : Math.max(0.1, N(f.h));
         if (facePlane) {
-          solids.push(drawing.sketchOnPlane(facePlane).extrude(-(f.through ? 10000 : f.h)));
+          solids.push(drawing.sketchOnPlane(facePlane).extrude(-(f.through ? 10000 : depth)));
         } else {
           // Base-plane cuts remove material as the user sees it: through-all
           // spans the build volume; a finite depth is measured down from the
           // part's top face (base sketches all live on the ground plane).
           const sk = f.through
             ? drawing.sketchOnPlane('XY', -5000)
-            : drawing.sketchOnPlane('XY', (zTop ?? 0) - f.h);
-          solids.push(sk.extrude(f.through ? 10000 : f.h + 1000));
+            : drawing.sketchOnPlane('XY', (zTop ?? 0) - depth);
+          solids.push(sk.extrude(f.through ? 10000 : depth + 1000));
         }
       } else {
         const sk = facePlane
           ? drawing.sketchOnPlane(facePlane)
           : drawing.sketchOnPlane('XY', f.sketch.z || 0);
-        solids.push(sk.extrude(f.h));
+        solids.push(sk.extrude(Math.max(0.1, N(f.h))));
       }
     }
     let out = solids[0];
@@ -213,17 +299,18 @@
         if (f.type === 'fillet' || f.type === 'chamfer') {
           if (!acc) throw new Error('nothing to round yet');
           let hit = 0;
+          const radius = Math.max(0.1, N(f.r));
           const next = acc[f.type]((edge) => {
             const on = f.edges.some((sig) => sigMatches(sig, edge));
             if (on) hit++;
-            return on ? f.r : 0;
+            return on ? radius : 0;
           });
           if (!hit) throw new Error('the picked edges no longer exist — edit or delete this feature');
           acc = next;
         } else if (f.type === 'shell') {
           if (!acc) throw new Error('nothing to hollow yet');
           let hit = 0;
-          const next = acc.shell(-Math.abs(f.t), (fd) =>
+          const next = acc.shell(-Math.max(0.2, Math.abs(N(f.t))), (fd) =>
             fd.when(({ element }) => {
               const on = f.faces.some((sig) => faceMatches(sig, element));
               if (on) hit++;
@@ -394,6 +481,72 @@
     }
   });
 
+  // --- parameters panel ----------------------------------------------------
+  function renderParams() {
+    const wrap = $('bw-params');
+    const escAttr = (v) => String(v).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+    wrap.innerHTML = (doc.params || [])
+      .map(
+        (p, i) =>
+          '<div class="param-row">' +
+          '<input type="text" data-pname="' + i + '" value="' + escAttr(p.name) + '" spellcheck="false" />' +
+          '<span>=</span>' +
+          '<input type="text" inputmode="decimal" data-pval="' + i + '" value="' + escAttr(p.value) + '" />' +
+          '<button data-pdel="' + i + '" title="Remove">×</button>' +
+          '</div>',
+      )
+      .join('');
+    wrap.querySelectorAll('[data-pname]').forEach((inp) =>
+      inp.addEventListener('change', () => {
+        const name = inp.value.trim();
+        const i = Number(inp.dataset.pname);
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+          say('Parameter names are letters, digits and _, starting with a letter.');
+          inp.value = doc.params[i].name;
+          return;
+        }
+        if (doc.params.some((p, j) => j !== i && p.name === name)) {
+          say('There is already a parameter called "' + name + '".');
+          inp.value = doc.params[i].name;
+          return;
+        }
+        doc.params[i].name = name;
+        save();
+        rebuild();
+      }),
+    );
+    wrap.querySelectorAll('[data-pval]').forEach((inp) =>
+      inp.addEventListener('change', () => {
+        const i = Number(inp.dataset.pval);
+        const v = Number(inp.value);
+        if (!Number.isFinite(v)) {
+          say('Parameter values are plain numbers (expressions live in the dimension fields).');
+          inp.value = doc.params[i].value;
+          return;
+        }
+        doc.params[i].value = v;
+        save();
+        rebuild();
+      }),
+    );
+    wrap.querySelectorAll('[data-pdel]').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        doc.params.splice(Number(btn.dataset.pdel), 1);
+        save();
+        renderParams();
+        rebuild();
+      }),
+    );
+  }
+  $('bw-param-add').addEventListener('click', () => {
+    doc.params = doc.params || [];
+    let i = 1;
+    while (doc.params.some((p) => p.name === 'p' + i)) i++;
+    doc.params.push({ name: 'p' + i, value: 10 });
+    save();
+    renderParams();
+  });
+
   // --- persistence ---------------------------------------------------------
   function save() {
     try {
@@ -404,6 +557,7 @@
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (d && Array.isArray(d.features)) doc = d;
+      if (!Array.isArray(doc.params)) doc.params = [];
     } catch {}
   }
   $('bw-save-file').addEventListener('click', () => {
@@ -421,8 +575,10 @@
       try {
         const d = JSON.parse(t);
         if (!Array.isArray(d.features)) throw new Error('bad file');
+        if (!Array.isArray(d.params)) d.params = [];
         doc = d;
         save();
+        renderParams();
         rebuild();
         say('Project opened.');
       } catch {
@@ -501,8 +657,8 @@
       const xs = [], ys = [];
       for (const poly of refOutline) for (const p of poly) { xs.push(p[0]); ys.push(p[1]); }
       for (const s of f.sketch.shapes) {
-        if (s.kind === 'rect') { xs.push(s.x - s.w / 2, s.x + s.w / 2); ys.push(s.y - s.h / 2, s.y + s.h / 2); }
-        else if (s.kind === 'circle') { xs.push(s.x - s.r, s.x + s.r); ys.push(s.y - s.r, s.y + s.r); }
+        if (s.kind === 'rect') { const w = NS(s.w, 1), h = NS(s.h, 1), x = NS(s.x, 0), y = NS(s.y, 0); xs.push(x - w / 2, x + w / 2); ys.push(y - h / 2, y + h / 2); }
+        else if (s.kind === 'circle') { const r = NS(s.r, 1), x = NS(s.x, 0), y = NS(s.y, 0); xs.push(x - r, x + r); ys.push(y - r, y + r); }
         else if (s.kind === 'poly') for (const p of s.pts) { xs.push(p[0]); ys.push(p[1]); }
       }
       if (xs.length) {
@@ -530,22 +686,38 @@
     }
     $('bw-sk-pat').addEventListener('change', syncPatternFields);
 
+    // Read a dimension field: keeps plain numbers as numbers, keeps valid
+    // expressions as strings, throws (with the field name) otherwise.
+    function readDim(id, label) {
+      const raw = $(id).value.trim();
+      try {
+        N(raw);
+      } catch (err) {
+        throw new Error(label + ': ' + String(err?.message || err));
+      }
+      return /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+    }
+
     function close(applyIt) {
       if (applyIt) {
-        feature.h = Number($('bw-sk-op-h').value) || 20;
-        feature.through = $('bw-sk-through').checked;
-        const patKind = $('bw-sk-pat').value;
-        if (patKind === 'none' || feature.type === 'revolve') {
-          delete feature.pattern;
-        } else {
-          const n = Math.min(100, Math.max(2, Math.round(Number($('bw-sk-pat-n').value) || 2)));
-          const a = Number($('bw-sk-pat-a').value) || 0;
-          const b = Number($('bw-sk-pat-b').value) || 0;
-          feature.pattern =
-            patKind === 'circular' ? { kind: 'circular', n, cx: a, cy: b } : { kind: 'linear', n, dx: a, dy: b };
-          if (patKind === 'linear' && a === 0 && b === 0) {
-            return say('A linear pattern needs a spacing — set ΔX or ΔY.');
+        try {
+          feature.h = readDim('bw-sk-op-h', 'Height');
+          feature.through = $('bw-sk-through').checked;
+          const patKind = $('bw-sk-pat').value;
+          if (patKind === 'none' || feature.type === 'revolve') {
+            delete feature.pattern;
+          } else {
+            const n = Math.min(100, Math.max(2, Math.round(Number($('bw-sk-pat-n').value) || 2)));
+            const a = readDim('bw-sk-pat-a', patKind === 'circular' ? 'Centre X' : 'ΔX');
+            const b = readDim('bw-sk-pat-b', patKind === 'circular' ? 'Centre Y' : 'ΔY');
+            feature.pattern =
+              patKind === 'circular' ? { kind: 'circular', n, cx: a, cy: b } : { kind: 'linear', n, dx: a, dy: b };
+            if (patKind === 'linear' && NS(a, 0) === 0 && NS(b, 0) === 0) {
+              return say('A linear pattern needs a spacing — set ΔX or ΔY.');
+            }
           }
+        } catch (err) {
+          return say(String(err?.message || err));
         }
         if (!feature.sketch.shapes.length) return say('Draw at least one shape.');
         // A face sketch drawn outside the face makes detached geometry —
@@ -668,11 +840,12 @@
     function pathShape(s) {
       ctx.beginPath();
       if (s.kind === 'rect') {
-        const [px, py] = toPx(s.x - s.w / 2, s.y + s.h / 2);
-        ctx.rect(px, py, s.w * view.pxPerMm, s.h * view.pxPerMm);
+        const w = NS(s.w, 1), h = NS(s.h, 1), x = NS(s.x, 0), y = NS(s.y, 0);
+        const [px, py] = toPx(x - w / 2, y + h / 2);
+        ctx.rect(px, py, w * view.pxPerMm, h * view.pxPerMm);
       } else if (s.kind === 'circle') {
-        const [px, py] = toPx(s.x, s.y);
-        ctx.arc(px, py, Math.max(0.1, s.r) * view.pxPerMm, 0, Math.PI * 2);
+        const [px, py] = toPx(NS(s.x, 0), NS(s.y, 0));
+        ctx.arc(px, py, Math.max(0.1, NS(s.r, 1)) * view.pxPerMm, 0, Math.PI * 2);
       } else if (s.kind === 'poly') {
         s.pts.forEach((p, i) => {
           const [px, py] = toPx(p[0], p[1]);
@@ -792,8 +965,8 @@
       draw2d();
     }
     function hitShape(s, x, y) {
-      if (s.kind === 'rect') return Math.abs(x - s.x) <= s.w / 2 && Math.abs(y - s.y) <= s.h / 2;
-      if (s.kind === 'circle') return Math.hypot(x - s.x, y - s.y) <= s.r;
+      if (s.kind === 'rect') return Math.abs(x - NS(s.x, 0)) <= NS(s.w, 1) / 2 && Math.abs(y - NS(s.y, 0)) <= NS(s.h, 1) / 2;
+      if (s.kind === 'circle') return Math.hypot(x - NS(s.x, 0), y - NS(s.y, 0)) <= NS(s.r, 1);
       if (s.kind === 'poly') {
         let inside = false;
         const p = s.pts;
@@ -813,17 +986,30 @@
         return;
       }
       const s = selShape;
+      // Dimension fields accept parameter expressions ("wall*2"), so they
+      // are text inputs showing the raw stored value.
+      const escAttr = (v) => String(v).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
       const num = (label, key, val) =>
-        '<label>' + label + ' <input type="number" step="0.5" data-dim="' + key + '" value="' + val + '" /></label>';
+        '<label>' + label + ' <input type="text" inputmode="decimal" data-dim="' + key + '" value="' + escAttr(val) + '" /></label>';
+      const dia = typeof s.r === 'number' ? s.r * 2 : '(' + s.r + ')*2';
       if (s.kind === 'rect') p.innerHTML = num('W', 'w', s.w) + num('H', 'h', s.h) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape">Delete shape</button>';
-      else if (s.kind === 'circle') p.innerHTML = num('Ø', 'd', s.r * 2) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape">Delete shape</button>';
+      else if (s.kind === 'circle') p.innerHTML = num('Ø', 'd', dia) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape">Delete shape</button>';
       else p.innerHTML = '<span class="sk-note">Polygon · ' + s.pts.length + ' points</span><button id="bw-sk-delshape">Delete shape</button>';
       p.querySelectorAll('[data-dim]').forEach((inp) =>
         inp.addEventListener('change', () => {
-          const v = Number(inp.value) || 0;
+          const raw = inp.value.trim();
           const k = inp.dataset.dim;
-          if (k === 'd') s.r = Math.max(0.5, v / 2);
-          else s[k] = k === 'w' || k === 'h' ? Math.max(0.5, v) : v;
+          let value;
+          try {
+            const evaluated = N(raw);
+            value = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+            if ((k === 'w' || k === 'h' || k === 'd') && evaluated < 0.1) throw new Error('too small');
+          } catch (err) {
+            say('Not a usable value: ' + String(err?.message || err));
+            return;
+          }
+          if (k === 'd') s.r = typeof value === 'number' ? value / 2 : '(' + value + ')/2';
+          else s[k] = value;
           draw2d();
         }),
       );
@@ -866,7 +1052,13 @@
 
     function close(applyIt) {
       if (applyIt && feature) {
-        feature.r = Math.max(0.1, Number($('bw-pick-r').value) || 2);
+        const raw = $('bw-pick-r').value.trim();
+        try {
+          N(raw);
+        } catch (err) {
+          return say('Radius: ' + String(err?.message || err));
+        }
+        feature.r = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
         feature.edges = edgeLines.filter((l) => l.userData.picked).map((l) => l.userData.sig);
         if (!feature.edges.length) return say('Pick at least one edge (click the dark lines on the part).');
         if (isNew) doc.features.push(feature);
@@ -1029,7 +1221,13 @@
     }
     function close(applyIt) {
       if (applyIt && feature) {
-        feature.t = Math.max(0.2, Number($('bw-shell-t').value) || 2);
+        const raw = $('bw-shell-t').value.trim();
+        try {
+          N(raw);
+        } catch (err) {
+          return say('Walls: ' + String(err?.message || err));
+        }
+        feature.t = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
         const sigs = [...picked.values()].map((p) => p.sig);
         if (sigs.length) feature.faces = sigs;
         else if (isNew) return say('Pick at least one face to open — that face becomes the mouth of the hollow.');
@@ -1240,19 +1438,25 @@
   load();
   resize();
   renderHistory();
+  renderParams();
   if (doc.features.length) {
     say('Restored your part — rebuilding…');
     rebuild();
   } else {
-    // A worked example beats an empty screen: 40x40 plate, 5mm high,
-    // with an 8mm hole through the middle. Fully editable.
+    // A worked example beats an empty screen: a parametric plate — size and
+    // hole driven by the two parameters, so editing them teaches the idea.
     doc = {
+      params: [
+        { name: 'size', value: 40 },
+        { name: 'hole', value: 8 },
+      ],
       features: [
-        { id: newId(), type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 40, h: 40 }], z: 0 }, h: 5 },
-        { id: newId(), type: 'cut', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 4 }], z: 5 }, h: 10, through: true },
+        { id: newId(), type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 'size', h: 'size' }], z: 0 }, h: 5 },
+        { id: newId(), type: 'cut', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 'hole/2' }], z: 5 }, h: 10, through: true },
       ],
     };
     save();
+    renderParams();
     rebuild();
   }
 })();
