@@ -221,6 +221,7 @@ export function cadHubPage(items: ModeledItem[], totalItems: number): string {
     jsonLd: [jsonLd],
     body: `<div class="review cadhub"><h1>3D models</h1>
       <p class="ch-lede">An encyclopedia that tells you what a machine is made of should also <b>show you the parts</b>. That's this layer: real geometry on the pages of real hardware. Click a card, hit <b>View in 3D</b>, and grab it with your mouse — every model is openly licensed, so you can download the STL and use it for anything.</p>
+      <p class="ch-lede"><a class="cp-dl cp-dl-main" href="/cad/studio">Open the CAD Studio <span>model something right now — free, in your browser, no signup</span></a></p>
 
       <h2 class="si-h">The collection <span class="rv-meta">${named.length.toLocaleString()} of ${totalItems.toLocaleString()} pages have geometry — help fix that ratio</span></h2>
       ${gallery}
@@ -340,6 +341,69 @@ export function cadModelPage(
     </div>`,
     extraCss: ['/static/edit.css', '/static/item.css', '/static/model.css'],
     scripts: display ? ['/static/model-viewer.js'] : [],
+  });
+}
+
+/** The CAD Studio: zero-signup solid modeling in the browser. The page is a
+ *  static shell; static/studio.js is the whole application. */
+export function cadStudioPage(): string {
+  return page({
+    title: 'CAD Studio — free browser CAD, no signup | BOMwiki',
+    description:
+      'Model real parts in your browser in seconds: drop shapes, cut holes, export STL. No account, no install, nothing to learn first. Free CAD for hobbyists from BOMwiki.',
+    path: '/cad/studio',
+    indexable: true,
+    jsonLd: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'WebApplication',
+        name: 'BOMwiki CAD Studio',
+        applicationCategory: 'DesignApplication',
+        operatingSystem: 'Any (web browser)',
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        url: 'https://bomwiki.com/cad/studio',
+      },
+    ],
+    body: `<div class="review cadstudio">
+      <nav class="trail"><a href="/cad">3D models</a><span class="sep">›</span><span class="cur">CAD Studio</span></nav>
+      <h1>CAD Studio <span class="htag">beta</span></h1>
+      <p class="stub">Real CAD, zero friction: no account, no install, no tutorial wall. Drop shapes, drag them into place, mark some as holes, hit Export — you get a printable STL. Your scene stays saved in this browser. When you've made something real, add it to <a href="/cad">the collection</a>.</p>
+      <div class="studio-wrap">
+        <div class="studio-rail">
+          <span class="sr-h">Add a shape</span>
+          <button type="button" data-add="box">▢ Box</button>
+          <button type="button" data-add="cylinder">◯ Cylinder</button>
+          <button type="button" data-add="sphere">● Sphere</button>
+          <button type="button" data-add="cone">△ Cone</button>
+          <button type="button" data-add="hex">⬡ Hex prism</button>
+          <button type="button" data-add="wedge">◺ Wedge</button>
+          <button type="button" data-add="torus">◎ Ring</button>
+          <span class="sr-h">Tool</span>
+          <button type="button" data-mode="translate">Move (G)</button>
+          <button type="button" data-mode="rotate">Rotate (R)</button>
+          <button type="button" data-mode="scale">Scale (S)</button>
+          <span class="sr-h">Scene</span>
+          <button type="button" class="sr-accent" id="bw-export">⭳ Export STL</button>
+          <button type="button" id="bw-clear">Clear all</button>
+        </div>
+        <div id="bw-studio">
+          <div id="bw-sel" hidden>
+            <span class="sel-t" id="bw-sel-type"></span>
+            <div class="sel-dims" id="bw-sel-dims"></div>
+            <label class="opt"><input type="checkbox" id="bw-sel-hole" /> Hole (cuts on export)</label>
+            <div class="sel-actions">
+              <button type="button" id="bw-sel-dup">Duplicate (D)</button>
+              <button type="button" id="bw-sel-del">Delete (X)</button>
+            </div>
+          </div>
+          <p id="bw-studio-msg" hidden></p>
+          <noscript><p class="mv-error">The studio needs JavaScript.</p></noscript>
+        </div>
+      </div>
+      <p class="studio-help">Drag to orbit · scroll to zoom · click a shape to select it · units are millimetres, moves snap to 1 mm, rotation to 15°. Solids merge and holes cut when you export. Made something worth keeping? <a href="/cad">Add it to a BOMwiki page</a> so the next person doesn't have to model it.</p>
+    </div>`,
+    extraCss: ['/static/edit.css', '/static/model.css', '/static/studio.css'],
+    scripts: ['/static/studio.js'],
   });
 }
 

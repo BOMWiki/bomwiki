@@ -1,0 +1,145 @@
+/* CAD Studio layout: toolbar rail, canvas stage, floating selection panel. */
+.studio-wrap {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.studio-rail {
+  flex: 0 0 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.studio-rail .sr-h {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5b6774;
+  margin: 8px 0 2px;
+}
+.studio-rail button {
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  padding: 7px 10px;
+  border: 1px solid #c8ced5;
+  border-radius: 5px;
+  background: #fff;
+  color: #1a3550;
+  cursor: pointer;
+}
+.studio-rail button:hover {
+  background: #f0f5fa;
+  border-color: #8aa0b8;
+}
+.studio-rail button.on {
+  background: #1a3550;
+  border-color: #1a3550;
+  color: #fff;
+}
+.studio-rail .sr-accent {
+  background: #0b5cad;
+  border-color: #0b5cad;
+  color: #fff;
+  font-weight: 600;
+}
+.studio-rail .sr-accent:hover {
+  background: #094c8f;
+}
+
+#bw-studio {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: min(72vh, 640px);
+  border: 1px solid #d5d9de;
+  border-radius: 6px;
+  background: linear-gradient(#f7f8fa, #eef1f4);
+  overflow: hidden;
+}
+#bw-studio canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#bw-sel {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  width: 190px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #d5d9de;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+#bw-sel .sel-t {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+#bw-sel .sel-dims {
+  color: #5b6774;
+  font-size: 12px;
+  margin: 2px 0 8px;
+}
+#bw-sel label.opt {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+}
+#bw-sel .sel-actions {
+  display: flex;
+  gap: 6px;
+}
+#bw-sel .sel-actions button {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border: 1px solid #c8ced5;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+#bw-studio-msg {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 3;
+  background: #1a3550;
+  color: #fff;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 5px;
+  max-width: 80%;
+}
+
+.studio-help {
+  font-size: 12.5px;
+  color: #5b6774;
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .studio-wrap {
+    flex-direction: column;
+  }
+  .studio-rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    flex-basis: auto;
+  }
+  .studio-rail .sr-h {
+    width: 100%;
+    margin: 4px 0 0;
+  }
+  #bw-studio {
+    height: 60vh;
+  }
+}

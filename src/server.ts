@@ -84,7 +84,7 @@ import {
   withdrawSubmission,
   type ModelExt,
 } from './models.ts';
-import { cadHubPage, cadModelPage, modelUploadPage } from './render/models.ts';
+import { cadHubPage, cadModelPage, cadStudioPage, modelUploadPage } from './render/models.ts';
 import {
   changesPage,
   contributorsPage,
@@ -448,7 +448,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (path === '/sitemap.xml') {
     // Only indexable URLs: home, domain hubs, and nodes that clear the tier +
     // content floor in isIndexableNode (currently substantive products).
-    const urls: string[] = ["https://bomwiki.com/", "https://bomwiki.com/products", "https://bomwiki.com/cad", "https://bomwiki.com/project", "https://bomwiki.com/project/engine", "https://bomwiki.com/help/editing"];
+    const urls: string[] = ["https://bomwiki.com/", "https://bomwiki.com/products", "https://bomwiki.com/cad", "https://bomwiki.com/cad/studio", "https://bomwiki.com/project", "https://bomwiki.com/project/engine", "https://bomwiki.com/help/editing"];
     for (const d of DOMAINS) {
       if (productsByDomain(d.slug).length > 0) urls.push(`https://bomwiki.com/domain/${d.slug}/`);
     }
@@ -807,6 +807,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   // Dedicated CAD player page per model. Nodes without a model bounce to
   // their encyclopedia page rather than 404 (the model may come later).
+  if ((path === '/cad/studio' || path === '/cad/studio/') && method === 'GET') {
+    if (path === '/cad/studio/') return redirectPermanent(res, '/cad/studio');
+    return sendCacheableHtml(res, cadStudioPage());
+  }
+
   const cadModel = path.match(/^\/cad\/([A-Za-z0-9._-]+)$/);
   if (cadModel && method === 'GET') {
     const node = getNode(cadModel[1]);
