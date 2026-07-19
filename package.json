@@ -9,7 +9,8 @@
     "export-graph": "npm exec --yes --package tsx -- tsx scripts/export-graph.mts",
     "import": "node --experimental-strip-types scripts/import.ts",
     "serve": "node --experimental-strip-types src/server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "studio:check": "node --experimental-strip-types scripts/studio-check.ts"
   },
   "dependencies": {
     "marked": "^18.0.5",
@@ -20,6 +21,7 @@
     "@types/node": "^22.15.0",
     "@types/pg": "^8.15.0",
     "@types/sanitize-html": "^2.16.1",
+    "puppeteer": "^24.43.1",
     "typescript": "^5.8.0"
   },
   "license": "AGPL-3.0-only",

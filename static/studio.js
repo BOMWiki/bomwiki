@@ -107,6 +107,78 @@
   const KEY = 'bw-studio-doc-v2';
   let doc = { features: [], params: [] };
   let currentShape = null; // last successful kernel shape
+  // Rebuild errors are derived state, never stored in the document (they
+  // would leak into undo snapshots and project files).
+  const buildErrors = new Map(); // feature id -> message
+
+  const deepCopy = (o) => JSON.parse(JSON.stringify(o));
+  function normalizeDoc(d) {
+    const out = d && typeof d === 'object' ? d : {};
+    if (!Array.isArray(out.features)) out.features = [];
+    if (!Array.isArray(out.params)) out.params = [];
+    for (const f of out.features) delete f.error; // legacy derived field
+    return out;
+  }
+
+  // --- undo / redo -----------------------------------------------------------
+  // Snapshot-based command stack. Every document mutation goes through
+  // commit(); undo/redo/file-open/clear restore via replaceDocument() — the
+  // single pipeline that re-renders and rebuilds.
+  const undoStack = []; // [{label, snap}]
+  const redoStack = [];
+  const STACK_MAX = 100;
+
+  function commit(label, mutate) {
+    undoStack.push({ label, snap: JSON.stringify(doc) });
+    if (undoStack.length > STACK_MAX) undoStack.shift();
+    redoStack.length = 0;
+    const replacement = mutate();
+    if (replacement) doc = normalizeDoc(replacement);
+    save();
+    renderParams();
+    renderHistory();
+    rebuild();
+  }
+
+  function replaceDocument(snapJson) {
+    doc = normalizeDoc(JSON.parse(snapJson));
+    save();
+    renderParams();
+    renderHistory();
+    rebuild();
+  }
+
+  function undo() {
+    if (!undoStack.length) return say('Nothing to undo.');
+    const entry = undoStack.pop();
+    redoStack.push({ label: entry.label, snap: JSON.stringify(doc) });
+    replaceDocument(entry.snap);
+    say('Undid: ' + entry.label);
+  }
+  function redo() {
+    if (!redoStack.length) return say('Nothing to redo.');
+    const entry = redoStack.pop();
+    undoStack.push({ label: entry.label, snap: JSON.stringify(doc) });
+    replaceDocument(entry.snap);
+    say('Redid: ' + entry.label);
+  }
+
+  // Keyboard: global shortcuts must not fire while a field has focus.
+  const inField = () => {
+    const el = document.activeElement;
+    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+  };
+  window.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || inField()) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if ((k === 'z' && e.shiftKey) || k === 'y') {
+      e.preventDefault();
+      redo();
+    }
+  });
 
   // --- named parameters + expressions --------------------------------------
   // Dimensions may be plain numbers or expressions over the parameters
@@ -326,7 +398,7 @@
           const solid = featureSolid(f, 0, acc);
           acc = acc ? acc.fuse(solid) : solid;
         }
-        f.error = null;
+        buildErrors.delete(f.id);
       } catch (err) {
         let msg = String(err?.message || err);
         // The kernel build without exception decoding throws bare numbers.
@@ -340,7 +412,7 @@
         } else if ((f.type === 'fillet' || f.type === 'chamfer') && !/no longer exist/.test(msg)) {
           msg += ' — try a smaller radius';
         }
-        f.error = msg;
+        buildErrors.set(f.id, msg);
         failed = f;
       }
     }
@@ -358,7 +430,7 @@
       if (prev && prev !== acc) prev.delete();
     } catch {}
     renderHistory();
-    if (failed) say(OP_LABEL[failed.type] + ' failed: ' + failed.error);
+    if (failed) say(OP_LABEL[failed.type] + ' failed: ' + buildErrors.get(failed.id));
   }
 
   // Edge identity across rebuilds: OCCT hash codes are not stable between
@@ -449,7 +521,7 @@
     list.innerHTML = '';
     doc.features.forEach((f, i) => {
       const li = document.createElement('li');
-      li.className = 'hist-item' + (f.error ? ' err' : '');
+      li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '');
       const dims =
         f.type === 'fillet' || f.type === 'chamfer'
           ? 'r ' + f.r + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
@@ -460,7 +532,7 @@
               : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's') + (f.onFace ? ' · on face' : '') + (f.pattern?.n > 1 ? ' · ×' + f.pattern.n : '');
       li.innerHTML =
         '<span class="hi-n">' + (i + 1) + '. ' + OP_LABEL[f.type] + '</span>' +
-        '<span class="hi-d">' + dims + (f.error ? ' · FAILED' : '') + '</span>' +
+        '<span class="hi-d">' + dims + (buildErrors.has(f.id) ? ' · FAILED' : '') + '</span>' +
         '<span class="hi-a"><button data-edit="' + f.id + '">Edit</button><button data-del="' + f.id + '">×</button></span>';
       list.appendChild(li);
     });
@@ -469,9 +541,10 @@
   $('bw-history').addEventListener('click', (e) => {
     const editId = e.target.dataset?.edit, delId = e.target.dataset?.del;
     if (delId) {
-      doc.features = doc.features.filter((f) => f.id !== delId);
-      save();
-      rebuild();
+      const gone = doc.features.find((f) => f.id === delId);
+      commit('Delete ' + (gone ? OP_LABEL[gone.type].toLowerCase() : 'feature'), () => {
+        doc.features = doc.features.filter((f) => f.id !== delId);
+      });
     }
     if (editId) {
       const f = doc.features.find((x) => x.id === editId);
@@ -510,9 +583,9 @@
           inp.value = doc.params[i].name;
           return;
         }
-        doc.params[i].name = name;
-        save();
-        rebuild();
+        commit('Rename parameter', () => {
+          doc.params[i].name = name;
+        });
       }),
     );
     wrap.querySelectorAll('[data-pval]').forEach((inp) =>
@@ -524,27 +597,25 @@
           inp.value = doc.params[i].value;
           return;
         }
-        doc.params[i].value = v;
-        save();
-        rebuild();
+        commit('Set ' + doc.params[i].name + ' = ' + v, () => {
+          doc.params[i].value = v;
+        });
       }),
     );
     wrap.querySelectorAll('[data-pdel]').forEach((btn) =>
       btn.addEventListener('click', () => {
-        doc.params.splice(Number(btn.dataset.pdel), 1);
-        save();
-        renderParams();
-        rebuild();
+        commit('Delete parameter', () => {
+          doc.params.splice(Number(btn.dataset.pdel), 1);
+        });
       }),
     );
   }
   $('bw-param-add').addEventListener('click', () => {
-    doc.params = doc.params || [];
     let i = 1;
-    while (doc.params.some((p) => p.name === 'p' + i)) i++;
-    doc.params.push({ name: 'p' + i, value: 10 });
-    save();
-    renderParams();
+    while ((doc.params || []).some((p) => p.name === 'p' + i)) i++;
+    commit('Add parameter', () => {
+      doc.params.push({ name: 'p' + i, value: 10 });
+    });
   });
 
   // --- persistence ---------------------------------------------------------
@@ -556,8 +627,8 @@
   function load() {
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (d && Array.isArray(d.features)) doc = d;
-      if (!Array.isArray(doc.params)) doc.params = [];
+      if (d && Array.isArray(d.features)) doc = normalizeDoc(d);
+      else doc = normalizeDoc(doc);
     } catch {}
   }
   $('bw-save-file').addEventListener('click', () => {
@@ -575,11 +646,7 @@
       try {
         const d = JSON.parse(t);
         if (!Array.isArray(d.features)) throw new Error('bad file');
-        if (!Array.isArray(d.params)) d.params = [];
-        doc = d;
-        save();
-        renderParams();
-        rebuild();
+        commit('Open project', () => normalizeDoc(d));
         say('Project opened.');
       } catch {
         say('That is not a studio project file.');
@@ -592,7 +659,7 @@
     if (!doc.features.length) return say('Add a feature first.');
     await rebuild();
     if (!currentShape) return say('Nothing solid to export — fix the failed feature.');
-    if (doc.features.some((f) => f.error)) {
+    if (doc.features.some((f) => buildErrors.has(f.id))) {
       return say('A feature is failing (marked red) — fix or delete it first, so the exported file matches your design.');
     }
     const blob = kind === 'step' ? currentShape.blobSTEP() : currentShape.blobSTL({ tolerance: 0.03, angularTolerance: 0.3 });
@@ -606,10 +673,8 @@
   $('bw-export-stl').addEventListener('click', () => exportBlob('stl'));
   $('bw-export-step').addEventListener('click', () => exportBlob('step'));
   $('bw-clear').addEventListener('click', () => {
-    if (!confirm('Clear the whole part?')) return;
-    doc = { features: [] };
-    save();
-    rebuild();
+    if (!confirm('Clear the whole part? (Undo can bring it back.)')) return;
+    commit('Clear part', () => ({ features: [], params: [] }));
   });
 
   // --- 2D sketcher ---------------------------------------------------------
@@ -617,7 +682,7 @@
     const wrap = $('bw-sketch');
     const canvas = $('bw-sketch-canvas');
     const ctx = canvas.getContext('2d');
-    let feature = null; // feature being edited
+    let feature = null; // DRAFT copy being edited; the document is untouched until Apply
     let isNew = false;
     let tool = 'rect';
     let pending = null; // in-progress placement
@@ -626,9 +691,11 @@
     let refOutline = [];
 
     function open(f, opts) {
-      feature = f;
+      // Transactional edit: work on a deep copy so Cancel discards
+      // everything and undo snapshots never see half-applied changes.
+      isNew = !doc.features.some((x) => x.id === f.id);
+      feature = deepCopy(f);
       refOutline = opts?.refOutline || [];
-      isNew = !doc.features.includes(f);
       selShape = f.sketch.shapes[f.sketch.shapes.length - 1] || null;
       wrap.hidden = false;
       $('bw-sk-title').textContent = (isNew ? 'New ' : 'Edit ') + OP_LABEL[f.type].toLowerCase();
@@ -733,9 +800,12 @@
           });
           if (stray) say('Heads up: part of your sketch is outside the face outline (dashed) — it may not attach to the part.');
         }
-        if (isNew) doc.features.push(feature);
-        save();
-        rebuild();
+        const draft = feature;
+        commit((isNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
+          const i = doc.features.findIndex((x) => x.id === draft.id);
+          if (i >= 0) doc.features[i] = draft;
+          else doc.features.push(draft);
+        });
       }
       wrap.hidden = true;
       feature = null;
@@ -1033,8 +1103,8 @@
 
     function open(f) {
       if (!edgeLines.length) return say('Build something first — fillets round the edges of an existing part.');
-      feature = f;
-      isNew = !doc.features.includes(f);
+      isNew = !doc.features.some((x) => x.id === f.id);
+      feature = deepCopy(f); // transactional: document untouched until Apply
       bar.hidden = false;
       $('bw-pick-title').textContent = (isNew ? 'New ' : 'Edit ') + OP_LABEL[f.type].toLowerCase();
       $('bw-pick-r').value = f.r ?? 2;
@@ -1059,11 +1129,18 @@
           return say('Radius: ' + String(err?.message || err));
         }
         feature.r = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
-        feature.edges = edgeLines.filter((l) => l.userData.picked).map((l) => l.userData.sig);
-        if (!feature.edges.length) return say('Pick at least one edge (click the dark lines on the part).');
-        if (isNew) doc.features.push(feature);
-        save();
-        rebuild();
+        const picked = edgeLines.filter((l) => l.userData.picked).map((l) => l.userData.sig);
+        if (picked.length) feature.edges = picked;
+        else if (isNew) return say('Pick at least one edge (click the dark lines on the part).');
+        // else: editing — the feature's own rounding replaced the original
+        // edges on screen, so a radius-only edit keeps the stored edges.
+        const draft = feature;
+        commit((isNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
+          const i = doc.features.findIndex((x) => x.id === draft.id);
+          if (i >= 0) doc.features[i] = draft;
+          else doc.features.push(draft);
+        });
+        for (const line of edgeLines) line.userData.picked = false;
       } else {
         for (const line of edgeLines) line.material.color.setHex(0x2c3e50);
       }
@@ -1111,7 +1188,15 @@
       renderer.render(scene, camera);
     },
     top: () => (currentShape ? topOf(currentShape) : null),
-    errors: () => doc.features.filter((f) => f.error).map((f) => f.type + ': ' + f.error),
+    errors: () => doc.features.filter((f) => buildErrors.has(f.id)).map((f) => f.type + ': ' + buildErrors.get(f.id)),
+    undoDepth: () => undoStack.length,
+    redoDepth: () => redoStack.length,
+    undoLabels: () => undoStack.map((e) => e.label),
+    docJson: () => JSON.stringify(doc),
+    triCount: () => {
+      const g = solidMesh?.geometry;
+      return g ? (g.getIndex() ? g.getIndex().count / 3 : g.getAttribute('position').count / 3) : 0;
+    },
     pickAt: (fx, fy) => {
       const ray = new THREE.Raycaster();
       ray.params.Line = { threshold: 1.5 };
@@ -1201,8 +1286,8 @@
 
     function open(f) {
       if (!solidMesh || !faceByHash.size) return say('Build something first — Shell hollows an existing part.');
-      feature = f;
-      isNew = !doc.features.includes(f);
+      isNew = !doc.features.some((x) => x.id === f.id);
+      feature = deepCopy(f); // transactional: document untouched until Apply
       cycleIdx = -1;
       bar.hidden = false;
       $('bw-shell-title').textContent = (isNew ? 'New ' : 'Edit ') + 'shell';
@@ -1233,9 +1318,12 @@
         else if (isNew) return say('Pick at least one face to open — that face becomes the mouth of the hollow.');
         // else: edit with no re-pick keeps the stored openings (they are not
         // visible on the shelled part), so thickness edits just work.
-        if (isNew) doc.features.push(feature);
-        save();
-        rebuild();
+        const draft = feature;
+        commit((isNew ? 'Add ' : 'Edit ') + 'shell', () => {
+          const i = doc.features.findIndex((x) => x.id === draft.id);
+          if (i >= 0) doc.features[i] = draft;
+          else doc.features.push(draft);
+        });
       }
       for (const p of picked.values()) dropHighlight(p.mesh);
       picked.clear();
@@ -1439,8 +1527,24 @@
   resize();
   renderHistory();
   renderParams();
+  // Prototype-v1 scenes (the retired primitives studio) are incompatible;
+  // tell the user once, never touch the old key.
+  try {
+    if (localStorage.getItem('bw-studio-scene-v1') && !localStorage.getItem('bw-studio-v1-notice')) {
+      localStorage.setItem('bw-studio-v1-notice', '1');
+      say('A scene from the old prototype studio was found. It is incompatible with the parametric studio and has been left untouched.', true);
+    }
+  } catch {}
+  const SEEDED = 'bw-studio-v2-seeded';
   if (doc.features.length) {
+    try {
+      localStorage.setItem(SEEDED, '1');
+    } catch {}
     say('Restored your part — rebuilding…');
+    rebuild();
+  } else if (localStorage.getItem(SEEDED)) {
+    // The user has been here and deliberately has an empty document (for
+    // example after Clear + reload, or undoing everything): keep it empty.
     rebuild();
   } else {
     // A worked example beats an empty screen: a parametric plate — size and
@@ -1455,6 +1559,9 @@
         { id: newId(), type: 'cut', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 'hole/2' }], z: 5 }, h: 10, through: true },
       ],
     };
+    try {
+      localStorage.setItem(SEEDED, '1');
+    } catch {}
     save();
     renderParams();
     rebuild();
