@@ -1,6 +1,6 @@
 /* 3D model section on item pages + the model upload form. */
 
-.cadsec .mv-stage {
+.mv-stage {
   position: relative;
   aspect-ratio: 16 / 9;
   max-height: 420px;
@@ -16,10 +16,10 @@
   gap: 10px;
   overflow: hidden;
 }
-.cadsec .mv-stage.mv-live {
+.mv-stage.mv-live {
   display: block;
 }
-.cadsec .mv-stage.mv-live canvas {
+.mv-stage.mv-live canvas {
   width: 100%;
   height: 100%;
   display: block;
