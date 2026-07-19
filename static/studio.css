@@ -106,6 +106,31 @@
   cursor: pointer;
 }
 
+#bw-v1-notice {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: 80%;
+  background: #fff8e6;
+  border: 1px solid #e0c46b;
+  color: #5d4a12;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+#bw-v1-notice button {
+  font: inherit;
+  font-size: 12px;
+  margin-left: 8px;
+  padding: 2px 10px;
+  border: 1px solid #c9ad55;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
 #bw-studio-msg {
   position: absolute;
   left: 50%;

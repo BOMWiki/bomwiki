@@ -497,7 +497,7 @@ export function cadStudioPage(): string {
         <h2 class="si-h">Straight answers</h2>
         <p><b>Is it really free?</b> Yes. The studio is part of the open-source BOMwiki engine (AGPL-3.0). No tiers, no seat licenses, no expiring trial.</p>
         <p><b>Where does my design go?</b> Nowhere. Modeling happens entirely on your device; nothing is uploaded unless you choose to publish a model to a BOMwiki page.</p>
-        <p><b>Will it replace Fusion or SolidWorks?</b> Not yet — there's no sketch-on-face or assemblies today, and big models will feel heavy. It's honest CAD for real parts: brackets, plates, spacers, knobs, lathe profiles, now with fillets and chamfers. The STEP files it makes are first-class citizens anywhere.</p>
+        <p><b>Will it replace Fusion or SolidWorks?</b> Not yet — there are no assemblies or technical drawings, and big models will feel heavy. What it does have is real: sketching on any flat face, fillets, chamfers, shell, patterns, named parameters, and undo/redo across everything. It's honest CAD for real parts — brackets, plates, spacers, knobs, lathe profiles — and the STEP files it makes are first-class citizens anywhere.</p>
         <p><b>What runs underneath?</b> OpenCascade, a 25-year-old industrial B-rep kernel, compiled to WebAssembly — plus <a href="https://replicad.xyz" rel="noopener">replicad</a> and three.js. <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">Read the source</a>.</p>
         <p><b>Made something worth keeping?</b> <a href="/cad">Publish it to a BOMwiki page</a> — your name in the credit, your part in the encyclopedia.</p>
       </section>

@@ -101,6 +101,30 @@ check('cancel: document byte-identical', (await S<string>('(s) => s.docJson()'))
 check('cancel: solid unchanged', (await S<number>('(s) => s.triCount()')) === trisBefore);
 check('cancel: no undo entry', (await S<number>('(s) => s.undoDepth()')) === 0);
 
+// --- P1 regression: dims-panel edits stay in the draft --------------------
+await page.click('.hist-item [data-edit]');
+await page.waitForSelector('#bw-sketch:not([hidden])');
+await page.evaluate(() => {
+  // The last shape is auto-selected; type an exact width via the panel.
+  const w = document.querySelector('[data-dim="w"]') as HTMLInputElement;
+  w.value = '77';
+  w.dispatchEvent(new Event('change'));
+});
+await page.click('#bw-sk-cancel');
+check('dims-panel edit + cancel: document byte-identical', (await S<string>('(s) => s.docJson()')) === docBefore);
+check('dims-panel edit + cancel: no undo entry', (await S<number>('(s) => s.undoDepth()')) === 0);
+
+// --- P1 regression: delete-shape works on the draft's own selection -------
+await page.click('.hist-item [data-edit]');
+await page.waitForSelector('#bw-sketch:not([hidden])');
+const shapeDeleted = await page.evaluate(() => {
+  (document.getElementById('bw-sk-delshape') as HTMLButtonElement)?.click();
+  return document.getElementById('bw-sk-dims')!.textContent!.includes('Nothing selected');
+});
+check('delete shape acts on the draft selection', shapeDeleted);
+await page.click('#bw-sk-cancel');
+check('delete shape + cancel: document byte-identical', (await S<string>('(s) => s.docJson()')) === docBefore);
+
 // --- one commit per apply -------------------------------------------------
 await page.click('.hist-item [data-edit]');
 await page.waitForSelector('#bw-sketch:not([hidden])');
@@ -153,17 +177,24 @@ await page.evaluate(() => {
 await new Promise((r) => setTimeout(r, 1500));
 check('param change commits', ((await S<string[]>('(s) => s.undoLabels()')) as string[]).some((l) => /Set /.test(l)));
 
-// --- invalid project open leaves doc unchanged ----------------------------
+// --- invalid project open leaves doc AND undo history unchanged -----------
 const beforeBad = await S<string>('(s) => s.docJson()');
-await page.evaluate(() => {
-  const dt = new DataTransfer();
-  dt.items.add(new File(['{"nope": true}'], 'bad.json', { type: 'application/json' }));
-  const inp = document.getElementById('bw-open-file') as HTMLInputElement;
-  inp.files = dt.files;
-  inp.dispatchEvent(new Event('change', { bubbles: true }));
-});
-await new Promise((r) => setTimeout(r, 800));
-check('invalid project rejected, doc unchanged', (await S<string>('(s) => s.docJson()')) === beforeBad);
+const openBad = (payload: string) =>
+  page.evaluate((json: string) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([json], 'bad.json', { type: 'application/json' }));
+    const inp = document.getElementById('bw-open-file') as HTMLInputElement;
+    inp.files = dt.files;
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+  }, payload);
+for (const payload of ['{"nope": true}', '{"features":[null]}', 'not json at all']) {
+  const undoBefore = await S<number>('(s) => s.undoDepth()');
+  const redoBefore = await S<number>('(s) => s.redoDepth()');
+  await openBad(payload);
+  await new Promise((r) => setTimeout(r, 600));
+  check(`malformed project ${JSON.stringify(payload).slice(0, 24)}…: doc unchanged`, (await S<string>('(s) => s.docJson()')) === beforeBad);
+  check('  …and undo/redo stacks untouched', (await S<number>('(s) => s.undoDepth()')) === undoBefore && (await S<number>('(s) => s.redoDepth()')) === redoBefore);
+}
 
 // --- clear -> reload stays empty ------------------------------------------
 page.on('dialog', (d) => d.accept());
@@ -174,6 +205,43 @@ await page.reload({ waitUntil: 'domcontentloaded' });
 await page.waitForFunction(`window.__bwStudio`, { timeout: 30_000 });
 await new Promise((r) => setTimeout(r, 2500));
 check('reload after clear stays empty (no starter resurrection)', (await S<string>('(s) => s.docJson()')).includes('"features":[]'));
+
+// --- v1-scene notice: survives status messages, seen only on dismissal ----
+const page2 = await browser.newPage();
+await page2.evaluateOnNewDocument(() => {
+  localStorage.setItem('bw-studio-scene-v1', '[]');
+  localStorage.removeItem('bw-studio-v1-notice');
+  localStorage.removeItem('bw-studio-doc-v2');
+  localStorage.removeItem('bw-studio-v2-seeded');
+});
+await page2.goto(URL_, { waitUntil: 'domcontentloaded' });
+await page2.waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 });
+check('v1 notice still visible after kernel messages', Boolean(await page2.$('#bw-v1-notice')));
+check(
+  'v1 seen-flag not set before dismissal',
+  (await page2.evaluate(() => localStorage.getItem('bw-studio-v1-notice'))) === null,
+);
+await page2.click('#bw-v1-notice button');
+check('dismissal stores the seen-flag', (await page2.evaluate(() => localStorage.getItem('bw-studio-v1-notice'))) === '1');
+check('old v1 key untouched', (await page2.evaluate(() => localStorage.getItem('bw-studio-scene-v1'))) === '[]');
+await page2.close();
+
+// --- storage disabled: boot must still produce the starter part -----------
+const page3 = await browser.newPage();
+await page3.evaluateOnNewDocument(() => {
+  Object.defineProperty(window, 'localStorage', {
+    get() {
+      throw new DOMException('denied', 'SecurityError');
+    },
+  });
+});
+await page3.goto(URL_, { waitUntil: 'domcontentloaded' });
+const bootOk = await page3
+  .waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 })
+  .then(() => true)
+  .catch(() => false);
+check('boot survives disabled localStorage (starter part builds)', bootOk);
+await page3.close();
 
 await browser.close();
 server.close();

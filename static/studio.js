@@ -116,6 +116,8 @@
     const out = d && typeof d === 'object' ? d : {};
     if (!Array.isArray(out.features)) out.features = [];
     if (!Array.isArray(out.params)) out.params = [];
+    out.features = out.features.filter((f) => f && typeof f === 'object');
+    out.params = out.params.filter((p) => p && typeof p === 'object' && typeof p.name === 'string');
     for (const f of out.features) delete f.error; // legacy derived field
     return out;
   }
@@ -129,11 +131,21 @@
   const STACK_MAX = 100;
 
   function commit(label, mutate) {
-    undoStack.push({ label, snap: JSON.stringify(doc) });
+    // Run the mutation (and normalization) BEFORE touching the stacks: a
+    // throwing mutation must leave undo history exactly as it was.
+    const snap = JSON.stringify(doc);
+    let replacement;
+    try {
+      replacement = mutate();
+      if (replacement) replacement = normalizeDoc(replacement);
+    } catch (err) {
+      doc = normalizeDoc(JSON.parse(snap)); // paranoia: undo partial mutation
+      throw err;
+    }
+    undoStack.push({ label, snap });
     if (undoStack.length > STACK_MAX) undoStack.shift();
     redoStack.length = 0;
-    const replacement = mutate();
-    if (replacement) doc = normalizeDoc(replacement);
+    if (replacement) doc = replacement;
     save();
     renderParams();
     renderHistory();
@@ -646,6 +658,7 @@
       try {
         const d = JSON.parse(t);
         if (!Array.isArray(d.features)) throw new Error('bad file');
+        if (!d.features.every((f) => f && typeof f === 'object' && f.id && f.type)) throw new Error('corrupt features');
         commit('Open project', () => normalizeDoc(d));
         say('Project opened.');
       } catch {
@@ -696,7 +709,9 @@
       isNew = !doc.features.some((x) => x.id === f.id);
       feature = deepCopy(f);
       refOutline = opts?.refOutline || [];
-      selShape = f.sketch.shapes[f.sketch.shapes.length - 1] || null;
+      // Select from the DRAFT — selecting from the original would route the
+      // dimension panel's mutations straight into the committed document.
+      selShape = feature.sketch.shapes[feature.sketch.shapes.length - 1] || null;
       wrap.hidden = false;
       $('bw-sk-title').textContent = (isNew ? 'New ' : 'Edit ') + OP_LABEL[f.type].toLowerCase();
       $('bw-sk-op-h').value = f.h ?? 20;
@@ -1531,18 +1546,34 @@
   // tell the user once, never touch the old key.
   try {
     if (localStorage.getItem('bw-studio-scene-v1') && !localStorage.getItem('bw-studio-v1-notice')) {
-      localStorage.setItem('bw-studio-v1-notice', '1');
-      say('A scene from the old prototype studio was found. It is incompatible with the parametric studio and has been left untouched.', true);
+      // A persistent banner, not say(): later status messages must not bury
+      // it. The seen-flag is stored only when the user dismisses it.
+      const b = document.createElement('div');
+      b.id = 'bw-v1-notice';
+      b.innerHTML =
+        'A scene from the old prototype studio was found. It is incompatible with the parametric studio and has been left untouched. ' +
+        '<button type="button">Got it</button>';
+      b.querySelector('button').addEventListener('click', () => {
+        try {
+          localStorage.setItem('bw-studio-v1-notice', '1');
+        } catch {}
+        b.remove();
+      });
+      stage.appendChild(b);
     }
   } catch {}
   const SEEDED = 'bw-studio-v2-seeded';
+  let alreadySeeded = false;
+  try {
+    alreadySeeded = Boolean(localStorage.getItem(SEEDED));
+  } catch {}
   if (doc.features.length) {
     try {
       localStorage.setItem(SEEDED, '1');
     } catch {}
     say('Restored your part — rebuilding…');
     rebuild();
-  } else if (localStorage.getItem(SEEDED)) {
+  } else if (alreadySeeded) {
     // The user has been here and deliberately has an empty document (for
     // example after Clear + reload, or undoing everything): keep it empty.
     rebuild();
