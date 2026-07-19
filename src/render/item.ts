@@ -101,7 +101,7 @@ export function itemPage(node: NodeData, opts: ItemPageOpts = {}): string {
       ? ''
       : `<section class="bom">
         <div class="sec-head">
-          <h2>Bill of materials</h2>
+          <h2>Bill of materials for ${esc(node.name)}</h2>
           <span class="sec-n">${
             historical
               ? `${lines} top-level ${lines === 1 ? 'line' : 'lines'} as of r${opts.asOfRev}`
