@@ -128,45 +128,43 @@
 
 /* hero + landing sections */
 .cs-hero {
-  background: linear-gradient(160deg, #10263c, #1a3550 55%, #24486b);
+  background: linear-gradient(135deg, #10263c, #1a3550 60%, #24486b);
   color: #eef3f8;
-  border-radius: 10px;
-  padding: 40px 36px 34px;
-  margin: 10px 0 22px;
+  border-radius: 8px;
+  padding: 18px 22px;
+  margin: 10px 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.cs-hero-text {
+  flex: 1;
+  min-width: 0;
 }
 .cs-hero h1 {
-  font-size: clamp(30px, 5vw, 46px);
-  line-height: 1.08;
-  margin: 0 0 12px;
+  font-size: clamp(20px, 3vw, 26px);
+  line-height: 1.2;
+  margin: 0 0 6px;
   border: 0;
+  padding: 0;
   color: #fff;
 }
 .cs-hero .cs-tag {
-  font-size: clamp(15px, 2.2vw, 18px);
-  line-height: 1.5;
-  max-width: 42em;
-  margin: 0 0 18px;
-  color: #c8d6e4;
-}
-.cs-cta {
-  margin: 0 0 22px;
-}
-.cs-points {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px 22px;
   font-size: 13.5px;
   line-height: 1.5;
+  margin: 0;
   color: #c8d6e4;
 }
-.cs-points b {
-  color: #fff;
+.cs-go {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
-.cs-points li > b:first-child {
-  display: block;
+@media (max-width: 640px) {
+  .cs-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
 }
 .cs-learn,
 .cs-help,

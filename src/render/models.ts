@@ -367,15 +367,11 @@ export function cadStudioPage(): string {
     body: `<div class="review cadstudio">
       <nav class="trail"><a href="/cad">3D models</a><span class="sep">›</span><span class="cur">CAD Studio</span></nav>
       <section class="cs-hero">
-        <h1>Design real parts.<br />Right here, right now.</h1>
-        <p class="cs-tag">Free parametric CAD that runs in this browser tab — on a laptop, on a phone, on the cheapest computer in the room. No account. No install. No trial that expires.</p>
-        <p class="cs-cta"><a class="cp-dl cp-dl-main" href="#studio">Start modeling <span>the studio is right below — it's already loaded</span></a></p>
-        <ul class="cs-points">
-          <li><b>A real CAD kernel.</b> OpenCascade — the same engine family behind professional CAD — compiled to WebAssembly, running on your device. Exact solids, not blobs of triangles.</li>
-          <li><b>Parametric history.</b> Sketch in millimetres, extrude, cut, revolve. Every dimension stays editable; change a number and the part rebuilds.</li>
-          <li><b>Files that count.</b> Export <b>STEP</b> — the format factories and engineers actually exchange — plus STL for any 3D printer. Your work saves in this browser and as a small project file you own.</li>
-          <li><b>Works offline.</b> The engine downloads once (~11 MB) and is cached. After that, model on a bus with no signal.</li>
-        </ul>
+        <div class="cs-hero-text">
+          <h1>Design real parts, right in this tab</h1>
+          <p class="cs-tag">Free parametric CAD on a real kernel (OpenCascade in WebAssembly). Sketch in mm, extrude, cut, revolve — export STEP and STL. No account, no install, works offline after the first load.</p>
+        </div>
+        <a class="cp-dl cp-dl-main cs-go" href="#studio">Start modeling</a>
       </section>
       <div class="studio-wrap" id="studio">
         <div class="studio-rail">
