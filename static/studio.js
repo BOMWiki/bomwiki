@@ -223,16 +223,17 @@
     }
     const prev = currentShape;
     currentShape = acc;
-    // Release the previous kernel shape explicitly — GC finalizers reclaim
-    // WASM memory too slowly on low-RAM devices.
-    try {
-      if (prev && prev !== acc) prev.delete();
-    } catch {}
     try {
       setMesh(acc);
     } catch {
       say('Display meshing failed.', false);
     }
+    // Release the previous kernel shape explicitly — GC finalizers reclaim
+    // WASM memory too slowly on low-RAM devices. After setMesh, so the
+    // face/edge maps never briefly point at freed wrappers.
+    try {
+      if (prev && prev !== acc) prev.delete();
+    } catch {}
     renderHistory();
     if (failed) say(OP_LABEL[failed.type] + ' failed: ' + failed.error);
   }
@@ -448,6 +449,29 @@
             : 'Draw on the top plane, millimetres. Click-click to place; type exact numbers below.';
       setTool('rect');
       resize();
+      // Centre the view on what matters: the face outline (its plane origin
+      // can be far from the face itself) and any existing shapes. Without
+      // this, sketch-on-face can open onto empty grid with the face off
+      // screen entirely.
+      const xs = [], ys = [];
+      for (const poly of refOutline) for (const p of poly) { xs.push(p[0]); ys.push(p[1]); }
+      for (const s of f.sketch.shapes) {
+        if (s.kind === 'rect') { xs.push(s.x - s.w / 2, s.x + s.w / 2); ys.push(s.y - s.h / 2, s.y + s.h / 2); }
+        else if (s.kind === 'circle') { xs.push(s.x - s.r, s.x + s.r); ys.push(s.y - s.r, s.y + s.r); }
+        else if (s.kind === 'poly') for (const p of s.pts) { xs.push(p[0]); ys.push(p[1]); }
+      }
+      if (xs.length) {
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        view.cx = (minX + maxX) / 2;
+        view.cy = (minY + maxY) / 2;
+        const span = Math.max(maxX - minX, maxY - minY, 10);
+        const px = Math.min(canvas.width, canvas.height) / dpr();
+        view.pxPerMm = Math.min(40, Math.max(0.4, (px * 0.7) / span));
+      } else {
+        view.cx = 0;
+        view.cy = 0;
+      }
       draw2d();
       syncShapePanel();
     }
@@ -456,6 +480,19 @@
         feature.h = Number($('bw-sk-op-h').value) || 20;
         feature.through = $('bw-sk-through').checked;
         if (!feature.sketch.shapes.length) return say('Draw at least one shape.');
+        // A face sketch drawn outside the face makes detached geometry —
+        // warn (non-blocking) so a floating boss isn't a mystery.
+        if (refOutline.length) {
+          const xs = [], ys = [];
+          for (const poly of refOutline) for (const p of poly) { xs.push(p[0]); ys.push(p[1]); }
+          const inX = (v) => v >= Math.min(...xs) - 1 && v <= Math.max(...xs) + 1;
+          const inY = (v) => v >= Math.min(...ys) - 1 && v <= Math.max(...ys) + 1;
+          const stray = feature.sketch.shapes.some((s) => {
+            const c = s.kind === 'poly' ? s.pts[0] : [s.x, s.y];
+            return !inX(c[0]) || !inY(c[1]);
+          });
+          if (stray) say('Heads up: part of your sketch is outside the face outline (dashed) — it may not attach to the part.');
+        }
         if (isNew) doc.features.push(feature);
         save();
         rebuild();
@@ -730,7 +767,7 @@
       });
     }
 
-    return { open, resize };
+    return { open, resize, isOpen: () => !wrap.hidden };
   })();
 
   // --- edge picker (fillet / chamfer) --------------------------------------
@@ -802,7 +839,7 @@
       syncCount();
     });
 
-    return { open, active: () => Boolean(feature) };
+    return { open, cancel: () => feature && close(false), active: () => Boolean(feature) };
   })();
 
   // Debug handle for automated tests; not part of the public surface.
@@ -922,12 +959,18 @@
       sketch.open(f, { refOutline: outline });
     });
 
-    return { open };
+    return { open, cancel: close, active: () => Boolean(draft) };
   })();
 
   // --- feature buttons -----------------------------------------------------
   document.querySelectorAll('[data-feat]').forEach((b) =>
     b.addEventListener('click', () => {
+      // The rail sits outside the sketch overlay, so guard against silently
+      // discarding an in-progress sketch; and never run two pick modes at
+      // once — the 3D click handlers would both fire.
+      if (sketch.isOpen()) return say('Finish or cancel the current sketch first.');
+      picker.cancel();
+      facePick.cancel();
       loadKernel(); // start the download while the user sketches
       const t = b.dataset.feat;
       if (t === 'fillet' || t === 'chamfer') {
