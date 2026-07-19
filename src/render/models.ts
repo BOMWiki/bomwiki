@@ -366,39 +366,71 @@ export function cadStudioPage(): string {
         url: 'https://bomwiki.com/cad/studio',
       },
     ],
-    body: `<div class="review cadstudio">
-      <nav class="trail"><a href="/cad">3D models</a><span class="sep">›</span><span class="cur">CAD Studio</span></nav>
-      <section class="cs-hero">
-        <div class="cs-hero-text">
-          <h1>Design real parts, right in this tab</h1>
-          <p class="cs-tag">Free parametric CAD on a real kernel (OpenCascade in WebAssembly). Sketch in mm, extrude, cut, revolve — export STEP and STL. No account, no install, works offline after the first load.</p>
+    body: `<div class="cadstudio-app" id="studio">
+      <div class="ws-ribbon" role="toolbar" aria-label="CAD tools">
+        <div class="ws-group" id="rib-sketch" hidden>
+          <div class="wsg-tools">
+            <button type="button" class="wsr-btn" data-sktool="rect" aria-pressed="false"><span class="wsr-i">▭</span>Rect</button>
+            <button type="button" class="wsr-btn" data-sktool="circle" aria-pressed="false"><span class="wsr-i">◯</span>Circle</button>
+            <button type="button" class="wsr-btn" data-sktool="poly" aria-pressed="false"><span class="wsr-i">△</span>Polygon</button>
+            <button type="button" class="wsr-btn" data-sktool="select" aria-pressed="false"><span class="wsr-i">☝</span>Select</button>
+            <button type="button" class="wsr-btn" data-sktool="pan" aria-pressed="false"><span class="wsr-i">✋</span>Pan</button>
+          </div>
+          <span class="wsg-title">Sketch</span>
         </div>
-        <a class="cp-dl cp-dl-main cs-go" href="#studio">Start modeling</a>
-      </section>
-      <div class="studio-wrap" id="studio">
-        <div class="studio-rail">
-          <span class="sr-h">Add a feature</span>
-          <button type="button" class="sr-accent" data-feat="extrude">⬒ Extrude</button>
-          <button type="button" data-feat="cut">⛶ Cut</button>
-          <button type="button" data-feat="revolve">◎ Revolve</button>
-          <button type="button" data-feat="fillet">◠ Fillet</button>
-          <button type="button" data-feat="chamfer">⟋ Chamfer</button>
-          <button type="button" data-feat="shell">▣ Shell</button>
-          <span class="sr-h">Parameters</span>
-          <div id="bw-params"></div>
-          <button type="button" id="bw-param-add">+ Add parameter</button>
-          <span class="sr-h">History</span>
-          <ol id="bw-history" class="hist"></ol>
-          <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
-          <span class="sr-h">Export</span>
-          <button type="button" class="sr-accent" id="bw-export-step">⭳ STEP (CAD)</button>
-          <button type="button" id="bw-export-stl">⭳ STL (print)</button>
-          <span class="sr-h">Project</span>
-          <button type="button" id="bw-save-file">Save file</button>
-          <label class="sr-file">Open file<input type="file" id="bw-open-file" accept=".json" hidden /></label>
-          <button type="button" id="bw-clear">Clear</button>
+        <div class="ws-group">
+          <div class="wsg-tools">
+            <button type="button" class="wsr-btn wsr-accent" data-feat="extrude" aria-pressed="false"><span class="wsr-i">⬒</span>Extrude</button>
+            <button type="button" class="wsr-btn" data-feat="cut" aria-pressed="false"><span class="wsr-i">⛶</span>Cut</button>
+            <button type="button" class="wsr-btn" data-feat="revolve" aria-pressed="false"><span class="wsr-i">◎</span>Revolve</button>
+          </div>
+          <span class="wsg-title">Features</span>
         </div>
+        <div class="ws-group">
+          <div class="wsg-tools">
+            <button type="button" class="wsr-btn" data-feat="fillet" aria-pressed="false"><span class="wsr-i">◠</span>Fillet</button>
+            <button type="button" class="wsr-btn" data-feat="chamfer" aria-pressed="false"><span class="wsr-i">⟋</span>Chamfer</button>
+            <button type="button" class="wsr-btn" data-feat="shell" aria-pressed="false"><span class="wsr-i">▣</span>Shell</button>
+          </div>
+          <span class="wsg-title">Modify</span>
+        </div>
+        <div class="ws-group">
+          <div class="wsg-tools">
+            <button type="button" class="wsr-btn" data-view="top" aria-pressed="false">Top</button>
+            <button type="button" class="wsr-btn" data-view="front" aria-pressed="false">Front</button>
+            <button type="button" class="wsr-btn" data-view="right" aria-pressed="false">Right</button>
+            <button type="button" class="wsr-btn" data-view="iso" aria-pressed="false">Iso</button>
+            <button type="button" class="wsr-btn" data-view="fit" aria-pressed="false">Fit</button>
+          </div>
+          <span class="wsg-title">View</span>
+        </div>
+        <div class="ws-group">
+          <div class="wsg-tools">
+            <button type="button" class="wsr-btn" id="bw-undo" title="Undo (Ctrl+Z)"><span class="wsr-i">↶</span>Undo</button>
+            <button type="button" class="wsr-btn" id="bw-redo" title="Redo (Ctrl+Shift+Z)"><span class="wsr-i">↷</span>Redo</button>
+          </div>
+          <span class="wsg-title">Edit</span>
+        </div>
+        <div class="ws-group">
+          <div class="wsg-tools">
+            <button type="button" class="wsr-btn" id="bw-save-file"><span class="wsr-i">🖫</span>Save</button>
+            <button type="button" class="wsr-btn" id="bw-open-btn"><span class="wsr-i">🗁</span>Open</button>
+            <input type="file" id="bw-open-file" accept=".json" hidden />
+            <button type="button" class="wsr-btn" id="bw-clear"><span class="wsr-i">✕</span>Clear</button>
+          </div>
+          <span class="wsg-title">Project</span>
+        </div>
+        <div class="ws-group">
+          <div class="wsg-tools">
+            <button type="button" class="wsr-btn wsr-accent" id="bw-export-step"><span class="wsr-i">⭳</span>STEP</button>
+            <button type="button" class="wsr-btn" id="bw-export-stl"><span class="wsr-i">⭳</span>STL</button>
+          </div>
+          <span class="wsg-title">Export</span>
+        </div>
+      </div>
+      <div class="ws-main">
         <div id="bw-studio">
+          <p id="bw-mode" class="mode-label" role="status" aria-live="polite">Ready</p>
           <div id="bw-face" class="pick-bar" hidden>
             <b id="bw-face-title"></b>
             <span class="sk-note">Click a flat face of the part, or step through them</span>
@@ -429,13 +461,6 @@ export function cadStudioPage(): string {
           <div id="bw-sketch" hidden>
             <div class="sk-top">
               <b id="bw-sk-title"></b>
-              <span class="sk-tools">
-                <button type="button" data-sktool="rect">▭ Rect</button>
-                <button type="button" data-sktool="circle">◯ Circle</button>
-                <button type="button" data-sktool="poly">△ Polygon</button>
-                <button type="button" data-sktool="select">☝ Select</button>
-                <button type="button" data-sktool="pan">✋ Pan</button>
-              </span>
               <span class="sk-op">
                 <label id="bw-sk-h-row">Height <input type="text" inputmode="decimal" id="bw-sk-op-h" value="20" /> mm</label>
                 <label id="bw-sk-through-row"><input type="checkbox" id="bw-sk-through" /> through all</label>
@@ -465,7 +490,44 @@ export function cadStudioPage(): string {
           </div>
           <noscript><p class="mv-error">The studio needs JavaScript.</p></noscript>
         </div>
+        <aside class="ws-side" id="bw-side" aria-label="Model panels">
+          <div class="wsp" id="bw-context-wrap" hidden>
+            <div class="wsp-head"><b>Properties</b></div>
+            <div id="bw-context" class="wsp-body"></div>
+          </div>
+          <div class="wsp wsp-params">
+            <div class="wsp-head"><b>Parameters</b><button type="button" id="bw-param-add" title="Add parameter">＋</button></div>
+            <div class="wsp-body"><div id="bw-params"></div></div>
+          </div>
+          <div class="wsp wsp-grow wsp-history">
+            <div class="wsp-head"><b>History</b></div>
+            <div class="wsp-body">
+              <ol id="bw-history" class="hist"></ol>
+              <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
+            </div>
+          </div>
+        </aside>
       </div>
+      <div class="ws-mtabs" id="bw-mtabs">
+        <button type="button" id="bw-mtab-params" aria-pressed="false">Parameters</button>
+        <button type="button" id="bw-mtab-history" aria-pressed="false">History</button>
+      </div>
+      <div class="ws-cmd">
+        <span id="bw-cmd-mode">Ready</span>
+        <span id="bw-cmd-err" class="ws-cmd-err"></span>
+        <span class="ws-cmd-actions" id="bw-cmd-actions" hidden>
+          <button type="button" id="bw-cmd-apply">✓ Apply</button>
+          <button type="button" id="bw-cmd-cancel">Cancel</button>
+        </span>
+      </div>
+      <div class="ws-status">
+        <span>mm</span>
+        <span>snap 1 mm · 15°</span>
+        <span id="bw-status-feat">0 features</span>
+        <span class="ws-status-right"><a href="/cad">collection</a> · <a href="#studio-docs">help ↓</a></span>
+      </div>
+    </div>
+    <div class="review cadstudio-docs" id="studio-docs">
       <section class="cs-learn">
         <h2 class="si-h">Your first part in two minutes</h2>
         <ol class="cs-steps">

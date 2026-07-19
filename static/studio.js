@@ -55,6 +55,32 @@
   const MAT = new THREE.MeshStandardMaterial({ color: 0x9fb0c3, metalness: 0.12, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const EDGE_MAT = new THREE.LineBasicMaterial({ color: 0x2c3e50 });
 
+  // On phones the site header wraps and its height varies, so the fixed
+  // calc() in CSS overshoots — measure and pin the app to the viewport.
+  const appEl = document.querySelector('.cadstudio-app');
+  function fitAppHeight() {
+    if (!appEl) return;
+    if (!window.matchMedia('(max-width: 760px)').matches) {
+      appEl.style.height = '';
+      return;
+    }
+    const top = Math.max(0, appEl.getBoundingClientRect().top);
+    appEl.style.height = Math.max(320, window.innerHeight - top) + 'px';
+    syncSheetBottom();
+  }
+  // Bottom sheets must stop above the mobile tab bar, or they swallow its
+  // taps. The offset is measured because the strip heights can wrap.
+  function syncSheetBottom() {
+    const tabs = document.getElementById('bw-mtabs');
+    if (!tabs) return;
+    const r = tabs.getBoundingClientRect();
+    if (r.height > 0) {
+      document.documentElement.style.setProperty('--bw-sheet-bottom', Math.max(0, window.innerHeight - r.top) + 'px');
+    }
+  }
+  window.addEventListener('resize', fitAppHeight);
+  fitAppHeight();
+
   function resize() {
     const w = stage.clientWidth, h = stage.clientHeight;
     if (!w || !h) return;
@@ -62,6 +88,7 @@
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     sketch.resize();
+    fitAppHeight();
   }
   new ResizeObserver(resize).observe(stage);
   // Render only while the stage is actually visible — an open studio tab in
@@ -146,21 +173,27 @@
     if (undoStack.length > STACK_MAX) undoStack.shift();
     redoStack.length = 0;
     if (replacement) doc = replacement;
+    afterDocumentChange();
+  }
+
+  // Shared post-change pipeline: prune dead selection, persist, re-render,
+  // rebuild. Used by commit() and replaceDocument().
+  function afterDocumentChange() {
+    if (selectedFeatureId && !doc.features.some((f) => f.id === selectedFeatureId)) selectedFeatureId = null;
     save();
     renderParams();
     renderHistory();
+    renderContext();
     rebuild();
   }
 
   function replaceDocument(snapJson) {
     doc = normalizeDoc(JSON.parse(snapJson));
-    save();
-    renderParams();
-    renderHistory();
-    rebuild();
+    afterDocumentChange();
   }
 
   function undo() {
+    if (mode.kind !== 'idle' && mode.kind !== 'rebuilding') return say('Finish or cancel the current action first.');
     if (!undoStack.length) return say('Nothing to undo.');
     const entry = undoStack.pop();
     redoStack.push({ label: entry.label, snap: JSON.stringify(doc) });
@@ -168,12 +201,55 @@
     say('Undid: ' + entry.label);
   }
   function redo() {
+    if (mode.kind !== 'idle' && mode.kind !== 'rebuilding') return say('Finish or cancel the current action first.');
     if (!redoStack.length) return say('Nothing to redo.');
     const entry = redoStack.pop();
     undoStack.push({ label: entry.label, snap: JSON.stringify(doc) });
     replaceDocument(entry.snap);
     say('Redid: ' + entry.label);
   }
+
+  // --- mode coordinator -----------------------------------------------------
+  // One discriminated state object owns "what is the user doing". Every
+  // editor announces open/close through setMode; entering a working mode
+  // from another working mode is a coordination bug (the feature buttons
+  // cancel the previous owner first), surfaced via console + label.
+  let mode = { kind: 'idle' };
+  const MODE_TEXT = {
+    idle: () => (buildErrors.size ? 'A feature is failing — edit or delete it in History' : 'Ready — pick a feature to start'),
+    'choose-face': (m) => OP_LABEL[m.feat] + ' · click a flat face, or use the base plane',
+    sketching: (m) => 'Sketch · ' + m.tool + ' — click to place, type exact numbers below',
+    'picking-edges': (m) => OP_LABEL[m.feat] + ' · click edges on the part (' + m.count + ' picked)',
+    'picking-faces': (m) => 'Shell · pick the opening faces (' + m.count + ' picked)',
+    rebuilding: () => 'Rebuilding…',
+  };
+  const isWorking = (k) => k !== 'idle' && k !== 'rebuilding';
+  const modeLog = []; // recent mode kinds, for the automated checks
+  let currentOpType = null; // feature type owning the active operation (ribbon pressed state)
+  function setMode(next) {
+    modeLog.push(next.kind);
+    if (modeLog.length > 200) modeLog.shift();
+    if (isWorking(mode.kind) && isWorking(next.kind) && mode.kind !== next.kind) {
+      console.warn('mode conflict:', mode.kind, '->', next.kind);
+    }
+    mode = next;
+    const text = (MODE_TEXT[mode.kind] || (() => ''))(mode);
+    const el = $('bw-mode');
+    if (el) el.textContent = text;
+    const cmd = $('bw-cmd-mode');
+    if (cmd) cmd.textContent = text;
+    const actions = $('bw-cmd-actions');
+    if (actions) actions.hidden = !(mode.kind === 'sketching' || mode.kind === 'picking-edges' || mode.kind === 'picking-faces');
+    const rib = document.getElementById('rib-sketch');
+    if (rib) rib.hidden = mode.kind !== 'sketching';
+    if (!isWorking(mode.kind)) currentOpType = null;
+    document.querySelectorAll('[data-feat]').forEach((b) => {
+      b.setAttribute('aria-pressed', b.dataset.feat === currentOpType && isWorking(mode.kind) ? 'true' : 'false');
+      b.classList.toggle('on', b.dataset.feat === currentOpType && isWorking(mode.kind));
+    });
+    renderContext();
+  }
+  const refreshModeLabel = () => setMode(mode);
 
   // Keyboard: global shortcuts must not fire while a field has focus.
   const inField = () => {
@@ -369,10 +445,17 @@
   }
 
   async function rebuild() {
+    if (mode.kind === 'idle' || mode.kind === 'rebuilding') setMode({ kind: 'rebuilding' });
+    for (const id of [...buildErrors.keys()]) {
+      if (!doc.features.some((f) => f.id === id)) buildErrors.delete(id);
+    }
     if (!doc.features.length) {
       setMesh(null);
       currentShape = null;
       renderHistory();
+      const errEl0 = $('bw-cmd-err');
+      if (errEl0) errEl0.textContent = '';
+      if (mode.kind === 'rebuilding') setMode({ kind: 'idle' });
       return;
     }
     await loadKernel();
@@ -442,6 +525,9 @@
       if (prev && prev !== acc) prev.delete();
     } catch {}
     renderHistory();
+    const errEl = $('bw-cmd-err');
+    if (errEl) errEl.textContent = failed ? OP_LABEL[failed.type] + ' failed: ' + buildErrors.get(failed.id) : '';
+    if (mode.kind === 'idle' || mode.kind === 'rebuilding') setMode({ kind: 'idle' });
     if (failed) say(OP_LABEL[failed.type] + ' failed: ' + buildErrors.get(failed.id));
   }
 
@@ -533,7 +619,8 @@
     list.innerHTML = '';
     doc.features.forEach((f, i) => {
       const li = document.createElement('li');
-      li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '');
+      li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '') + (f.id === selectedFeatureId ? ' sel' : '');
+      li.dataset.sel = f.id;
       const dims =
         f.type === 'fillet' || f.type === 'chamfer'
           ? 'r ' + f.r + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
@@ -543,26 +630,40 @@
               ? 'profile ×' + f.sketch.shapes.length
               : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's') + (f.onFace ? ' · on face' : '') + (f.pattern?.n > 1 ? ' · ×' + f.pattern.n : '');
       li.innerHTML =
+        '<button type="button" class="hi-sel" data-sel="' + f.id + '" aria-pressed="' + (f.id === selectedFeatureId) + '">' +
         '<span class="hi-n">' + (i + 1) + '. ' + OP_LABEL[f.type] + '</span>' +
         '<span class="hi-d">' + dims + (buildErrors.has(f.id) ? ' · FAILED' : '') + '</span>' +
+        '</button>' +
         '<span class="hi-a"><button data-edit="' + f.id + '">Edit</button><button data-del="' + f.id + '">×</button></span>';
       list.appendChild(li);
     });
     $('bw-hist-empty').hidden = doc.features.length > 0;
+    const st = $('bw-status-feat');
+    if (st) st.textContent = doc.features.length + ' feature' + (doc.features.length === 1 ? '' : 's');
   }
+
   $('bw-history').addEventListener('click', (e) => {
     const editId = e.target.dataset?.edit, delId = e.target.dataset?.del;
+    if (!editId && !delId) {
+      const li = e.target.closest('.hist-item');
+      if (li) {
+        const fromKeyboard = e.target.closest('.hi-sel');
+        selectFeature(li.dataset.sel === selectedFeatureId ? null : li.dataset.sel);
+        if (fromKeyboard) $('bw-history').querySelector('.hi-sel[data-sel="' + li.dataset.sel + '"]')?.focus();
+      }
+      return;
+    }
     if (delId) {
-      const gone = doc.features.find((f) => f.id === delId);
-      commit('Delete ' + (gone ? OP_LABEL[gone.type].toLowerCase() : 'feature'), () => {
-        doc.features = doc.features.filter((f) => f.id !== delId);
+      startOperation(() => {
+        const gone = doc.features.find((f) => f.id === delId);
+        commit('Delete ' + (gone ? OP_LABEL[gone.type].toLowerCase() : 'feature'), () => {
+          doc.features = doc.features.filter((f) => f.id !== delId);
+        });
       });
     }
     if (editId) {
       const f = doc.features.find((x) => x.id === editId);
-      if (f.type === 'fillet' || f.type === 'chamfer') picker.open(f);
-      else if (f.type === 'shell') shellPick.open(f);
-      else sketch.open(f);
+      if (f) startOperation(() => openEditorFor(f));
     }
   });
 
@@ -651,19 +752,26 @@
     a.click();
     URL.revokeObjectURL(a.href);
   });
+  $('bw-open-btn')?.addEventListener('click', () => $('bw-open-file').click());
   $('bw-open-file').addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = ''; // allow re-opening the same file later
     file.text().then((t) => {
+      let d;
       try {
-        const d = JSON.parse(t);
+        d = JSON.parse(t);
         if (!Array.isArray(d.features)) throw new Error('bad file');
         if (!d.features.every((f) => f && typeof f === 'object' && f.id && f.type)) throw new Error('corrupt features');
+      } catch {
+        return say('That is not a studio project file.');
+      }
+      // Replacing the document while an editor is open must go through the
+      // coordinator: prompt for a dirty draft, cancel editors, then commit.
+      startOperation(() => {
         commit('Open project', () => normalizeDoc(d));
         say('Project opened.');
-      } catch {
-        say('That is not a studio project file.');
-      }
+      });
     });
   });
 
@@ -686,8 +794,14 @@
   $('bw-export-stl').addEventListener('click', () => exportBlob('stl'));
   $('bw-export-step').addEventListener('click', () => exportBlob('step'));
   $('bw-clear').addEventListener('click', () => {
-    if (!confirm('Clear the whole part? (Undo can bring it back.)')) return;
-    commit('Clear part', () => ({ features: [], params: [] }));
+    const hasDirtyDraft = isWorking(mode.kind) && activeDraftDirty();
+    const warning = hasDirtyDraft
+      ? 'Discard the unfinished edit and clear the whole part? Undo can restore the saved part, but not the unfinished edit.'
+      : 'Clear the whole part? (Undo can bring it back.)';
+    if (!confirm(warning)) return;
+    startOperation(() => {
+      commit('Clear part', () => ({ features: [], params: [] }));
+    }, { discardConfirmed: true });
   });
 
   // --- 2D sketcher ---------------------------------------------------------
@@ -703,11 +817,36 @@
     let selShape = null;
     let refOutline = [];
 
+    function wrapOpenMode() {
+      setMode({ kind: 'sketching', tool: 'rect', featureType: feature.type });
+    }
+    let openedJson = '';
+    let openedFields = '';
+    let openerEl = null;
+    let deferredCommit = null;
+    // Operation values live in DOM fields until Apply copies them into the
+    // draft — dirty detection must see them too, or a typed Height/Pattern
+    // is silently dropped when another operation starts.
+    const opFieldsNow = () =>
+      JSON.stringify([
+        $('bw-sk-op-h').value,
+        $('bw-sk-through').checked,
+        $('bw-sk-pat').value,
+        $('bw-sk-pat-n').value,
+        $('bw-sk-pat-a').value,
+        $('bw-sk-pat-b').value,
+      ]);
     function open(f, opts) {
       // Transactional edit: work on a deep copy so Cancel discards
       // everything and undo snapshots never see half-applied changes.
+      // A caller (the face picker) can pass the control that started the
+      // whole operation so focus returns there, not to the face bar it
+      // just hid.
+      openerEl = (opts && opts.opener) || document.activeElement;
+      currentOpType = f.type;
       isNew = !doc.features.some((x) => x.id === f.id);
       feature = deepCopy(f);
+      openedJson = JSON.stringify(feature);
       refOutline = opts?.refOutline || [];
       // Select from the DRAFT — selecting from the original would route the
       // dimension panel's mutations straight into the committed document.
@@ -730,6 +869,7 @@
           : f.onFace
             ? 'Sketching on the picked face — its outline is dashed. Extrude grows out of the face; Cut digs into it.'
             : 'Draw on the top plane, millimetres. Click-click to place; type exact numbers below.';
+      wrapOpenMode();
       setTool('rect');
       resize();
       // Centre the view on what matters: the face outline (its plane origin
@@ -757,6 +897,7 @@
       }
       draw2d();
       syncShapePanel();
+      openedFields = opFieldsNow();
     }
     // The two pattern number fields mean ΔX/ΔY for linear runs and centre
     // X/Y for circular rings; relabel as the kind changes.
@@ -816,15 +957,34 @@
           if (stray) say('Heads up: part of your sketch is outside the face outline (dashed) — it may not attach to the part.');
         }
         const draft = feature;
-        commit((isNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
-          const i = doc.features.findIndex((x) => x.id === draft.id);
-          if (i >= 0) doc.features[i] = draft;
-          else doc.features.push(draft);
-        });
+        if (!isNew && !doc.features.some((x) => x.id === draft.id)) {
+          // The feature was deleted while this editor was open (undo, history
+          // delete): applying would resurrect it.
+          say('That feature no longer exists — nothing to apply.');
+        } else {
+          // Commit after the mode returns to idle (below) so the rebuild's
+          // Rebuilding state is announced instead of being masked by the
+          // still-open editor mode.
+          const wasNew = isNew;
+          deferredCommit = () =>
+            commit((wasNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
+              const i = doc.features.findIndex((x) => x.id === draft.id);
+              if (i >= 0) doc.features[i] = draft;
+              else doc.features.push(draft);
+            });
+        }
       }
       wrap.hidden = true;
       feature = null;
       pending = null;
+      setMode({ kind: 'idle' });
+      if (deferredCommit) {
+        const run = deferredCommit;
+        deferredCommit = null;
+        run();
+      }
+      if (openerEl && document.contains(openerEl)) openerEl.focus();
+      openerEl = null;
     }
     $('bw-sk-apply').addEventListener('click', () => close(true));
     $('bw-sk-cancel').addEventListener('click', () => close(false));
@@ -832,7 +992,11 @@
     function setTool(t) {
       tool = t;
       pending = null;
-      document.querySelectorAll('[data-sktool]').forEach((b) => b.classList.toggle('on', b.dataset.sktool === t));
+      if (feature) setMode({ kind: 'sketching', tool: t, featureType: feature.type });
+      document.querySelectorAll('[data-sktool]').forEach((b) => {
+        b.classList.toggle('on', b.dataset.sktool === t);
+        b.setAttribute('aria-pressed', b.dataset.sktool === t ? 'true' : 'false');
+      });
       draw2d();
     }
     document.querySelectorAll('[data-sktool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.sktool)));
@@ -867,13 +1031,13 @@
       ctx.clearRect(0, 0, w, h);
       // grid
       const step = view.pxPerMm >= 4 ? 1 : view.pxPerMm >= 1.2 ? 5 : 10;
-      ctx.strokeStyle = '#eef1f4';
+      ctx.strokeStyle = '#24313f';
       ctx.lineWidth = 1;
       const x0 = Math.floor(view.cx - w / 2 / view.pxPerMm), x1 = Math.ceil(view.cx + w / 2 / view.pxPerMm);
       const y0 = Math.floor(view.cy - h / 2 / view.pxPerMm), y1 = Math.ceil(view.cy + h / 2 / view.pxPerMm);
       for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) {
         const [px] = toPx(x, 0);
-        ctx.strokeStyle = x === 0 ? '#8aa0b8' : x % (step * 5) === 0 ? '#dfe4ea' : '#eef1f4';
+        ctx.strokeStyle = x === 0 ? '#6d8db0' : x % (step * 5) === 0 ? '#2e3f52' : '#24313f';
         ctx.beginPath();
         ctx.moveTo(px, 0);
         ctx.lineTo(px, h);
@@ -881,7 +1045,7 @@
       }
       for (let y = Math.ceil(y0 / step) * step; y <= y1; y += step) {
         const [, py] = toPx(0, y);
-        ctx.strokeStyle = y === 0 ? '#8aa0b8' : y % (step * 5) === 0 ? '#dfe4ea' : '#eef1f4';
+        ctx.strokeStyle = y === 0 ? '#6d8db0' : y % (step * 5) === 0 ? '#2e3f52' : '#24313f';
         ctx.beginPath();
         ctx.moveTo(0, py);
         ctx.lineTo(w, py);
@@ -890,7 +1054,7 @@
       if (!feature) return;
       // reference outline of the face being sketched on
       if (refOutline.length) {
-        ctx.strokeStyle = '#9aa7b4';
+        ctx.strokeStyle = '#8fa7c0';
         ctx.setLineDash([6, 5]);
         ctx.lineWidth = 1.5;
         for (const poly of refOutline) {
@@ -905,8 +1069,8 @@
       }
       // shapes
       for (const s of feature.sketch.shapes) {
-        ctx.strokeStyle = s === selShape ? '#0b5cad' : '#1a3550';
-        ctx.fillStyle = s === selShape ? 'rgba(11,92,173,0.10)' : 'rgba(26,53,80,0.06)';
+        ctx.strokeStyle = s === selShape ? '#4c9aff' : '#cfdcea';
+        ctx.fillStyle = s === selShape ? 'rgba(76,154,255,0.16)' : 'rgba(207,220,234,0.08)';
         ctx.lineWidth = 2;
         pathShape(s);
         ctx.fill();
@@ -914,7 +1078,7 @@
       }
       // pending
       if (pending) {
-        ctx.strokeStyle = '#0b5cad';
+        ctx.strokeStyle = '#e67e22';
         ctx.setLineDash([5, 4]);
         ctx.lineWidth = 1.5;
         pathShape(pending);
@@ -1106,7 +1270,15 @@
       });
     }
 
-    return { open, resize, isOpen: () => !wrap.hidden };
+    return {
+      open,
+      resize,
+      isOpen: () => !wrap.hidden,
+      cancel: () => {
+        if (!wrap.hidden) close(false);
+      },
+      isDirty: () => Boolean(feature) && (Boolean(pending) || JSON.stringify(feature) !== openedJson || opFieldsNow() !== openedFields),
+    };
   })();
 
   // --- edge picker (fillet / chamfer) --------------------------------------
@@ -1114,15 +1286,23 @@
     const bar = $('bw-pick');
     let feature = null;
     let isNew = false;
+    let touched = false;
+    let openedR = '';
+    let openerEl = null;
     const SEL = 0xe67e22;
 
     function open(f) {
       if (!edgeLines.length) return say('Build something first — fillets round the edges of an existing part.');
+      openerEl = document.activeElement;
+      currentOpType = f.type;
+      touched = false;
       isNew = !doc.features.some((x) => x.id === f.id);
       feature = deepCopy(f); // transactional: document untouched until Apply
+      setMode({ kind: 'picking-edges', feat: feature.type, count: 0 });
       bar.hidden = false;
       $('bw-pick-title').textContent = (isNew ? 'New ' : 'Edit ') + OP_LABEL[f.type].toLowerCase();
       $('bw-pick-r').value = f.r ?? 2;
+      openedR = $('bw-pick-r').value;
       // Preselect edges whose signature still matches (edit case).
       for (const line of edgeLines) {
         const on = line.userData.sig && f.edges.some((sig) => sigMatches2(sig, line.userData.sig));
@@ -1150,22 +1330,38 @@
         // else: editing — the feature's own rounding replaced the original
         // edges on screen, so a radius-only edit keeps the stored edges.
         const draft = feature;
-        commit((isNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
-          const i = doc.features.findIndex((x) => x.id === draft.id);
-          if (i >= 0) doc.features[i] = draft;
-          else doc.features.push(draft);
-        });
+        let run = null;
+        if (!isNew && !doc.features.some((x) => x.id === draft.id)) {
+          say('That feature no longer exists — nothing to apply.');
+        } else {
+          const wasNew = isNew;
+          run = () =>
+            commit((wasNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
+              const i = doc.features.findIndex((x) => x.id === draft.id);
+              if (i >= 0) doc.features[i] = draft;
+              else doc.features.push(draft);
+            });
+        }
         for (const line of edgeLines) line.userData.picked = false;
+        bar.hidden = true;
+        feature = null;
+        setMode({ kind: 'idle' });
+        if (run) run();
       } else {
         for (const line of edgeLines) line.material.color.setHex(0x2c3e50);
+        bar.hidden = true;
+        feature = null;
+        setMode({ kind: 'idle' });
       }
-      bar.hidden = true;
-      feature = null;
+      if (openerEl && document.contains(openerEl)) openerEl.focus();
+      openerEl = null;
     }
     $('bw-pick-apply').addEventListener('click', () => close(true));
     $('bw-pick-cancel').addEventListener('click', () => close(false));
     function syncCount() {
-      $('bw-pick-count').textContent = edgeLines.filter((l) => l.userData.picked).length + ' picked';
+      const n = edgeLines.filter((l) => l.userData.picked).length;
+      $('bw-pick-count').textContent = n + ' picked';
+      if (feature) setMode({ kind: 'picking-edges', feat: feature.type, count: n });
     }
 
     // Click-to-toggle edges (with a drag guard so orbiting doesn't pick).
@@ -1188,10 +1384,16 @@
       const line = hit.object;
       line.userData.picked = !line.userData.picked;
       line.material.color.setHex(line.userData.picked ? SEL : 0x2c3e50);
+      touched = true;
       syncCount();
     });
 
-    return { open, cancel: () => feature && close(false), active: () => Boolean(feature) };
+    return {
+      open,
+      cancel: () => feature && close(false),
+      active: () => Boolean(feature),
+      isDirty: () => Boolean(feature) && (touched || $('bw-pick-r').value !== openedR),
+    };
   })();
 
   // Debug handle for automated tests; not part of the public surface.
@@ -1204,6 +1406,21 @@
     },
     top: () => (currentShape ? topOf(currentShape) : null),
     errors: () => doc.features.filter((f) => buildErrors.has(f.id)).map((f) => f.type + ': ' + buildErrors.get(f.id)),
+    mode: () => mode,
+    modeLog: () => [...modeLog],
+    cameraDir: () => {
+      const d = camera.position.clone().sub(orbit.target).normalize();
+      return [d.x, d.y, d.z];
+    },
+    ndcOfPartCenter: () => {
+      if (!solidMesh) return null;
+      solidMesh.geometry.computeBoundingSphere();
+      const bs = solidMesh.geometry.boundingSphere;
+      camera.updateMatrixWorld();
+      camera.updateProjectionMatrix();
+      const v = new THREE.Vector3(bs.center.x, bs.center.z, -bs.center.y).project(camera);
+      return [v.x, v.y];
+    },
     undoDepth: () => undoStack.length,
     redoDepth: () => redoStack.length,
     undoLabels: () => undoStack.map((e) => e.label),
@@ -1295,18 +1512,27 @@
     let isNew = false;
     let cycleIdx = -1;
     let cycleMesh = null; // orange preview of the cycled face
+    let touched = false;
+    let openedT = '';
+    let openerEl = null;
+    let deferredCommit = null;
     const picked = new Map(); // faceId -> {sig, mesh}
 
     const planarRanges = () => faceRanges.filter((r) => faceByHash.has(r.faceId));
 
     function open(f) {
       if (!solidMesh || !faceByHash.size) return say('Build something first — Shell hollows an existing part.');
+      openerEl = document.activeElement;
+      currentOpType = 'shell';
+      touched = false;
       isNew = !doc.features.some((x) => x.id === f.id);
       feature = deepCopy(f); // transactional: document untouched until Apply
+      setMode({ kind: 'picking-faces', count: 0 });
       cycleIdx = -1;
       bar.hidden = false;
       $('bw-shell-title').textContent = (isNew ? 'New ' : 'Edit ') + 'shell';
       $('bw-shell-t').value = f.t ?? 2;
+      openedT = $('bw-shell-t').value;
       // Preselect openings whose signature still matches (edit case). After
       // a shell has applied, its opening faces are gone from the display
       // shape, so this often finds nothing — thickness-only edits still work.
@@ -1334,11 +1560,17 @@
         // else: edit with no re-pick keeps the stored openings (they are not
         // visible on the shelled part), so thickness edits just work.
         const draft = feature;
-        commit((isNew ? 'Add ' : 'Edit ') + 'shell', () => {
-          const i = doc.features.findIndex((x) => x.id === draft.id);
-          if (i >= 0) doc.features[i] = draft;
-          else doc.features.push(draft);
-        });
+        if (!isNew && !doc.features.some((x) => x.id === draft.id)) {
+          say('That feature no longer exists — nothing to apply.');
+        } else {
+          const wasNew = isNew;
+          deferredCommit = () =>
+            commit((wasNew ? 'Add ' : 'Edit ') + 'shell', () => {
+              const i = doc.features.findIndex((x) => x.id === draft.id);
+              if (i >= 0) doc.features[i] = draft;
+              else doc.features.push(draft);
+            });
+        }
       }
       for (const p of picked.values()) dropHighlight(p.mesh);
       picked.clear();
@@ -1346,14 +1578,24 @@
       cycleMesh = null;
       bar.hidden = true;
       feature = null;
+      setMode({ kind: 'idle' });
+      if (deferredCommit) {
+        const run = deferredCommit;
+        deferredCommit = null;
+        run();
+      }
+      if (openerEl && document.contains(openerEl)) openerEl.focus();
+      openerEl = null;
     }
     $('bw-shell-apply').addEventListener('click', () => close(true));
     $('bw-shell-cancel').addEventListener('click', () => close(false));
     function syncCount() {
       $('bw-shell-count').textContent = picked.size + ' opening' + (picked.size === 1 ? '' : 's');
+      if (feature) setMode({ kind: 'picking-faces', count: picked.size });
     }
 
     function toggleRange(range) {
+      touched = true;
       const had = picked.get(range.faceId);
       if (had) {
         dropHighlight(had.mesh);
@@ -1399,7 +1641,12 @@
       toggleRange(range);
     });
 
-    return { open, cancel: () => feature && close(false), active: () => Boolean(feature) };
+    return {
+      open,
+      cancel: () => feature && close(false),
+      active: () => Boolean(feature),
+      isDirty: () => Boolean(feature) && (touched || $('bw-shell-t').value !== openedT),
+    };
   })();
 
   // --- face picker (sketch-on-face for extrude / cut) ----------------------
@@ -1409,25 +1656,39 @@
     let cycleIdx = -1;
     let highlight = null;
 
+    let openerEl = null;
     function open(f) {
+      openerEl = document.activeElement;
+      currentOpType = f.type;
       draft = f;
       cycleIdx = -1;
+      setMode({ kind: 'choose-face', feat: f.type });
       bar.hidden = false;
       $('bw-face-use').hidden = true;
       $('bw-face-title').textContent = 'New ' + OP_LABEL[f.type].toLowerCase();
     }
-    function close() {
+    function close(toSketch) {
+      // Capture the opener BEFORE hiding the bar — hiding blurs the clicked
+      // button, so document.activeElement would already be <body>.
+      const opener = openerEl && document.contains(openerEl) ? openerEl : null;
       bar.hidden = true;
       draft = null;
       clearHighlight();
       $('bw-face-use').hidden = true;
+      setMode({ kind: 'idle' });
+      openerEl = null;
+      // On cancel, restore focus here; on hand-off, pass the opener to the
+      // sketcher so it restores focus to the ribbon button that started it.
+      if (toSketch) return opener;
+      if (opener) opener.focus();
+      return null;
     }
     $('bw-face-base').addEventListener('click', () => {
       const f = draft;
-      close();
-      sketch.open(f);
+      const opener = close(true);
+      sketch.open(f, { opener });
     });
-    $('bw-face-cancel').addEventListener('click', close);
+    $('bw-face-cancel').addEventListener('click', () => close(false));
 
     // Step-through selection: precision clicks are hard on phones, and flat
     // faces can hide behind each other. Next face highlights each planar
@@ -1462,8 +1723,8 @@
       try {
         outline = faceOutline(face, rc.makePlaneFromFace(face));
       } catch {}
-      close();
-      sketch.open(f, { refOutline: outline });
+      const opener = close(true);
+      sketch.open(f, { refOutline: outline, opener });
     }
 
     // Project the chosen face's outline into its own plane so the sketcher
@@ -1508,32 +1769,372 @@
       chooseFace(face);
     });
 
-    return { open, cancel: close, active: () => Boolean(draft) };
+    return { open, cancel: () => close(false), active: () => Boolean(draft) };
   })();
+
+
+  // --- view presets ---------------------------------------------------------
+  // Fixed directions (three.js is Y-up here); centre and distance come from
+  // the real part bounds — partGroup rotates -90° about X, so a CAD-space
+  // bounding-sphere centre (x,y,z) sits at world (x, z, -y).
+  function partView() {
+    if (!solidMesh) return { c: new THREE.Vector3(0, 5, 0), r: 60 };
+    solidMesh.geometry.computeBoundingSphere();
+    const bs = solidMesh.geometry.boundingSphere;
+    return {
+      c: new THREE.Vector3(bs.center.x, bs.center.z, -bs.center.y),
+      r: Math.max(10, bs.radius * 2.1),
+    };
+  }
+  function partRadius() {
+    return partView().r;
+  }
+  const VIEW_DIRS = {
+    top: [0, 1, 0.0001],
+    front: [0, 0.0001, 1],
+    right: [1, 0.0001, 0],
+    iso: [1, 0.8, 1],
+  };
+  function syncViewPressed(name) {
+    document.querySelectorAll('[data-view]').forEach((b) => {
+      if (b.dataset.view === 'fit') return; // Fit is momentary, not a state
+      b.setAttribute('aria-pressed', b.dataset.view === name ? 'true' : 'false');
+      b.classList.toggle('on', b.dataset.view === name);
+    });
+  }
+  function setView(name) {
+    const { c, r } = partView();
+    if (name === 'fit') {
+      const dir = camera.position.clone().sub(orbit.target).normalize();
+      orbit.target.copy(c);
+      camera.position.copy(c.clone().add(dir.multiplyScalar(r * 1.4)));
+      orbit.update();
+      return;
+    }
+    const d = VIEW_DIRS[name];
+    if (!d) return;
+    const v = new THREE.Vector3(d[0], d[1], d[2]).normalize().multiplyScalar(r * 1.6);
+    camera.position.copy(c.clone().add(v));
+    orbit.target.copy(c);
+    orbit.update();
+    syncViewPressed(name);
+  }
+  // Hand-orbiting leaves the preset views; drop their pressed state.
+  orbit.addEventListener('start', () => syncViewPressed(null));
+  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+  $('bw-undo')?.addEventListener('click', undo);
+  $('bw-redo')?.addEventListener('click', redo);
+
+  // Double-click a flat face in idle: align the view to its normal.
+  renderer.domElement.addEventListener('dblclick', (e) => {
+    if (mode.kind !== 'idle' || !solidMesh) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    if (!rect.width) return;
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(
+      new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1),
+      camera,
+    );
+    const hit = ray.intersectObject(solidMesh, false)[0];
+    if (!hit) return;
+    const range = faceRanges.find((rr) => hit.faceIndex >= rr.t0 && hit.faceIndex < rr.t1);
+    const face = range && faceByHash.get(range.faceId);
+    if (!face) return;
+    const n = face.normalAt();
+    // CAD Z-up normal -> three Y-up direction
+    const dir = new THREE.Vector3(n.x, n.z, -n.y).normalize();
+    const r = partRadius();
+    camera.position.copy(orbit.target.clone().add(dir.multiplyScalar(r * 1.6)));
+    orbit.update();
+  });
+
+  // --- operation coordinator -----------------------------------------------
+  // Single entry point for anything that opens an editor (feature buttons,
+  // history Edit, context Edit). A working mode with untouched state is
+  // dropped silently; touched state asks before being discarded.
+  function activeDraftDirty() {
+    if (mode.kind === 'sketching') return sketch.isDirty();
+    if (mode.kind === 'picking-edges') return picker.isDirty();
+    if (mode.kind === 'picking-faces') return shellPick.isDirty();
+    return false;
+  }
+  function cancelAllEditors() {
+    sketch.cancel();
+    picker.cancel();
+    shellPick.cancel();
+    facePick.cancel();
+  }
+  function startOperation(fn, opts) {
+    if (isWorking(mode.kind)) {
+      if (!opts?.discardConfirmed && activeDraftDirty() && !window.confirm('Discard the unfinished edit in progress?')) return false;
+      cancelAllEditors();
+    }
+    fn();
+    return true;
+  }
+  function openEditorFor(f) {
+    if (f.type === 'fillet' || f.type === 'chamfer') picker.open(f);
+    else if (f.type === 'shell') shellPick.open(f);
+    else sketch.open(f);
+  }
+
+  // --- mobile panel tabs (Parameters / History bottom sheets) ---------------
+  const sideEl = $('bw-side');
+  function syncMtabs() {
+    const p = $('bw-mtab-params'), h = $('bw-mtab-history');
+    if (p) p.setAttribute('aria-pressed', sideEl.classList.contains('m-open-params') ? 'true' : 'false');
+    if (h) h.setAttribute('aria-pressed', sideEl.classList.contains('m-open-history') ? 'true' : 'false');
+  }
+  function toggleSheet(cls) {
+    syncSheetBottom();
+    const wasOpen = sideEl.classList.contains(cls);
+    sideEl.classList.remove('m-open-params', 'm-open-history');
+    if (!wasOpen) {
+      // The properties sheet and a tab sheet share the bottom edge — close
+      // the selection so they never stack.
+      if (selectedFeatureId) selectFeature(null);
+      sideEl.classList.add(cls);
+    }
+    syncMtabs();
+  }
+  $('bw-mtab-params')?.addEventListener('click', () => toggleSheet('m-open-params'));
+  $('bw-mtab-history')?.addEventListener('click', () => toggleSheet('m-open-history'));
+
+  // --- selection + context properties panel ---------------------------------
+  let selectedFeatureId = null;
+  function selectFeature(id) {
+    selectedFeatureId = id;
+    if (id) {
+      sideEl.classList.remove('m-open-params', 'm-open-history');
+      syncMtabs();
+    }
+    renderHistory();
+    renderContext();
+  }
+  function renderContext() {
+    const wrap = $('bw-context-wrap');
+    const panel = $('bw-context');
+    if (!panel) return;
+    const holder = wrap || panel;
+    const f = doc.features.find((x) => x.id === selectedFeatureId);
+    if (mode.kind !== 'idle' || !f) {
+      holder.hidden = true;
+      return;
+    }
+    syncSheetBottom();
+    const escAttr = (v) => String(v).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+    const field = (label, key, val) =>
+      '<label>' + label + ' <input type="text" inputmode="decimal" data-cx="' + key + '" value="' + escAttr(val) + '" /><span class="err-msg" hidden></span></label>';
+    const stat = (label, val) => '<p class="ctx-stat">' + label + ': ' + escAttr(val) + '</p>';
+    let fields = '';
+    if (f.type === 'extrude') {
+      fields += field('Height (mm)', 'h', f.h);
+    } else if (f.type === 'cut') {
+      fields +=
+        '<label class="ctx-check"><input type="checkbox" data-cxthrough="1"' + (f.through ? ' checked' : '') + ' /> Through all</label>';
+      if (!f.through) fields += field('Depth (mm)', 'h', f.h ?? 10);
+    } else if (f.type === 'revolve') {
+      fields += stat('Profile shapes', f.sketch.shapes.length);
+    } else if (f.type === 'fillet' || f.type === 'chamfer') {
+      fields += field('Radius (mm)', 'r', f.r) + stat('Edges', f.edges.length);
+    } else if (f.type === 'shell') {
+      fields += field('Walls (mm)', 't', f.t) + stat('Openings', f.faces.length);
+    }
+    if (f.type === 'extrude' || f.type === 'cut') {
+      fields += stat('Shapes', f.sketch.shapes.length);
+      if (f.onFace) fields += stat('Plane', 'on face');
+      if (f.pattern) {
+        const circ = f.pattern.kind === 'circular';
+        const patField = (label, key, val) =>
+          '<label>' + label + ' <input type="text" inputmode="decimal" data-cxpat="' + key + '" value="' + escAttr(val) + '" /><span class="err-msg" hidden></span></label>';
+        fields += stat('Pattern', f.pattern.kind);
+        fields += patField('Count', 'n', f.pattern.n);
+        fields += patField(circ ? 'Centre X' : 'ΔX (mm)', 'a', circ ? f.pattern.cx : f.pattern.dx);
+        fields += patField(circ ? 'Centre Y' : 'ΔY (mm)', 'b', circ ? f.pattern.cy : f.pattern.dy);
+      }
+    }
+    // Which named parameters this feature's expressions reference. Only
+    // dimension fields can hold expressions — walking the whole feature
+    // would false-match a parameter named like a structural enum
+    // ('cut', 'rect', 'linear', …) against f.type / shape.kind / pattern.kind.
+    if ((doc.params || []).length) {
+      const exprs = [];
+      const num = (v) => {
+        if (typeof v === 'string') exprs.push(v);
+      };
+      num(f.h);
+      num(f.r);
+      num(f.t);
+      for (const sh of f.sketch?.shapes || []) {
+        num(sh.w); num(sh.h); num(sh.r); num(sh.x); num(sh.y);
+        for (const pt of sh.pts || []) { num(pt[0]); num(pt[1]); }
+      }
+      if (f.pattern) { num(f.pattern.dx); num(f.pattern.dy); num(f.pattern.cx); num(f.pattern.cy); }
+      const escRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const used = doc.params.map((pp) => pp.name).filter((n) => exprs.some((x) => new RegExp('\\b' + escRe(n) + '\\b').test(x)));
+      if (used.length) fields += stat('Uses parameters', used.join(', '));
+    }
+    const err = buildErrors.get(f.id);
+    panel.innerHTML =
+      '<p class="ctx-t">' + OP_LABEL[f.type] + '</p>' +
+      '<p class="ctx-sub">' + (err ? 'FAILED: ' + escAttr(err) : 'feature ' + (doc.features.indexOf(f) + 1) + ' of ' + doc.features.length) + '</p>' +
+      fields +
+      '<div class="ctx-actions"><button type="button" data-cxedit="1">Edit</button><button type="button" data-cxdel="1">Delete</button></div>';
+    holder.hidden = false;
+    panel.querySelectorAll('[data-cx]').forEach((inp) =>
+      inp.addEventListener('change', () => {
+        const key = inp.dataset.cx;
+        const raw = inp.value.trim();
+        const errEl = inp.parentElement.querySelector('.err-msg');
+        try {
+          N(raw);
+        } catch (err2) {
+          // Inline error: mark the field, keep the bad value on screen so
+          // the user can fix it rather than retype it.
+          inp.classList.add('field-err');
+          if (errEl) {
+            errEl.textContent = String(err2?.message || err2);
+            errEl.hidden = false;
+          }
+          return;
+        }
+        inp.classList.remove('field-err');
+        if (errEl) errEl.hidden = true;
+        const value = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+        const draft = deepCopy(f);
+        draft[key] = value;
+        commit('Edit ' + OP_LABEL[f.type].toLowerCase(), () => {
+          const i = doc.features.findIndex((x) => x.id === draft.id);
+          if (i >= 0) doc.features[i] = draft;
+        });
+      }),
+    );
+    panel.querySelectorAll('[data-cxpat]').forEach((inp) =>
+      inp.addEventListener('change', () => {
+        const key = inp.dataset.cxpat;
+        const raw = inp.value.trim();
+        const errEl = inp.parentElement.querySelector('.err-msg');
+        const bad = (msg) => {
+          inp.classList.add('field-err');
+          if (errEl) {
+            errEl.textContent = msg;
+            errEl.hidden = false;
+          }
+        };
+        let value;
+        if (key === 'n') {
+          const n = Number(raw);
+          if (!Number.isInteger(n) || n < 2 || n > 100) return bad('Count must be a whole number from 2 to 100.');
+          value = n;
+        } else {
+          try {
+            N(raw);
+          } catch (err2) {
+            return bad(String(err2?.message || err2));
+          }
+          value = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+        }
+        inp.classList.remove('field-err');
+        if (errEl) errEl.hidden = true;
+        // Apply onto the CURRENT feature at commit time (not a deepCopy of
+        // the render-time f) so a quick tab between pattern fields never
+        // reverts a sibling field that committed a microtask earlier.
+        commit('Edit ' + OP_LABEL[f.type].toLowerCase() + ' pattern', () => {
+          const cur = doc.features.find((x) => x.id === f.id);
+          if (!cur || !cur.pattern) return;
+          const circ = cur.pattern.kind === 'circular';
+          if (key === 'n') cur.pattern.n = value;
+          else if (key === 'a') cur.pattern[circ ? 'cx' : 'dx'] = value;
+          else cur.pattern[circ ? 'cy' : 'dy'] = value;
+        });
+      }),
+    );
+    panel.querySelector('[data-cxthrough]')?.addEventListener('change', (e) => {
+      const draft = deepCopy(f);
+      draft.through = e.target.checked;
+      if (!draft.through && !(draft.h > 0) && typeof draft.h !== 'string') draft.h = 10;
+      commit('Edit ' + OP_LABEL[f.type].toLowerCase(), () => {
+        const i = doc.features.findIndex((x) => x.id === draft.id);
+        if (i >= 0) doc.features[i] = draft;
+      });
+    });
+    panel.querySelector('[data-cxedit]').addEventListener('click', () => {
+      startOperation(() => openEditorFor(f));
+    });
+    panel.querySelector('[data-cxdel]').addEventListener('click', () => {
+      commit('Delete ' + OP_LABEL[f.type].toLowerCase(), () => {
+        doc.features = doc.features.filter((x) => x.id !== f.id);
+      });
+    });
+  }
+
+  // --- global keys: Escape, Enter, Delete, F, Space-pan ---------------------
+  const cancelCurrent = () => {
+    if (mode.kind === 'sketching') $('bw-sk-cancel').click();
+    else if (mode.kind === 'picking-edges') $('bw-pick-cancel').click();
+    else if (mode.kind === 'picking-faces') $('bw-shell-cancel').click();
+    else if (mode.kind === 'choose-face') $('bw-face-cancel').click();
+    else if (selectedFeatureId) selectFeature(null);
+  };
+  const applyCurrent = () => {
+    if (mode.kind === 'sketching') $('bw-sk-apply').click();
+    else if (mode.kind === 'picking-edges') $('bw-pick-apply').click();
+    else if (mode.kind === 'picking-faces') $('bw-shell-apply').click();
+  };
+  $('bw-cmd-apply')?.addEventListener('click', () => applyCurrent());
+  $('bw-cmd-cancel')?.addEventListener('click', () => cancelCurrent());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (inField()) {
+        document.activeElement.blur();
+        return;
+      }
+      cancelCurrent();
+      return;
+    }
+    if (inField()) {
+      // Enter inside a numeric field commits that field (blur fires the
+      // change handler); it must not also Apply the whole editor.
+      if (e.key === 'Enter') document.activeElement.blur();
+      return; // every other global key defers to the field
+    }
+    if (e.key === 'Enter') applyCurrent();
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && mode.kind === 'idle' && selectedFeatureId) {
+      const f = doc.features.find((x) => x.id === selectedFeatureId);
+      if (f) {
+        commit('Delete ' + OP_LABEL[f.type].toLowerCase(), () => {
+          doc.features = doc.features.filter((x) => x.id !== f.id);
+        });
+        selectFeature(null);
+      }
+    } else if (e.key === 'f' && mode.kind === 'idle') setView('fit');
+    else if (e.key === ' ' && mode.kind === 'idle') {
+      e.preventDefault();
+      orbit.mouseButtons.LEFT = THREE.MOUSE.PAN;
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.key === ' ') orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+  });
 
   // --- feature buttons -----------------------------------------------------
   document.querySelectorAll('[data-feat]').forEach((b) =>
     b.addEventListener('click', () => {
-      // The rail sits outside the sketch overlay, so guard against silently
-      // discarding an in-progress sketch; and never run two pick modes at
-      // once — the 3D click handlers would both fire.
-      if (sketch.isOpen()) return say('Finish or cancel the current sketch first.');
-      picker.cancel();
-      facePick.cancel();
-      shellPick.cancel();
-      loadKernel(); // start the download while the user sketches
-      const t = b.dataset.feat;
-      if (t === 'fillet' || t === 'chamfer') {
-        picker.open({ id: newId(), type: t, r: 2, edges: [] });
-      } else if (t === 'shell') {
-        shellPick.open({ id: newId(), type: t, t: 2, faces: [] });
-      } else {
-        const draft = { id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut' };
-        // With a part on screen, extrude and cut can target any flat face;
-        // the base plane stays one click away.
-        if ((t === 'extrude' || t === 'cut') && solidMesh && faceByHash.size) facePick.open(draft);
-        else sketch.open(draft);
-      }
+      startOperation(() => {
+        loadKernel(); // start the download while the user sketches
+        const t = b.dataset.feat;
+        if (t === 'fillet' || t === 'chamfer') {
+          picker.open({ id: newId(), type: t, r: 2, edges: [] });
+        } else if (t === 'shell') {
+          shellPick.open({ id: newId(), type: t, t: 2, faces: [] });
+        } else {
+          const draft = { id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut' };
+          // With a part on screen, extrude and cut can target any flat face;
+          // the base plane stays one click away.
+          if ((t === 'extrude' || t === 'cut') && solidMesh && faceByHash.size) facePick.open(draft);
+          else sketch.open(draft);
+        }
+      });
     }),
   );
 
