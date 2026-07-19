@@ -171,7 +171,7 @@
     // of view stops burning frames.
     let visible = true;
     new IntersectionObserver((entries) => {
-      visible = entries[0].isIntersecting;
+      visible = entries[entries.length - 1].isIntersecting;
     }).observe(stage);
 
     renderer.setAnimationLoop(() => {

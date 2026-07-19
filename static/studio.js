@@ -64,7 +64,18 @@
     sketch.resize();
   }
   new ResizeObserver(resize).observe(stage);
+  // Render only while the stage is actually visible — an open studio tab in
+  // the background must not drain a phone's battery.
+  let stageVisible = true;
+  new IntersectionObserver((entries) => {
+    // Last entry, not first: a batch can carry [hidden, visible] and the
+    // stale first entry would freeze the render loop.
+    stageVisible = entries[entries.length - 1].isIntersecting;
+  }).observe(stage);
+  // No document.hidden check: browsers already stop the animation-frame
+  // loop in hidden tabs, and some embedded webviews report hidden wrongly.
   renderer.setAnimationLoop(() => {
+    if (!stageVisible) return;
     orbit.update();
     renderer.render(scene, camera);
   });
@@ -118,7 +129,17 @@
     throw new Error('unknown shape');
   }
 
-  function featureSolid(f) {
+  // Highest Z of a shape, for measuring cut depth from the part's top face.
+  function topOf(shape) {
+    try {
+      const b = shape.boundingBox?.bounds;
+      if (Array.isArray(b) && b.length === 2) return b[1][2];
+      if (Array.isArray(b) && b.length === 6) return b[5];
+    } catch {}
+    return 1000; // unknown: cut from far above, which degrades to through-all
+  }
+
+  function featureSolid(f, zTop) {
     // Union all sketch shapes, then apply the operation.
     let solids = [];
     for (const s of f.sketch.shapes) {
@@ -128,11 +149,17 @@
         // revolved around the vertical axis.
         const sk = drawing.sketchOnPlane('XZ');
         solids.push(sk.revolve());
+      } else if (f.type === 'cut') {
+        // Cuts remove material from the part as the user sees it: through-all
+        // spans the whole build volume; a finite depth is measured down from
+        // the part's top face (sketches all live on the base plane).
+        const sk = f.through
+          ? drawing.sketchOnPlane('XY', -5000)
+          : drawing.sketchOnPlane('XY', (zTop ?? 0) - f.h);
+        solids.push(sk.extrude(f.through ? 10000 : f.h + 1000));
       } else {
         const sk = drawing.sketchOnPlane('XY', f.sketch.z || 0);
-        const h = f.type === 'cut' && f.through ? 10000 : f.h;
-        const solid = sk.extrude(f.type === 'cut' ? -Math.abs(h) : h);
-        solids.push(f.type === 'cut' && f.flip ? solid.mirror('XY') : solid);
+        solids.push(sk.extrude(f.h));
       }
     }
     let out = solids[0];
@@ -163,7 +190,7 @@
           if (!hit) throw new Error('the picked edges no longer exist — edit or delete this feature');
           acc = next;
         } else if (f.type === 'cut') {
-          const solid = featureSolid(f);
+          const solid = featureSolid(f, acc ? topOf(acc) : 0);
           if (acc) acc = acc.cut(solid);
         } else {
           const solid = featureSolid(f);
@@ -171,11 +198,21 @@
         }
         f.error = null;
       } catch (err) {
-        f.error = String(err?.message || err);
+        let msg = String(err?.message || err);
+        if ((f.type === 'fillet' || f.type === 'chamfer') && !/no longer exist/.test(msg)) {
+          msg += ' — try a smaller radius';
+        }
+        f.error = msg;
         failed = f;
       }
     }
+    const prev = currentShape;
     currentShape = acc;
+    // Release the previous kernel shape explicitly — GC finalizers reclaim
+    // WASM memory too slowly on low-RAM devices.
+    try {
+      if (prev && prev !== acc) prev.delete();
+    } catch {}
     try {
       setMesh(acc);
     } catch {
@@ -207,6 +244,7 @@
     while (partGroup.children.length) {
       const c = partGroup.children.pop();
       c.geometry?.dispose();
+      if (c.material && c.material !== MAT) c.material.dispose?.();
     }
     edgeLines = [];
     if (!shape) return;
@@ -311,6 +349,9 @@
     if (!doc.features.length) return say('Add a feature first.');
     await rebuild();
     if (!currentShape) return say('Nothing solid to export — fix the failed feature.');
+    if (doc.features.some((f) => f.error)) {
+      return say('A feature is failing (marked red) — fix or delete it first, so the exported file matches your design.');
+    }
     const blob = kind === 'step' ? currentShape.blobSTEP() : currentShape.blobSTL({ tolerance: 0.03, angularTolerance: 0.3 });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -506,15 +547,23 @@
       clickAt(mx, my, e);
     });
     canvas.addEventListener('dblclick', () => {
-      if (pending?.kind === 'poly' && pending.pts.length >= 3) {
-        pending.pts.pop(); // drop the move-preview point
-        pending.closed = true;
-        feature.sketch.shapes.push(pending);
-        selShape = pending;
-        pending = null;
-        draw2d();
-        syncShapePanel();
+      if (pending?.kind !== 'poly') return;
+      // The closing double-click also registered as ordinary clicks, so the
+      // point list carries duplicates; collapse them (and a wrapped-around
+      // last point) before handing the profile to the kernel.
+      const pts = [];
+      for (const p of pending.pts) {
+        const last = pts[pts.length - 1];
+        if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) >= 0.5) pts.push(p);
       }
+      while (pts.length > 1 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 0.5) pts.pop();
+      if (pts.length < 3) return say('A polygon needs at least three points — click them, then double-click to close.');
+      const shape = { kind: 'poly', pts, closed: true };
+      feature.sketch.shapes.push(shape);
+      selShape = shape;
+      pending = null;
+      draw2d();
+      syncShapePanel();
     });
 
     function clickAt(mx, my) {
@@ -528,7 +577,15 @@
         if (!pending) pending = { kind: 'poly', pts: [[mx, my], [mx, my]], closed: false };
         else pending.pts.push([mx, my]);
       } else if (tool === 'select') {
-        selShape = feature.sketch.shapes.findLast((s) => hitShape(s, mx, my)) || null;
+        // Not findLast: ES2023, missing on the older mobile browsers this
+        // studio explicitly targets.
+        selShape = null;
+        for (let i = feature.sketch.shapes.length - 1; i >= 0; i--) {
+          if (hitShape(feature.sketch.shapes[i], mx, my)) {
+            selShape = feature.sketch.shapes[i];
+            break;
+          }
+        }
         syncShapePanel();
         draw2d();
       }
@@ -547,6 +604,14 @@
     }
     function commitPending() {
       const s = pending;
+      // Two clicks in the same spot make degenerate geometry the kernel
+      // rejects much later with a cryptic error — catch it here instead.
+      if (s.kind === 'rect' && (s.w < 1 || s.h < 1)) {
+        return say('Click the opposite corner a little further away (1 mm minimum).');
+      }
+      if (s.kind === 'circle' && s.r < 0.5) {
+        return say('Click the edge of the circle away from the centre (0.5 mm minimum radius).');
+      }
       delete s.ax;
       delete s.ay;
       pending = null;
@@ -677,6 +742,13 @@
   // Debug handle for automated tests; not part of the public surface.
   window.__bwStudio = {
     edges: () => edgeLines.length,
+    visible: () => stageVisible,
+    frame: () => {
+      orbit.update();
+      renderer.render(scene, camera);
+    },
+    top: () => (currentShape ? topOf(currentShape) : null),
+    errors: () => doc.features.filter((f) => f.error).map((f) => f.type + ': ' + f.error),
     pickAt: (fx, fy) => {
       const ray = new THREE.Raycaster();
       ray.params.Line = { threshold: 1.5 };
