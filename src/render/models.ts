@@ -367,40 +367,55 @@ export function cadStudioPage(): string {
     body: `<div class="review cadstudio">
       <nav class="trail"><a href="/cad">3D models</a><span class="sep">›</span><span class="cur">CAD Studio</span></nav>
       <h1>CAD Studio <span class="htag">beta</span></h1>
-      <p class="stub">Real CAD, zero friction: no account, no install, no tutorial wall. Drop shapes, drag them into place, mark some as holes, hit Export — you get a printable STL. Your scene stays saved in this browser. When you've made something real, add it to <a href="/cad">the collection</a>.</p>
+      <p class="stub">Parametric CAD in your browser: sketch in millimetres, extrude, cut, revolve — powered by the same class of geometry kernel as desktop CAD (OpenCascade, running in WebAssembly on your device). Every dimension stays editable in the history, and export gives you <b>STEP</b> for real CAD work plus STL for printing. No account, no install; your part is saved in this browser and as a small project file.</p>
       <div class="studio-wrap">
         <div class="studio-rail">
-          <span class="sr-h">Add a shape</span>
-          <button type="button" data-add="box">▢ Box</button>
-          <button type="button" data-add="cylinder">◯ Cylinder</button>
-          <button type="button" data-add="sphere">● Sphere</button>
-          <button type="button" data-add="cone">△ Cone</button>
-          <button type="button" data-add="hex">⬡ Hex prism</button>
-          <button type="button" data-add="wedge">◺ Wedge</button>
-          <button type="button" data-add="torus">◎ Ring</button>
-          <span class="sr-h">Tool</span>
-          <button type="button" data-mode="translate">Move (G)</button>
-          <button type="button" data-mode="rotate">Rotate (R)</button>
-          <button type="button" data-mode="scale">Scale (S)</button>
-          <span class="sr-h">Scene</span>
-          <button type="button" class="sr-accent" id="bw-export">⭳ Export STL</button>
-          <button type="button" id="bw-clear">Clear all</button>
+          <span class="sr-h">Add a feature</span>
+          <button type="button" class="sr-accent" data-feat="extrude">⬒ Extrude</button>
+          <button type="button" data-feat="cut">⛶ Cut</button>
+          <button type="button" data-feat="revolve">◎ Revolve</button>
+          <span class="sr-h">History</span>
+          <ol id="bw-history" class="hist"></ol>
+          <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
+          <span class="sr-h">Export</span>
+          <button type="button" class="sr-accent" id="bw-export-step">⭳ STEP (CAD)</button>
+          <button type="button" id="bw-export-stl">⭳ STL (print)</button>
+          <span class="sr-h">Project</span>
+          <button type="button" id="bw-save-file">Save file</button>
+          <label class="sr-file">Open file<input type="file" id="bw-open-file" accept=".json" hidden /></label>
+          <button type="button" id="bw-clear">Clear</button>
         </div>
         <div id="bw-studio">
-          <div id="bw-sel" hidden>
-            <span class="sel-t" id="bw-sel-type"></span>
-            <div class="sel-dims" id="bw-sel-dims"></div>
-            <label class="opt"><input type="checkbox" id="bw-sel-hole" /> Hole (cuts on export)</label>
-            <div class="sel-actions">
-              <button type="button" id="bw-sel-dup">Duplicate (D)</button>
-              <button type="button" id="bw-sel-del">Delete (X)</button>
+          <p id="bw-studio-msg" hidden></p>
+          <div id="bw-sketch" hidden>
+            <div class="sk-top">
+              <b id="bw-sk-title"></b>
+              <span class="sk-tools">
+                <button type="button" data-sktool="rect">▭ Rect</button>
+                <button type="button" data-sktool="circle">◯ Circle</button>
+                <button type="button" data-sktool="poly">△ Polygon</button>
+                <button type="button" data-sktool="select">☝ Select</button>
+                <button type="button" data-sktool="pan">✋ Pan</button>
+              </span>
+              <span class="sk-op">
+                <label id="bw-sk-h-row">Height <input type="number" id="bw-sk-op-h" value="20" step="1" /> mm</label>
+                <label id="bw-sk-through-row"><input type="checkbox" id="bw-sk-through" /> through all</label>
+              </span>
+              <span class="sk-actions">
+                <button type="button" class="sr-accent" id="bw-sk-apply">✓ Apply</button>
+                <button type="button" id="bw-sk-cancel">Cancel</button>
+              </span>
+            </div>
+            <canvas id="bw-sketch-canvas"></canvas>
+            <div class="sk-bottom">
+              <span id="bw-sk-hint" class="sk-note"></span>
+              <span id="bw-sk-dims"></span>
             </div>
           </div>
-          <p id="bw-studio-msg" hidden></p>
           <noscript><p class="mv-error">The studio needs JavaScript.</p></noscript>
         </div>
       </div>
-      <p class="studio-help">Drag to orbit · scroll to zoom · click a shape to select it · units are millimetres, moves snap to 1 mm, rotation to 15°. Solids merge and holes cut when you export. Made something worth keeping? <a href="/cad">Add it to a BOMwiki page</a> so the next person doesn't have to model it.</p>
+      <p class="studio-help">Everything is millimetres. Sketch with click-click placement, then type exact dimensions. Cut removes material (check "through all" to drill fully). Revolve spins a radial profile into a lathe part. Polygon: click points, double-click to close. The 11&nbsp;MB kernel downloads once and is then cached — after that the studio works offline. Made a real part? <a href="/cad">Add it to a BOMwiki page</a>.</p>
     </div>`,
     extraCss: ['/static/edit.css', '/static/model.css', '/static/studio.css'],
     scripts: ['/static/studio.js'],

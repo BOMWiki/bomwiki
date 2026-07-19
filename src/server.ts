@@ -137,6 +137,8 @@ const STATIC_TYPES: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  // The CAD studio's OpenCascade kernel (vendor/replicad_single.wasm).
+  '.wasm': 'application/wasm',
 };
 
 function send(res: http.ServerResponse, status: number, type: string, body: string): void {
