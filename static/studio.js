@@ -893,15 +893,21 @@
   const facePick = (() => {
     const bar = $('bw-face');
     let draft = null;
+    let cycleIdx = -1;
+    let highlight = null;
 
     function open(f) {
       draft = f;
+      cycleIdx = -1;
       bar.hidden = false;
+      $('bw-face-use').hidden = true;
       $('bw-face-title').textContent = 'New ' + OP_LABEL[f.type].toLowerCase();
     }
     function close() {
       bar.hidden = true;
       draft = null;
+      clearHighlight();
+      $('bw-face-use').hidden = true;
     }
     $('bw-face-base').addEventListener('click', () => {
       const f = draft;
@@ -909,6 +915,73 @@
       sketch.open(f);
     });
     $('bw-face-cancel').addEventListener('click', close);
+
+    // Step-through selection: precision clicks are hard on phones, and flat
+    // faces can hide behind each other. Next face highlights each planar
+    // face in turn; Use this face takes it.
+    const planarRanges = () => faceRanges.filter((r) => faceByHash.has(r.faceId));
+    function clearHighlight() {
+      if (!highlight) return;
+      partGroup.remove(highlight);
+      highlight.geometry.dispose();
+      highlight.material.dispose();
+      highlight = null;
+    }
+    function showHighlight(range) {
+      clearHighlight();
+      if (!solidMesh) return;
+      // Copy the face's triangles out (no shared attributes: disposing a
+      // geometry with shared buffers would yank them from the main mesh).
+      const posAttr = solidMesh.geometry.getAttribute('position');
+      const idx = solidMesh.geometry.getIndex().array;
+      const arr = new Float32Array((range.t1 - range.t0) * 9);
+      let o = 0;
+      for (let t = range.t0 * 3; t < range.t1 * 3; t++) {
+        const vi = idx[t];
+        arr[o++] = posAttr.getX(vi);
+        arr[o++] = posAttr.getY(vi);
+        arr[o++] = posAttr.getZ(vi);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      highlight = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({
+          color: 0xe67e22,
+          transparent: true,
+          opacity: 0.5,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
+        }),
+      );
+      partGroup.add(highlight);
+    }
+    $('bw-face-next').addEventListener('click', () => {
+      const list = planarRanges();
+      if (!list.length) return say('No flat faces to sketch on yet.');
+      cycleIdx = (cycleIdx + 1) % list.length;
+      showHighlight(list[cycleIdx]);
+      $('bw-face-use').hidden = false;
+    });
+    $('bw-face-use').addEventListener('click', () => {
+      const list = planarRanges();
+      const face = cycleIdx >= 0 && list[cycleIdx] && faceByHash.get(list[cycleIdx].faceId);
+      if (!face) return;
+      chooseFace(face);
+    });
+
+    function chooseFace(face) {
+      const f = draft;
+      f.onFace = faceSig(face);
+      let outline = [];
+      try {
+        outline = faceOutline(face, rc.makePlaneFromFace(face));
+      } catch {}
+      close();
+      sketch.open(f, { refOutline: outline });
+    }
 
     // Project the chosen face's outline into its own plane so the sketcher
     // can show where you are on the part.
@@ -949,14 +1022,7 @@
       const range = faceRanges.find((r) => hit.faceIndex >= r.t0 && hit.faceIndex < r.t1);
       const face = range && faceByHash.get(range.faceId);
       if (!face) return say('That surface is curved — pick a flat face.');
-      const f = draft;
-      f.onFace = faceSig(face);
-      let outline = [];
-      try {
-        outline = faceOutline(face, rc.makePlaneFromFace(face));
-      } catch {}
-      close();
-      sketch.open(f, { refOutline: outline });
+      chooseFace(face);
     });
 
     return { open, cancel: close, active: () => Boolean(draft) };
