@@ -126,6 +126,79 @@
   margin-top: 8px;
 }
 
+/* hero + landing sections */
+.cs-hero {
+  background: linear-gradient(160deg, #10263c, #1a3550 55%, #24486b);
+  color: #eef3f8;
+  border-radius: 10px;
+  padding: 40px 36px 34px;
+  margin: 10px 0 22px;
+}
+.cs-hero h1 {
+  font-size: clamp(30px, 5vw, 46px);
+  line-height: 1.08;
+  margin: 0 0 12px;
+  border: 0;
+  color: #fff;
+}
+.cs-hero .cs-tag {
+  font-size: clamp(15px, 2.2vw, 18px);
+  line-height: 1.5;
+  max-width: 42em;
+  margin: 0 0 18px;
+  color: #c8d6e4;
+}
+.cs-cta {
+  margin: 0 0 22px;
+}
+.cs-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px 22px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #c8d6e4;
+}
+.cs-points b {
+  color: #fff;
+}
+.cs-points li > b:first-child {
+  display: block;
+}
+.cs-learn,
+.cs-help,
+.cs-faq {
+  margin-top: 26px;
+  max-width: 60em;
+}
+.cs-steps {
+  padding-left: 20px;
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.cs-steps li {
+  margin: 8px 0;
+}
+.cs-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.cs-cols p {
+  margin: 4px 0 0;
+  color: #39485a;
+}
+.cs-faq p {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 10px 0;
+}
+
 /* feature history */
 .hist {
   list-style: none;

@@ -366,9 +366,18 @@ export function cadStudioPage(): string {
     ],
     body: `<div class="review cadstudio">
       <nav class="trail"><a href="/cad">3D models</a><span class="sep">›</span><span class="cur">CAD Studio</span></nav>
-      <h1>CAD Studio <span class="htag">beta</span></h1>
-      <p class="stub">Parametric CAD in your browser: sketch in millimetres, extrude, cut, revolve — powered by the same class of geometry kernel as desktop CAD (OpenCascade, running in WebAssembly on your device). Every dimension stays editable in the history, and export gives you <b>STEP</b> for real CAD work plus STL for printing. No account, no install; your part is saved in this browser and as a small project file.</p>
-      <div class="studio-wrap">
+      <section class="cs-hero">
+        <h1>Design real parts.<br />Right here, right now.</h1>
+        <p class="cs-tag">Free parametric CAD that runs in this browser tab — on a laptop, on a phone, on the cheapest computer in the room. No account. No install. No trial that expires.</p>
+        <p class="cs-cta"><a class="cp-dl cp-dl-main" href="#studio">Start modeling <span>the studio is right below — it's already loaded</span></a></p>
+        <ul class="cs-points">
+          <li><b>A real CAD kernel.</b> OpenCascade — the same engine family behind professional CAD — compiled to WebAssembly, running on your device. Exact solids, not blobs of triangles.</li>
+          <li><b>Parametric history.</b> Sketch in millimetres, extrude, cut, revolve. Every dimension stays editable; change a number and the part rebuilds.</li>
+          <li><b>Files that count.</b> Export <b>STEP</b> — the format factories and engineers actually exchange — plus STL for any 3D printer. Your work saves in this browser and as a small project file you own.</li>
+          <li><b>Works offline.</b> The engine downloads once (~11 MB) and is cached. After that, model on a bus with no signal.</li>
+        </ul>
+      </section>
+      <div class="studio-wrap" id="studio">
         <div class="studio-rail">
           <span class="sr-h">Add a feature</span>
           <button type="button" class="sr-accent" data-feat="extrude">⬒ Extrude</button>
@@ -415,7 +424,41 @@ export function cadStudioPage(): string {
           <noscript><p class="mv-error">The studio needs JavaScript.</p></noscript>
         </div>
       </div>
-      <p class="studio-help">Everything is millimetres. Sketch with click-click placement, then type exact dimensions. Cut removes material (check "through all" to drill fully). Revolve spins a radial profile into a lathe part. Polygon: click points, double-click to close. The 11&nbsp;MB kernel downloads once and is then cached — after that the studio works offline. Made a real part? <a href="/cad">Add it to a BOMwiki page</a>.</p>
+      <section class="cs-learn">
+        <h2 class="si-h">Your first part in two minutes</h2>
+        <ol class="cs-steps">
+          <li><b>Look at the starter part.</b> The studio opens with a 40&nbsp;mm plate with a hole through it — two features you can inspect: <i>1.&nbsp;Extrude</i> and <i>2.&nbsp;Cut</i> in the History panel.</li>
+          <li><b>Change a number.</b> Hit <i>Edit</i> on the Extrude, click the rectangle, type a new width, Apply. The part rebuilds. That's what parametric means — the model is the recipe, not the result.</li>
+          <li><b>Add your own feature.</b> Click <i>Extrude</i>, draw a rectangle with two clicks, type the height, Apply. It fuses into the part.</li>
+          <li><b>Drill it.</b> Click <i>Cut</i>, draw a circle where the hole goes, tick <i>through all</i>, Apply.</li>
+          <li><b>Ship it.</b> <i>STL</i> goes straight to a 3D printer. <i>STEP</i> opens in FreeCAD, SolidWorks, or Fusion when you graduate to bigger tools — nothing you make here is locked in.</li>
+        </ol>
+      </section>
+      <section class="cs-help">
+        <h2 class="si-h">Reference</h2>
+        <div class="cs-cols">
+          <div>
+            <b>Sketching</b>
+            <p>Rect and Circle: click two corners / centre then edge. Polygon: click each point, double-click to close. Select a shape to type exact X, Y, W, H or Ø in millimetres. Scroll to zoom the grid, Pan tool to move around.</p>
+          </div>
+          <div>
+            <b>Features</b>
+            <p>Extrude raises your sketch by a height. Cut removes material downward — "through all" drills the whole part. Revolve treats the sketch as a lathe profile: x is the radius from the axis, y is height, spun around the vertical.</p>
+          </div>
+          <div>
+            <b>Your files</b>
+            <p>The part autosaves in this browser. "Save file" downloads the project as JSON — keep it, email it, reopen it anywhere with "Open file". Export STEP or STL any time; both are yours, no watermarks, no license.</p>
+          </div>
+        </div>
+      </section>
+      <section class="cs-faq">
+        <h2 class="si-h">Straight answers</h2>
+        <p><b>Is it really free?</b> Yes. The studio is part of the open-source BOMwiki engine (AGPL-3.0). No tiers, no seat licenses, no expiring trial.</p>
+        <p><b>Where does my design go?</b> Nowhere. Modeling happens entirely on your device; nothing is uploaded unless you choose to publish a model to a BOMwiki page.</p>
+        <p><b>Will it replace Fusion or SolidWorks?</b> Not yet — there's no sketch-on-face, fillets, or assemblies today, and big models will feel heavy. It's honest CAD for real parts: brackets, plates, spacers, knobs, lathe profiles. The STEP files it makes are first-class citizens anywhere.</p>
+        <p><b>What runs underneath?</b> OpenCascade, a 25-year-old industrial B-rep kernel, compiled to WebAssembly — plus <a href="https://replicad.xyz" rel="noopener">replicad</a> and three.js. <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">Read the source</a>.</p>
+        <p><b>Made something worth keeping?</b> <a href="/cad">Publish it to a BOMwiki page</a> — your name in the credit, your part in the encyclopedia.</p>
+      </section>
     </div>`,
     extraCss: ['/static/edit.css', '/static/model.css', '/static/studio.css'],
     scripts: ['/static/studio.js'],
