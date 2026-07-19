@@ -395,6 +395,12 @@ export function cadStudioPage(): string {
           <button type="button" id="bw-clear">Clear</button>
         </div>
         <div id="bw-studio">
+          <div id="bw-face" class="pick-bar" hidden>
+            <b id="bw-face-title"></b>
+            <span class="sk-note">Click a flat face of the part to sketch on it</span>
+            <button type="button" id="bw-face-base">Use the base plane</button>
+            <button type="button" id="bw-face-cancel">Cancel</button>
+          </div>
           <div id="bw-pick" class="pick-bar" hidden>
             <b id="bw-pick-title"></b>
             <span class="sk-note">Click edges on the part to pick them</span>

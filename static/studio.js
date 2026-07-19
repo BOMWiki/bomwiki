@@ -139,7 +139,16 @@
     return 1000; // unknown: cut from far above, which degrades to through-all
   }
 
-  function featureSolid(f, zTop) {
+  function featureSolid(f, zTop, acc) {
+    // Sketch-on-face: re-find the face on the part built so far by its
+    // geometric signature and sketch on its plane. Extrude grows outward
+    // along the face normal; cut digs inward.
+    let facePlane = null;
+    if (f.onFace) {
+      const face = acc ? acc.faces.find((fc) => faceMatches(f.onFace, fc)) : null;
+      if (!face) throw new Error('the picked face no longer exists — edit or delete this feature');
+      facePlane = rc.makePlaneFromFace(face);
+    }
     // Union all sketch shapes, then apply the operation.
     let solids = [];
     for (const s of f.sketch.shapes) {
@@ -150,15 +159,21 @@
         const sk = drawing.sketchOnPlane('XZ');
         solids.push(sk.revolve());
       } else if (f.type === 'cut') {
-        // Cuts remove material from the part as the user sees it: through-all
-        // spans the whole build volume; a finite depth is measured down from
-        // the part's top face (sketches all live on the base plane).
-        const sk = f.through
-          ? drawing.sketchOnPlane('XY', -5000)
-          : drawing.sketchOnPlane('XY', (zTop ?? 0) - f.h);
-        solids.push(sk.extrude(f.through ? 10000 : f.h + 1000));
+        if (facePlane) {
+          solids.push(drawing.sketchOnPlane(facePlane).extrude(-(f.through ? 10000 : f.h)));
+        } else {
+          // Base-plane cuts remove material as the user sees it: through-all
+          // spans the build volume; a finite depth is measured down from the
+          // part's top face (base sketches all live on the ground plane).
+          const sk = f.through
+            ? drawing.sketchOnPlane('XY', -5000)
+            : drawing.sketchOnPlane('XY', (zTop ?? 0) - f.h);
+          solids.push(sk.extrude(f.through ? 10000 : f.h + 1000));
+        }
       } else {
-        const sk = drawing.sketchOnPlane('XY', f.sketch.z || 0);
+        const sk = facePlane
+          ? drawing.sketchOnPlane(facePlane)
+          : drawing.sketchOnPlane('XY', f.sketch.z || 0);
         solids.push(sk.extrude(f.h));
       }
     }
@@ -190,10 +205,10 @@
           if (!hit) throw new Error('the picked edges no longer exist — edit or delete this feature');
           acc = next;
         } else if (f.type === 'cut') {
-          const solid = featureSolid(f, acc ? topOf(acc) : 0);
+          const solid = featureSolid(f, acc ? topOf(acc) : 0, acc);
           if (acc) acc = acc.cut(solid);
         } else {
-          const solid = featureSolid(f);
+          const solid = featureSolid(f, 0, acc);
           acc = acc ? acc.fuse(solid) : solid;
         }
         f.error = null;
@@ -238,7 +253,27 @@
     );
   };
 
+  // Faces get the same treatment for sketch-on-face features.
+  const faceSig = (face) => {
+    const c = face.center;
+    const n = face.normalAt();
+    const q = (v) => Math.round(v * 100) / 100;
+    return { p: [q(c.x), q(c.y), q(c.z)], n: [q(n.x), q(n.y), q(n.z)] };
+  };
+  const faceMatches = (sig, face) => {
+    if (face.geomType !== 'PLANE') return false;
+    const c = face.center;
+    const n = face.normalAt();
+    return (
+      Math.hypot(c.x - sig.p[0], c.y - sig.p[1], c.z - sig.p[2]) < 0.05 &&
+      n.x * sig.n[0] + n.y * sig.n[1] + n.z * sig.n[2] > 0.999
+    );
+  };
+
   let edgeLines = []; // pickable Line objects with userData.sig
+  let solidMesh = null; // the shaded mesh, for face raycasts
+  let faceRanges = []; // [{t0, t1, faceId}] triangle ranges per B-rep face
+  let faceByHash = new Map(); // faceId -> face wrapper (planar only)
 
   function setMesh(shape) {
     while (partGroup.children.length) {
@@ -247,6 +282,9 @@
       if (c.material && c.material !== MAT) c.material.dispose?.();
     }
     edgeLines = [];
+    solidMesh = null;
+    faceRanges = [];
+    faceByHash = new Map();
     if (!shape) return;
     const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
     const geo = new THREE.BufferGeometry();
@@ -254,7 +292,16 @@
     if (m.normals) geo.setAttribute('normal', new THREE.Float32BufferAttribute(m.normals, 3));
     geo.setIndex(m.triangles);
     if (!m.normals) geo.computeVertexNormals();
-    partGroup.add(new THREE.Mesh(geo, MAT));
+    solidMesh = new THREE.Mesh(geo, MAT);
+    partGroup.add(solidMesh);
+    for (const g of m.faceGroups || []) {
+      faceRanges.push({ t0: g.start / 3, t1: (g.start + g.count) / 3, faceId: g.faceId });
+    }
+    for (const face of shape.faces) {
+      try {
+        if (face.geomType === 'PLANE') faceByHash.set(face.hashCode, face);
+      } catch {}
+    }
     // Exact B-rep edges from the kernel, one pickable polyline per edge.
     try {
       const me = shape.meshEdges();
@@ -284,7 +331,7 @@
           ? 'r ' + f.r + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
           : f.type === 'revolve'
             ? 'profile ×' + f.sketch.shapes.length
-            : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's');
+            : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's') + (f.onFace ? ' · on face' : '');
       li.innerHTML =
         '<span class="hi-n">' + (i + 1) + '. ' + OP_LABEL[f.type] + '</span>' +
         '<span class="hi-d">' + dims + (f.error ? ' · FAILED' : '') + '</span>' +
@@ -380,9 +427,11 @@
     let pending = null; // in-progress placement
     let view = { cx: 0, cy: 0, pxPerMm: 6 };
     let selShape = null;
+    let refOutline = [];
 
-    function open(f) {
+    function open(f, opts) {
       feature = f;
+      refOutline = opts?.refOutline || [];
       isNew = !doc.features.includes(f);
       selShape = f.sketch.shapes[f.sketch.shapes.length - 1] || null;
       wrap.hidden = false;
@@ -394,7 +443,9 @@
       $('bw-sk-hint').textContent =
         f.type === 'revolve'
           ? 'Lathe profile: x is radius from the axis (keep shapes at x ≥ 0), y is height. It spins around the left edge.'
-          : 'Draw on the top plane, millimetres. Click-click to place; type exact numbers below.';
+          : f.onFace
+            ? 'Sketching on the picked face — its outline is dashed. Extrude grows out of the face; Cut digs into it.'
+            : 'Draw on the top plane, millimetres. Click-click to place; type exact numbers below.';
       setTool('rect');
       resize();
       draw2d();
@@ -475,6 +526,21 @@
         ctx.stroke();
       }
       if (!feature) return;
+      // reference outline of the face being sketched on
+      if (refOutline.length) {
+        ctx.strokeStyle = '#9aa7b4';
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 1.5;
+        for (const poly of refOutline) {
+          ctx.beginPath();
+          poly.forEach((p, i) => {
+            const [px, py] = toPx(p[0], p[1]);
+            i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          });
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
       // shapes
       for (const s of feature.sketch.shapes) {
         ctx.strokeStyle = s === selShape ? '#0b5cad' : '#1a3550';
@@ -756,6 +822,22 @@
       const hit = ray.intersectObjects(edgeLines, false)[0];
       return hit ? { sig: hit.object.userData.sig, dist: hit.distance } : null;
     },
+    faces: () => faceByHash.size,
+    ndcOfOrigin: () => {
+      const v = new THREE.Vector3(0, 5, 0).project(camera);
+      return [v.x, v.y];
+    },
+    rayMeshAt: (fx, fy) => {
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(fx * 2 - 1, -(fy * 2 - 1)), camera);
+      const hit = solidMesh ? ray.intersectObject(solidMesh, false)[0] : null;
+      return hit ? { faceIndex: hit.faceIndex, dist: Math.round(hit.distance) } : null;
+    },
+    pickFace: (i) => {
+      // Test shortcut: return the sig of the i-th planar face.
+      const face = [...faceByHash.values()][i];
+      return face ? faceSig(face) : null;
+    },
     pickSigs: (n) => {
       // Toggle the first n distinct pickable edges directly (test shortcut).
       const out = [];
@@ -770,13 +852,93 @@
     },
   };
 
+  // --- face picker (sketch-on-face for extrude / cut) ----------------------
+  const facePick = (() => {
+    const bar = $('bw-face');
+    let draft = null;
+
+    function open(f) {
+      draft = f;
+      bar.hidden = false;
+      $('bw-face-title').textContent = 'New ' + OP_LABEL[f.type].toLowerCase();
+    }
+    function close() {
+      bar.hidden = true;
+      draft = null;
+    }
+    $('bw-face-base').addEventListener('click', () => {
+      const f = draft;
+      close();
+      sketch.open(f);
+    });
+    $('bw-face-cancel').addEventListener('click', close);
+
+    // Project the chosen face's outline into its own plane so the sketcher
+    // can show where you are on the part.
+    function faceOutline(face, plane) {
+      const polys = [];
+      try {
+        for (const edge of face.edges) {
+          const pts = [];
+          for (let i = 0; i <= 8; i++) {
+            const p = edge.pointAt(i / 8);
+            const l = plane.toLocalCoords(p);
+            pts.push([l.x ?? l[0], l.y ?? l[1]]);
+          }
+          polys.push(pts);
+        }
+      } catch {}
+      return polys;
+    }
+
+    const ray = new THREE.Raycaster();
+    let down = null;
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      down = [e.clientX, e.clientY];
+    });
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (!draft || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+      if (!solidMesh) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      ray.setFromCamera(
+        new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        ),
+        camera,
+      );
+      const hit = ray.intersectObject(solidMesh, false)[0];
+      if (!hit) return;
+      const range = faceRanges.find((r) => hit.faceIndex >= r.t0 && hit.faceIndex < r.t1);
+      const face = range && faceByHash.get(range.faceId);
+      if (!face) return say('That surface is curved — pick a flat face.');
+      const f = draft;
+      f.onFace = faceSig(face);
+      let outline = [];
+      try {
+        outline = faceOutline(face, rc.makePlaneFromFace(face));
+      } catch {}
+      close();
+      sketch.open(f, { refOutline: outline });
+    });
+
+    return { open };
+  })();
+
   // --- feature buttons -----------------------------------------------------
   document.querySelectorAll('[data-feat]').forEach((b) =>
     b.addEventListener('click', () => {
       loadKernel(); // start the download while the user sketches
       const t = b.dataset.feat;
-      if (t === 'fillet' || t === 'chamfer') picker.open({ id: newId(), type: t, r: 2, edges: [] });
-      else sketch.open({ id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut' });
+      if (t === 'fillet' || t === 'chamfer') {
+        picker.open({ id: newId(), type: t, r: 2, edges: [] });
+      } else {
+        const draft = { id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut' };
+        // With a part on screen, extrude and cut can target any flat face;
+        // the base plane stays one click away.
+        if ((t === 'extrude' || t === 'cut') && solidMesh && faceByHash.size) facePick.open(draft);
+        else sketch.open(draft);
+      }
     }),
   );
 
