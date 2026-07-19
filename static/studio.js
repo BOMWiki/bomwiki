@@ -112,7 +112,23 @@
     return Math.random().toString(36).slice(2, 8);
   }
 
-  const OP_LABEL = { extrude: 'Extrude', cut: 'Cut', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer' };
+  const OP_LABEL = { extrude: 'Extrude', cut: 'Cut', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell' };
+
+  // Repeat a 2D drawing as a linear run or a circular ring (bolt circles,
+  // hole grids). Done at drawing level: one boolean per copy in 2D beats a
+  // 3D fuse per copy by an order of magnitude.
+  function patternedDrawing(drawing, pat) {
+    if (!pat || !pat.n || pat.n <= 1) return drawing;
+    let out = drawing;
+    for (let i = 1; i < pat.n; i++) {
+      out = out.fuse(
+        pat.kind === 'circular'
+          ? drawing.rotate((360 / pat.n) * i, [pat.cx || 0, pat.cy || 0])
+          : drawing.translate((pat.dx || 0) * i, (pat.dy || 0) * i),
+      );
+    }
+    return out;
+  }
 
   function shapeToDrawing(s) {
     if (s.kind === 'rect') {
@@ -152,7 +168,7 @@
     // Union all sketch shapes, then apply the operation.
     let solids = [];
     for (const s of f.sketch.shapes) {
-      const drawing = shapeToDrawing(s);
+      const drawing = patternedDrawing(shapeToDrawing(s), f.pattern);
       if (f.type === 'revolve') {
         // Lathe: the sketch is a radial profile (x = radius, y = height),
         // revolved around the vertical axis.
@@ -204,6 +220,18 @@
           });
           if (!hit) throw new Error('the picked edges no longer exist — edit or delete this feature');
           acc = next;
+        } else if (f.type === 'shell') {
+          if (!acc) throw new Error('nothing to hollow yet');
+          let hit = 0;
+          const next = acc.shell(-Math.abs(f.t), (fd) =>
+            fd.when(({ element }) => {
+              const on = f.faces.some((sig) => faceMatches(sig, element));
+              if (on) hit++;
+              return on;
+            }),
+          );
+          if (!hit) throw new Error('the picked faces no longer exist — edit or delete this feature');
+          acc = next;
         } else if (f.type === 'cut') {
           const solid = featureSolid(f, acc ? topOf(acc) : 0, acc);
           if (acc) acc = acc.cut(solid);
@@ -214,7 +242,15 @@
         f.error = null;
       } catch (err) {
         let msg = String(err?.message || err);
-        if ((f.type === 'fillet' || f.type === 'chamfer') && !/no longer exist/.test(msg)) {
+        // The kernel build without exception decoding throws bare numbers.
+        if (/^\d+$/.test(msg) || /^Error$/i.test(msg)) {
+          msg =
+            f.type === 'shell'
+              ? 'the kernel could not hollow this shape — try different walls, another opening face, or shell earlier in the history'
+              : f.type === 'fillet' || f.type === 'chamfer'
+                ? 'the kernel refused — try a smaller radius or fewer edges'
+                : 'the kernel rejected this sketch — check for overlapping or self-crossing shapes';
+        } else if ((f.type === 'fillet' || f.type === 'chamfer') && !/no longer exist/.test(msg)) {
           msg += ' — try a smaller radius';
         }
         f.error = msg;
@@ -330,9 +366,11 @@
       const dims =
         f.type === 'fillet' || f.type === 'chamfer'
           ? 'r ' + f.r + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
-          : f.type === 'revolve'
-            ? 'profile ×' + f.sketch.shapes.length
-            : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's') + (f.onFace ? ' · on face' : '');
+          : f.type === 'shell'
+            ? f.t + ' mm walls · ' + f.faces.length + ' opening' + (f.faces.length === 1 ? '' : 's')
+            : f.type === 'revolve'
+              ? 'profile ×' + f.sketch.shapes.length
+              : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's') + (f.onFace ? ' · on face' : '') + (f.pattern?.n > 1 ? ' · ×' + f.pattern.n : '');
       li.innerHTML =
         '<span class="hi-n">' + (i + 1) + '. ' + OP_LABEL[f.type] + '</span>' +
         '<span class="hi-d">' + dims + (f.error ? ' · FAILED' : '') + '</span>' +
@@ -351,6 +389,7 @@
     if (editId) {
       const f = doc.features.find((x) => x.id === editId);
       if (f.type === 'fillet' || f.type === 'chamfer') picker.open(f);
+      else if (f.type === 'shell') shellPick.open(f);
       else sketch.open(f);
     }
   });
@@ -441,6 +480,12 @@
       $('bw-sk-through').checked = Boolean(f.through);
       $('bw-sk-h-row').hidden = f.type === 'revolve';
       $('bw-sk-through-row').hidden = f.type !== 'cut';
+      $('bw-sk-pat-row').hidden = f.type === 'revolve';
+      $('bw-sk-pat').value = f.pattern?.kind || 'none';
+      $('bw-sk-pat-n').value = f.pattern?.n || 4;
+      $('bw-sk-pat-a').value = f.pattern?.kind === 'circular' ? (f.pattern?.cx ?? 0) : (f.pattern?.dx ?? 10);
+      $('bw-sk-pat-b').value = f.pattern?.kind === 'circular' ? (f.pattern?.cy ?? 0) : (f.pattern?.dy ?? 0);
+      syncPatternFields();
       $('bw-sk-hint').textContent =
         f.type === 'revolve'
           ? 'Lathe profile: x is radius from the axis (keep shapes at x ≥ 0), y is height. It spins around the left edge.'
@@ -475,10 +520,33 @@
       draw2d();
       syncShapePanel();
     }
+    // The two pattern number fields mean ΔX/ΔY for linear runs and centre
+    // X/Y for circular rings; relabel as the kind changes.
+    function syncPatternFields() {
+      const kind = $('bw-sk-pat').value;
+      $('bw-sk-pat-nums').hidden = kind === 'none';
+      $('bw-sk-pat-la').textContent = kind === 'circular' ? 'centre X' : 'ΔX';
+      $('bw-sk-pat-lb').textContent = kind === 'circular' ? 'centre Y' : 'ΔY';
+    }
+    $('bw-sk-pat').addEventListener('change', syncPatternFields);
+
     function close(applyIt) {
       if (applyIt) {
         feature.h = Number($('bw-sk-op-h').value) || 20;
         feature.through = $('bw-sk-through').checked;
+        const patKind = $('bw-sk-pat').value;
+        if (patKind === 'none' || feature.type === 'revolve') {
+          delete feature.pattern;
+        } else {
+          const n = Math.min(100, Math.max(2, Math.round(Number($('bw-sk-pat-n').value) || 2)));
+          const a = Number($('bw-sk-pat-a').value) || 0;
+          const b = Number($('bw-sk-pat-b').value) || 0;
+          feature.pattern =
+            patKind === 'circular' ? { kind: 'circular', n, cx: a, cy: b } : { kind: 'linear', n, dx: a, dy: b };
+          if (patKind === 'linear' && a === 0 && b === 0) {
+            return say('A linear pattern needs a spacing — set ΔX or ΔY.');
+          }
+        }
         if (!feature.sketch.shapes.length) return say('Draw at least one shape.');
         // A face sketch drawn outside the face makes detached geometry —
         // warn (non-blocking) so a floating boss isn't a mystery.
@@ -889,6 +957,150 @@
     },
   };
 
+  // Copy one B-rep face's triangles into a standalone highlight mesh (no
+  // shared GPU buffers — disposing shared attributes would strip the main
+  // mesh). Used by the face picker and the shell picker.
+  function buildFaceHighlight(range, color, opacity) {
+    if (!solidMesh) return null;
+    const posAttr = solidMesh.geometry.getAttribute('position');
+    const idx = solidMesh.geometry.getIndex().array;
+    const arr = new Float32Array((range.t1 - range.t0) * 9);
+    let o = 0;
+    for (let t = range.t0 * 3; t < range.t1 * 3; t++) {
+      const vi = idx[t];
+      arr[o++] = posAttr.getX(vi);
+      arr[o++] = posAttr.getY(vi);
+      arr[o++] = posAttr.getZ(vi);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    const mesh = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: opacity ?? 0.5,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+    );
+    partGroup.add(mesh);
+    return mesh;
+  }
+  function dropHighlight(mesh) {
+    if (!mesh) return;
+    partGroup.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  }
+
+  // --- shell picker (hollow a part, pick the opening faces) ----------------
+  const shellPick = (() => {
+    const bar = $('bw-shell');
+    let feature = null;
+    let isNew = false;
+    let cycleIdx = -1;
+    let cycleMesh = null; // orange preview of the cycled face
+    const picked = new Map(); // faceId -> {sig, mesh}
+
+    const planarRanges = () => faceRanges.filter((r) => faceByHash.has(r.faceId));
+
+    function open(f) {
+      if (!solidMesh || !faceByHash.size) return say('Build something first — Shell hollows an existing part.');
+      feature = f;
+      isNew = !doc.features.includes(f);
+      cycleIdx = -1;
+      bar.hidden = false;
+      $('bw-shell-title').textContent = (isNew ? 'New ' : 'Edit ') + 'shell';
+      $('bw-shell-t').value = f.t ?? 2;
+      // Preselect openings whose signature still matches (edit case). After
+      // a shell has applied, its opening faces are gone from the display
+      // shape, so this often finds nothing — thickness-only edits still work.
+      picked.clear();
+      for (const r of planarRanges()) {
+        const face = faceByHash.get(r.faceId);
+        if (f.faces?.some((sig) => faceMatches(sig, face))) {
+          picked.set(r.faceId, { sig: faceSig(face), mesh: buildFaceHighlight(r, 0x2e8b57, 0.55) });
+        }
+      }
+      syncCount();
+    }
+    function close(applyIt) {
+      if (applyIt && feature) {
+        feature.t = Math.max(0.2, Number($('bw-shell-t').value) || 2);
+        const sigs = [...picked.values()].map((p) => p.sig);
+        if (sigs.length) feature.faces = sigs;
+        else if (isNew) return say('Pick at least one face to open — that face becomes the mouth of the hollow.');
+        // else: edit with no re-pick keeps the stored openings (they are not
+        // visible on the shelled part), so thickness edits just work.
+        if (isNew) doc.features.push(feature);
+        save();
+        rebuild();
+      }
+      for (const p of picked.values()) dropHighlight(p.mesh);
+      picked.clear();
+      dropHighlight(cycleMesh);
+      cycleMesh = null;
+      bar.hidden = true;
+      feature = null;
+    }
+    $('bw-shell-apply').addEventListener('click', () => close(true));
+    $('bw-shell-cancel').addEventListener('click', () => close(false));
+    function syncCount() {
+      $('bw-shell-count').textContent = picked.size + ' opening' + (picked.size === 1 ? '' : 's');
+    }
+
+    function toggleRange(range) {
+      const had = picked.get(range.faceId);
+      if (had) {
+        dropHighlight(had.mesh);
+        picked.delete(range.faceId);
+      } else {
+        const face = faceByHash.get(range.faceId);
+        picked.set(range.faceId, { sig: faceSig(face), mesh: buildFaceHighlight(range, 0x2e8b57, 0.55) });
+      }
+      syncCount();
+    }
+    $('bw-shell-next').addEventListener('click', () => {
+      const list = planarRanges();
+      if (!list.length) return;
+      cycleIdx = (cycleIdx + 1) % list.length;
+      dropHighlight(cycleMesh);
+      cycleMesh = buildFaceHighlight(list[cycleIdx], 0xe67e22, 0.45);
+    });
+    $('bw-shell-toggle').addEventListener('click', () => {
+      const list = planarRanges();
+      if (cycleIdx >= 0 && list[cycleIdx]) toggleRange(list[cycleIdx]);
+    });
+
+    const ray = new THREE.Raycaster();
+    let down = null;
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      down = [e.clientX, e.clientY];
+    });
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (!feature || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+      if (!solidMesh) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      ray.setFromCamera(
+        new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        ),
+        camera,
+      );
+      const hit = ray.intersectObject(solidMesh, false)[0];
+      if (!hit) return;
+      const range = faceRanges.find((r) => hit.faceIndex >= r.t0 && hit.faceIndex < r.t1);
+      if (!range || !faceByHash.has(range.faceId)) return say('That surface is curved — pick a flat face.');
+      toggleRange(range);
+    });
+
+    return { open, cancel: () => feature && close(false), active: () => Boolean(feature) };
+  })();
+
   // --- face picker (sketch-on-face for extrude / cut) ----------------------
   const facePick = (() => {
     const bar = $('bw-face');
@@ -921,42 +1133,12 @@
     // face in turn; Use this face takes it.
     const planarRanges = () => faceRanges.filter((r) => faceByHash.has(r.faceId));
     function clearHighlight() {
-      if (!highlight) return;
-      partGroup.remove(highlight);
-      highlight.geometry.dispose();
-      highlight.material.dispose();
+      dropHighlight(highlight);
       highlight = null;
     }
     function showHighlight(range) {
       clearHighlight();
-      if (!solidMesh) return;
-      // Copy the face's triangles out (no shared attributes: disposing a
-      // geometry with shared buffers would yank them from the main mesh).
-      const posAttr = solidMesh.geometry.getAttribute('position');
-      const idx = solidMesh.geometry.getIndex().array;
-      const arr = new Float32Array((range.t1 - range.t0) * 9);
-      let o = 0;
-      for (let t = range.t0 * 3; t < range.t1 * 3; t++) {
-        const vi = idx[t];
-        arr[o++] = posAttr.getX(vi);
-        arr[o++] = posAttr.getY(vi);
-        arr[o++] = posAttr.getZ(vi);
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
-      highlight = new THREE.Mesh(
-        geo,
-        new THREE.MeshBasicMaterial({
-          color: 0xe67e22,
-          transparent: true,
-          opacity: 0.5,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -2,
-          polygonOffsetUnits: -2,
-        }),
-      );
-      partGroup.add(highlight);
+      highlight = buildFaceHighlight(range, 0xe67e22, 0.5);
     }
     $('bw-face-next').addEventListener('click', () => {
       const list = planarRanges();
@@ -1037,10 +1219,13 @@
       if (sketch.isOpen()) return say('Finish or cancel the current sketch first.');
       picker.cancel();
       facePick.cancel();
+      shellPick.cancel();
       loadKernel(); // start the download while the user sketches
       const t = b.dataset.feat;
       if (t === 'fillet' || t === 'chamfer') {
         picker.open({ id: newId(), type: t, r: 2, edges: [] });
+      } else if (t === 'shell') {
+        shellPick.open({ id: newId(), type: t, t: 2, faces: [] });
       } else {
         const draft = { id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut' };
         // With a part on screen, extrude and cut can target any flat face;

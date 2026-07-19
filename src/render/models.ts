@@ -383,6 +383,7 @@ export function cadStudioPage(): string {
           <button type="button" data-feat="revolve">◎ Revolve</button>
           <button type="button" data-feat="fillet">◠ Fillet</button>
           <button type="button" data-feat="chamfer">⟋ Chamfer</button>
+          <button type="button" data-feat="shell">▣ Shell</button>
           <span class="sr-h">History</span>
           <ol id="bw-history" class="hist"></ol>
           <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
@@ -402,6 +403,16 @@ export function cadStudioPage(): string {
             <button type="button" class="sr-accent" id="bw-face-use" hidden>✓ Use this face</button>
             <button type="button" id="bw-face-base">Use the base plane</button>
             <button type="button" id="bw-face-cancel">Cancel</button>
+          </div>
+          <div id="bw-shell" class="pick-bar" hidden>
+            <b id="bw-shell-title"></b>
+            <span class="sk-note">Click the faces to open up (or step through them)</span>
+            <span id="bw-shell-count" class="sk-note">0 openings</span>
+            <button type="button" id="bw-shell-next">Next face</button>
+            <button type="button" id="bw-shell-toggle">Toggle this face</button>
+            <label>Walls <input type="number" id="bw-shell-t" value="2" step="0.5" min="0.2" /> mm</label>
+            <button type="button" class="sr-accent" id="bw-shell-apply">✓ Apply</button>
+            <button type="button" id="bw-shell-cancel">Cancel</button>
           </div>
           <div id="bw-pick" class="pick-bar" hidden>
             <b id="bw-pick-title"></b>
@@ -425,6 +436,18 @@ export function cadStudioPage(): string {
               <span class="sk-op">
                 <label id="bw-sk-h-row">Height <input type="number" id="bw-sk-op-h" value="20" step="1" /> mm</label>
                 <label id="bw-sk-through-row"><input type="checkbox" id="bw-sk-through" /> through all</label>
+                <span id="bw-sk-pat-row">
+                  <label>Pattern <select id="bw-sk-pat">
+                    <option value="none">none</option>
+                    <option value="linear">linear</option>
+                    <option value="circular">circular</option>
+                  </select></label>
+                  <span id="bw-sk-pat-nums" hidden>
+                    <label>× <input type="number" id="bw-sk-pat-n" value="4" min="2" max="100" step="1" /></label>
+                    <label><span id="bw-sk-pat-la">ΔX</span> <input type="number" id="bw-sk-pat-a" value="10" step="1" /></label>
+                    <label><span id="bw-sk-pat-lb">ΔY</span> <input type="number" id="bw-sk-pat-b" value="0" step="1" /></label>
+                  </span>
+                </span>
               </span>
               <span class="sk-actions">
                 <button type="button" class="sr-accent" id="bw-sk-apply">✓ Apply</button>
