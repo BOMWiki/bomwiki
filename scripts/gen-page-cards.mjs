@@ -44,6 +44,22 @@ const MOTIF = {
   people: `<g transform="translate(150 150)"><circle cx="-40" cy="-30" r="26" ${fs(PANEL)}/><circle cx="42" cy="-38" r="22" ${fs('#fff')}/><path d="M-86 66 Q-86 8 -40 8 Q6 8 6 66" ${fs(PANEL)}/><path d="M6 66 Q6 16 42 16 Q86 16 86 66" ${fs('#fff')}/></g>`,
   camera: `<g transform="translate(150 150)"><rect x="-78" y="-44" width="156" height="104" rx="10" ${fs(PANEL)}/><circle r="34" ${fs('#fff')}/><circle r="15" ${fs(PANEL)}/><rect x="-52" y="-64" width="40" height="22" rx="4" ${fs(PANEL)}/></g>`,
   plus: `<g transform="translate(150 150)"><rect x="-80" y="-80" width="160" height="160" rx="14" ${fs(PANEL)}/><path d="M0 -42 V42 M-42 0 H42" ${st(LINK, 8)}/></g>`,
+  // Isometric solid with drawing-style dimension lines, for the CAD hub.
+  solid: `<g transform="translate(150 150)">
+    <path d="M-60 -12 L0 -44 L60 -12 L60 46 L0 78 L-60 46 Z" ${fs(PANEL)}/>
+    <path d="M-60 -12 L0 20 L60 -12 M0 20 V78" ${st()}/>
+    <ellipse cx="0" cy="-28" rx="26" ry="13" ${fs('#fff')}/>
+    <path d="M-84 -24 L-84 34 M-92 -20 L-76 -28 M-92 38 L-76 30" ${st(RULE, 2.5)}/>
+    <path d="M-8 -92 L68 -52 M-14 -84 L-2 -100 M62 -44 L74 -60" ${st(RULE, 2.5)}/>
+  </g>`,
+  // Sketch profile extruding into a solid, for the Studio.
+  extrude: `<g transform="translate(150 150)">
+    <path d="M-96 62 L-40 34 L64 34 L8 62 Z" ${fs(PANEL, RULE, 2.5)}/>
+    <path d="M-64 56 L-28 42 L36 42 L0 56 Z" ${st(LINK, 3)} stroke-dasharray="7 6"/>
+    <path d="M-14 24 V-30 M-24 -18 L-14 -30 L-4 -18" ${st(LINK, 5)}/>
+    <path d="M-64 -46 L-28 -60 L36 -60 L0 -46 Z" ${fs(PANEL)}/>
+    <path d="M-64 -46 L-64 -96 L-28 -110 L36 -110 L36 -60 M-64 -96 L0 -96 L36 -110 M0 -96 L0 -46" ${st()}/>
+  </g>`,
 };
 
 // key -> file path under PUBLIC_DIR/og/page/<key>.png, referenced as ogImage.
@@ -61,6 +77,8 @@ const PAGES = [
   { key: 'contributors', title: 'Contributors', tagline: 'The people building the BOM of the world.', motif: 'people' },
   { key: 'photos-needed', title: 'Pages needing photos', tagline: 'Help put a real photo on every machine.', motif: 'camera' },
   { key: 'new', title: 'Create a page', tagline: 'Start a new product, assembly, or part from scratch.', motif: 'plus' },
+  { key: 'cad', title: '3D models & CAD files', tagline: 'Real geometry on real hardware pages. Openly licensed, free to download.', motif: 'solid' },
+  { key: 'cad-studio', title: 'CAD Studio', tagline: 'Parametric CAD in your browser. No account, no install, free.', motif: 'extrude' },
 ];
 
 function esc(s) {

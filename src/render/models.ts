@@ -218,6 +218,7 @@ export function cadHubPage(items: ModeledItem[], totalItems: number): string {
       'Free, openly licensed 3D models for real hardware: spin them in the browser, download the STL, replace them with better ones. The CAD layer of the bill-of-materials encyclopedia.',
     path: '/cad',
     indexable: true,
+    ogImage: '/og/page/cad.png',
     jsonLd: [jsonLd],
     body: `<div class="review cadhub"><h1>3D models</h1>
       <p class="ch-lede">An encyclopedia that tells you what a machine is made of should also <b>show you the parts</b>. That's this layer: real geometry on the pages of real hardware. Click a card, hit <b>View in 3D</b>, and grab it with your mouse — every model is openly licensed, so you can download the STL and use it for anything.</p>
@@ -353,6 +354,7 @@ export function cadStudioPage(): string {
       'Model real parts in your browser in seconds: drop shapes, cut holes, export STL. No account, no install, nothing to learn first. Free CAD for hobbyists from BOMwiki.',
     path: '/cad/studio',
     indexable: true,
+    ogImage: '/og/page/cad-studio.png',
     jsonLd: [
       {
         '@context': 'https://schema.org',
