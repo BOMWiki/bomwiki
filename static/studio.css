@@ -101,6 +101,9 @@ body.cadstudio-route > main {
   gap: 4px;
 }
 .ws-app-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 34px;
   padding: 0 10px;
   border: 1px solid transparent;
@@ -110,6 +113,16 @@ body.cadstudio-route > main {
   font: inherit;
   font-size: 11px;
   cursor: pointer;
+}
+.ws-app-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+.ws-app-icon .ws-icon {
+  width: 16px;
+  height: 16px;
 }
 .ws-app-actions button:hover,
 .ws-app-actions button[aria-pressed='true'] {
@@ -162,8 +175,19 @@ body.cadstudio-route > main {
   cursor: pointer;
 }
 .wsr-btn .wsr-i {
-  font-size: 16px;
-  line-height: 1.15;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-bottom: 1px;
+  line-height: 1;
+}
+.ws-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  overflow: visible;
+  pointer-events: none;
 }
 .wsr-btn:hover {
   background: #2c3e52;
@@ -174,11 +198,6 @@ body.cadstudio-route > main {
   background: #0b5cad;
   border-color: #0b5cad;
   color: #fff;
-}
-.wsr-btn.on .wsr-i::after,
-.wsr-btn[aria-pressed='true'] .wsr-i::after {
-  content: ' ▾';
-  font-size: 9px;
 }
 .wsr-accent {
   color: #8fc1f5;

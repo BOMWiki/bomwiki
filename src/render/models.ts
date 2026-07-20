@@ -345,6 +345,43 @@ export function cadModelPage(
   });
 }
 
+// A deliberately small CAD-specific icon family. These stay inline so every
+// command inherits the ribbon's currentColor in normal, hover, and active
+// states without another asset request or an operating-system glyph fallback.
+const STUDIO_ICON_PATHS = {
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.35 2.35 0 0 1 4.5 1c0 1.7-2.3 2-2.3 3.7"/><path d="M12 17.2h.01"/>',
+  fullscreen: '<path d="M9 4H4v5M15 4h5v5M20 15v5h-5M4 15v5h5"/>',
+  rect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
+  circle: '<circle cx="12" cy="12" r="7.5"/>',
+  polygon: '<path d="m12 3.8 8 6.2-3 9.2H7L4 10z"/>',
+  select: '<path d="m5.5 3.5 11.2 9.8-5.3.8-2.8 5z"/><path d="m12.1 14 3 5.2"/>',
+  pan: '<path d="M8.2 11V6.8a1.35 1.35 0 0 1 2.7 0V10m0-4.9a1.35 1.35 0 0 1 2.7 0V10m0-3.9a1.35 1.35 0 0 1 2.7 0v5m0-2.5a1.35 1.35 0 0 1 2.7 0v4.1c0 4.3-2.5 7.3-6.6 7.3h-.7c-2.1 0-3.3-.8-4.7-2.5L4.6 15a1.45 1.45 0 0 1 2.1-2z"/>',
+  extrude: '<path d="M4 13.5h10v6H4z"/><path d="m4 13.5 4-3h10v6l-4 3"/><path d="M14 13.5v6M8 10.5V4m0 0L5.8 6.2M8 4l2.2 2.2"/>',
+  cut: '<path d="m4 8.5 8-4 8 4-8 4z"/><path d="M4 8.5v8l8 4 8-4v-8M12 12.5v8"/><path d="M12 4.5v8m0 0-2.2-2.2m2.2 2.2 2.2-2.2"/>',
+  revolve: '<path d="M11 4v16"/><path d="M9 7H6v10h3"/><path d="M14.5 6.2c3.1.8 5 2.8 5 5.8 0 2.5-1.4 4.4-3.8 5.4"/><path d="m15.4 14.7.3 2.7 2.6-.8"/>',
+  fillet: '<path d="M5 19v-7a7 7 0 0 1 7-7h7"/><path d="M8.5 19v-6.5a4 4 0 0 1 4-4H19"/>',
+  chamfer: '<path d="M5 19v-7l7-7h7"/><path d="M8.5 19v-5.5l5-5H19"/>',
+  shell: '<path d="M5 5v11l7 4 7-4V5"/><path d="M8.5 7v7l3.5 2 3.5-2V7"/><path d="m5 5 7 4 7-4M8.5 7l3.5 2 3.5-2"/>',
+  top: '<path d="m3.5 8 8.5-4.5L20.5 8 12 12.5z" fill="currentColor" opacity=".22"/><path d="m3.5 8 8.5-4.5L20.5 8 12 12.5zM3.5 8v8L12 20.5l8.5-4.5V8M12 12.5v8"/>',
+  front: '<path d="m3.5 8 8.5 4.5v8L3.5 16z" fill="currentColor" opacity=".22"/><path d="m3.5 8 8.5-4.5L20.5 8 12 12.5zM3.5 8v8L12 20.5l8.5-4.5V8M12 12.5v8"/>',
+  right: '<path d="m12 12.5 8.5-4.5v8L12 20.5z" fill="currentColor" opacity=".22"/><path d="m3.5 8 8.5-4.5L20.5 8 12 12.5zM3.5 8v8L12 20.5l8.5-4.5V8M12 12.5v8"/>',
+  iso: '<path d="m3.5 8 8.5-4.5L20.5 8 12 12.5zM3.5 8v8L12 20.5l8.5-4.5V8M12 12.5v8"/><circle cx="12" cy="12.5" r="1" fill="currentColor" stroke="none"/>',
+  fit: '<path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4"/><path d="m8 10 4-2 4 2-4 2zM8 10v4l4 2 4-2v-4M12 12v4"/>',
+  undo: '<path d="M9 7 5 11l4 4"/><path d="M5.5 11H14a5 5 0 0 1 5 5v2"/>',
+  redo: '<path d="m15 7 4 4-4 4"/><path d="M18.5 11H10a5 5 0 0 0-5 5v2"/>',
+  save: '<path d="M6 3.5h9l3 3V20H6z"/><path d="M9 3.5v5h6v-4M12 11v6m0 0-2.3-2.3M12 17l2.3-2.3"/>',
+  open: '<path d="M3.5 7.5h6l2-2h9v12.8H3.5z"/><path d="M3.5 10h17M12 12v5m0-5-2 2m2-2 2 2"/>',
+  clear: '<path d="M6 5h12M9 5V3.5h6V5M7.5 8v11.5h9V8"/><path d="m10 11 4 4m0-4-4 4"/>',
+  step: '<path d="m4 8 8-4 8 4-8 4zM4 8v8l8 4 8-4V8M12 12v8"/><path d="M17 12v5m0 0-2-2m2 2 2-2"/>',
+  stl: '<path d="m4 18 8-14 8 14z"/><path d="m8 11 8 7m0-7-8 7M12 4v14"/><path d="M19 4v5m0 0-2-2m2 2 2-2"/>',
+} as const;
+
+type StudioIconName = keyof typeof STUDIO_ICON_PATHS;
+
+function studioIcon(name: StudioIconName, className = 'wsr-i'): string {
+  return `<span class="${className}" aria-hidden="true"><svg class="ws-icon" data-icon="${name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" focusable="false">${STUDIO_ICON_PATHS[name]}</svg></span>`;
+}
+
 /** The CAD Studio: zero-signup solid modeling in the browser. The page is a
  *  static shell; static/studio.js is the whole application. */
 export function cadStudioPage(): string {
@@ -378,69 +415,69 @@ export function cadStudioPage(): string {
           <span class="ws-local">Saved locally</span>
         </div>
         <div class="ws-app-actions">
-          <button type="button" id="bw-help-open"><span aria-hidden="true">?</span> Help</button>
+          <button type="button" id="bw-help-open">${studioIcon('help', 'ws-app-icon')}<span>Help</span></button>
           <button type="button" id="bw-fullscreen" aria-pressed="false">
-            <span aria-hidden="true">⛶</span> <span id="bw-fullscreen-label">Full screen</span>
+            ${studioIcon('fullscreen', 'ws-app-icon')}<span id="bw-fullscreen-label">Full screen</span>
           </button>
         </div>
       </header>
       <div class="ws-ribbon" role="toolbar" aria-label="CAD tools">
         <div class="ws-group" id="rib-sketch" hidden>
           <div class="wsg-tools">
-            <button type="button" class="wsr-btn" data-sktool="rect" aria-pressed="false"><span class="wsr-i">▭</span>Rect</button>
-            <button type="button" class="wsr-btn" data-sktool="circle" aria-pressed="false"><span class="wsr-i">◯</span>Circle</button>
-            <button type="button" class="wsr-btn" data-sktool="poly" aria-pressed="false"><span class="wsr-i">△</span>Polygon</button>
-            <button type="button" class="wsr-btn" data-sktool="select" aria-pressed="false"><span class="wsr-i">☝</span>Select</button>
-            <button type="button" class="wsr-btn" data-sktool="pan" aria-pressed="false"><span class="wsr-i">✋</span>Pan</button>
+            <button type="button" class="wsr-btn" data-sktool="rect" aria-pressed="false">${studioIcon('rect')}Rect</button>
+            <button type="button" class="wsr-btn" data-sktool="circle" aria-pressed="false">${studioIcon('circle')}Circle</button>
+            <button type="button" class="wsr-btn" data-sktool="poly" aria-pressed="false">${studioIcon('polygon')}Polygon</button>
+            <button type="button" class="wsr-btn" data-sktool="select" aria-pressed="false">${studioIcon('select')}Select</button>
+            <button type="button" class="wsr-btn" data-sktool="pan" aria-pressed="false">${studioIcon('pan')}Pan</button>
           </div>
           <span class="wsg-title">Sketch</span>
         </div>
         <div class="ws-group">
           <div class="wsg-tools">
-            <button type="button" class="wsr-btn wsr-accent" data-feat="extrude" aria-pressed="false"><span class="wsr-i">⬒</span>Extrude</button>
-            <button type="button" class="wsr-btn" data-feat="cut" aria-pressed="false"><span class="wsr-i">⛶</span>Cut</button>
-            <button type="button" class="wsr-btn" data-feat="revolve" aria-pressed="false"><span class="wsr-i">◎</span>Revolve</button>
+            <button type="button" class="wsr-btn wsr-accent" data-feat="extrude" aria-pressed="false">${studioIcon('extrude')}Extrude</button>
+            <button type="button" class="wsr-btn" data-feat="cut" aria-pressed="false">${studioIcon('cut')}Cut</button>
+            <button type="button" class="wsr-btn" data-feat="revolve" aria-pressed="false">${studioIcon('revolve')}Revolve</button>
           </div>
           <span class="wsg-title">Features</span>
         </div>
         <div class="ws-group">
           <div class="wsg-tools">
-            <button type="button" class="wsr-btn" data-feat="fillet" aria-pressed="false"><span class="wsr-i">◠</span>Fillet</button>
-            <button type="button" class="wsr-btn" data-feat="chamfer" aria-pressed="false"><span class="wsr-i">⟋</span>Chamfer</button>
-            <button type="button" class="wsr-btn" data-feat="shell" aria-pressed="false"><span class="wsr-i">▣</span>Shell</button>
+            <button type="button" class="wsr-btn" data-feat="fillet" aria-pressed="false">${studioIcon('fillet')}Fillet</button>
+            <button type="button" class="wsr-btn" data-feat="chamfer" aria-pressed="false">${studioIcon('chamfer')}Chamfer</button>
+            <button type="button" class="wsr-btn" data-feat="shell" aria-pressed="false">${studioIcon('shell')}Shell</button>
           </div>
           <span class="wsg-title">Modify</span>
         </div>
         <div class="ws-group">
           <div class="wsg-tools">
-            <button type="button" class="wsr-btn" data-view="top" aria-pressed="false">Top</button>
-            <button type="button" class="wsr-btn" data-view="front" aria-pressed="false">Front</button>
-            <button type="button" class="wsr-btn" data-view="right" aria-pressed="false">Right</button>
-            <button type="button" class="wsr-btn" data-view="iso" aria-pressed="false">Iso</button>
-            <button type="button" class="wsr-btn" data-view="fit" aria-pressed="false">Fit</button>
+            <button type="button" class="wsr-btn" data-view="top" aria-pressed="false">${studioIcon('top')}Top</button>
+            <button type="button" class="wsr-btn" data-view="front" aria-pressed="false">${studioIcon('front')}Front</button>
+            <button type="button" class="wsr-btn" data-view="right" aria-pressed="false">${studioIcon('right')}Right</button>
+            <button type="button" class="wsr-btn" data-view="iso" aria-pressed="false">${studioIcon('iso')}Iso</button>
+            <button type="button" class="wsr-btn" data-view="fit" aria-pressed="false">${studioIcon('fit')}Fit</button>
           </div>
           <span class="wsg-title">View</span>
         </div>
         <div class="ws-group">
           <div class="wsg-tools">
-            <button type="button" class="wsr-btn" id="bw-undo" title="Undo (Ctrl+Z)"><span class="wsr-i">↶</span>Undo</button>
-            <button type="button" class="wsr-btn" id="bw-redo" title="Redo (Ctrl+Shift+Z)"><span class="wsr-i">↷</span>Redo</button>
+            <button type="button" class="wsr-btn" id="bw-undo" title="Undo (Ctrl+Z)">${studioIcon('undo')}Undo</button>
+            <button type="button" class="wsr-btn" id="bw-redo" title="Redo (Ctrl+Shift+Z)">${studioIcon('redo')}Redo</button>
           </div>
           <span class="wsg-title">Edit</span>
         </div>
         <div class="ws-group">
           <div class="wsg-tools">
-            <button type="button" class="wsr-btn" id="bw-save-file"><span class="wsr-i">🖫</span>Save</button>
-            <button type="button" class="wsr-btn" id="bw-open-btn"><span class="wsr-i">🗁</span>Open</button>
+            <button type="button" class="wsr-btn" id="bw-save-file">${studioIcon('save')}Save</button>
+            <button type="button" class="wsr-btn" id="bw-open-btn">${studioIcon('open')}Open</button>
             <input type="file" id="bw-open-file" accept=".json" hidden />
-            <button type="button" class="wsr-btn" id="bw-clear"><span class="wsr-i">✕</span>Clear</button>
+            <button type="button" class="wsr-btn" id="bw-clear">${studioIcon('clear')}Clear</button>
           </div>
           <span class="wsg-title">Project</span>
         </div>
         <div class="ws-group">
           <div class="wsg-tools">
-            <button type="button" class="wsr-btn wsr-accent" id="bw-export-step"><span class="wsr-i">⭳</span>STEP</button>
-            <button type="button" class="wsr-btn" id="bw-export-stl"><span class="wsr-i">⭳</span>STL</button>
+            <button type="button" class="wsr-btn wsr-accent" id="bw-export-step">${studioIcon('step')}STEP</button>
+            <button type="button" class="wsr-btn" id="bw-export-stl">${studioIcon('stl')}STL</button>
           </div>
           <span class="wsg-title">Export</span>
         </div>

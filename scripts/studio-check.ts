@@ -125,6 +125,38 @@ check('starter part seeds two features', (await page.$$('.hist-item')).length ==
 check('starter part builds without errors', ((await S<string[]>('(s) => s.errors()')) as string[]).length === 0);
 check('boot leaves undo empty', (await S<number>('(s) => s.undoDepth()')) === 0);
 
+// --- ribbon icon system: complete, semantic, and state-stable ------------
+const iconAudit = await page.evaluate(() => {
+  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.ws-ribbon .wsr-btn'));
+  const icons = buttons.map((button) => button.querySelector<SVGElement>(':scope > .wsr-i > svg.ws-icon'));
+  const iconNames = icons.map((icon) => icon?.dataset.icon ?? '');
+  const views = Array.from(document.querySelectorAll<SVGElement>('[data-view] svg.ws-icon')).map(
+    (icon) => icon.dataset.icon,
+  );
+  const appIcons = Array.from(document.querySelectorAll<SVGElement>('.ws-app-actions svg.ws-icon'));
+  const extrudeIcon = document.querySelector('[data-feat="extrude"] .wsr-i')!;
+  return {
+    buttonCount: buttons.length,
+    complete: icons.every(Boolean),
+    noGlyphFallbacks: buttons.every((button) => button.querySelector('.wsr-i')?.textContent === ''),
+    uniqueNames: new Set(iconNames).size === iconNames.length,
+    views,
+    step: document.querySelector<SVGElement>('#bw-export-step svg')?.dataset.icon,
+    stl: document.querySelector<SVGElement>('#bw-export-stl svg')?.dataset.icon,
+    appComplete:
+      appIcons.length === 2 &&
+      appIcons.every((icon) => icon.closest('[aria-hidden="true"]') && icon.getAttribute('focusable') === 'false'),
+    pressedDecoration: getComputedStyle(extrudeIcon, '::after').content,
+  };
+});
+check('every ribbon command has one inline SVG icon', iconAudit.buttonCount === 23 && iconAudit.complete);
+check('ribbon has no operating-system glyph fallbacks', iconAudit.noGlyphFallbacks);
+check('ribbon command icons have unique semantic identities', iconAudit.uniqueNames);
+check('all five View commands have orientation icons', iconAudit.views.join(',') === 'top,front,right,iso,fit', iconAudit.views.join(','));
+check('STEP solid and STL mesh exports have distinct icons', iconAudit.step === 'step' && iconAudit.stl === 'stl');
+check('Help and Full screen use hidden SVG icons', iconAudit.appComplete);
+check('pressed tools do not gain a fake dropdown marker', iconAudit.pressedDecoration === 'none', iconAudit.pressedDecoration);
+
 // --- transactional drafts: edit + cancel is byte-identical ---------------
 const docBefore = await S<string>('(s) => s.docJson()');
 const trisBefore = await S<number>('(s) => s.triCount()');
