@@ -1369,6 +1369,7 @@ await welcomePage.$eval('#bw-template-search', (el) => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
 check('template search filters immediately', (await welcomePage.$$('.ws-template-card')).length === 1 && (await welcomePage.$eval('.ws-template-card b', (el) => el.textContent)) === 'Electronics tray');
+await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { delayNextKernelReply(milliseconds: number): void } }).__bwStudio.delayNextKernelReply(1200));
 await welcomePage.click('#bw-template-use');
 await welcomePage.waitForFunction(() => !(document.getElementById('bw-templates') as HTMLDialogElement).open && document.querySelectorAll('.hist-item').length === 2);
 check(
@@ -1384,6 +1385,11 @@ const firstTourState = await welcomePage.evaluate(() => ({
   targetCount: document.querySelectorAll('.ws-tour-target').length,
 }));
 check('first template opens an anchored walkthrough over live controls', !firstTourState.hidden && firstTourState.targetCount === 1 && (await welcomePage.$eval('#bw-tour-step', (el) => el.textContent)) === '1 of 4', JSON.stringify(firstTourState));
+await welcomePage.waitForFunction(() => {
+  const studio = (window as unknown as { __bwStudio: { appliedRevision(): number; documentRevision(): number } }).__bwStudio;
+  return studio.appliedRevision() === studio.documentRevision();
+});
+check('walkthrough reanchors after a delayed rebuild replaces the feature tree', (await welcomePage.$$('.ws-tour-target')).length === 1);
 await welcomePage.click('#bw-tour-next');
 check('walkthrough advances from feature tree to a real dimension field', (await welcomePage.$eval('#bw-tour-title', (el) => el.textContent)) === 'Edit the driving numbers' && (await welcomePage.$$('.ws-tour-target')).length === 1);
 await welcomePage.click('#bw-tour-next');

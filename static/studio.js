@@ -948,6 +948,13 @@
     if (st) st.textContent = doc.features.length + ' feature' + (doc.features.length === 1 ? '' : 's');
     const summary = $('bw-tree-summary');
     if (summary) summary.textContent = doc.features.length + ' feature' + (doc.features.length === 1 ? '' : 's');
+    // Kernel replies rebuild the history DOM. If the guided tour is pointing
+    // at a feature row while that happens, rebind its highlight to the fresh
+    // node instead of leaving the walkthrough visibly detached.
+    const openTour = $('bw-tour');
+    if (openTour && !openTour.hidden) requestAnimationFrame(() => {
+      if (!openTour.hidden) refreshTourTarget();
+    });
   }
 
   $('bw-history').addEventListener('click', (e) => {
@@ -2445,14 +2452,19 @@
     tourTarget?.classList.remove('ws-tour-target');
     tourTarget = null;
   }
+  function refreshTourTarget() {
+    const step = tourSteps()[tourIndex];
+    clearTourTarget();
+    tourTarget = step?.target?.() || null;
+    tourTarget?.classList.add('ws-tour-target');
+    tourTarget?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
   function renderTourStep() {
     const steps = tourSteps();
     const step = steps[tourIndex];
     clearTourTarget();
     step.prepare?.();
-    tourTarget = step.target?.();
-    tourTarget?.classList.add('ws-tour-target');
-    tourTarget?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    refreshTourTarget();
     $('bw-tour-step').textContent = (tourIndex + 1) + ' of ' + steps.length;
     $('bw-tour-title').textContent = step.title;
     $('bw-tour-copy').textContent = step.copy;
