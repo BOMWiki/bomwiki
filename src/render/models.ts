@@ -369,6 +369,8 @@ const STUDIO_ICON_PATHS = {
   fit: '<path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4"/><path d="m8 10 4-2 4 2-4 2zM8 10v4l4 2 4-2v-4M12 12v4"/>',
   undo: '<path d="M9 7 5 11l4 4"/><path d="M5.5 11H14a5 5 0 0 1 5 5v2"/>',
   redo: '<path d="m15 7 4 4-4 4"/><path d="M18.5 11H10a5 5 0 0 0-5 5v2"/>',
+  recover: '<path d="M5 6v5h5"/><path d="M6.3 10.2A7 7 0 1 1 5.7 16"/><path d="M12 8v4l2.8 1.8"/>',
+  library: '<path d="M4 5.5h6v6H4zM14 5.5h6v6h-6zM4 15.5h6v4H4zM14 15.5h6v4h-6z"/><path d="M7 8.5h.01M17 8.5h.01M7 17.5h.01M17 17.5h.01"/>',
   save: '<path d="M6 3.5h9l3 3V20H6z"/><path d="M9 3.5v5h6v-4M12 11v6m0 0-2.3-2.3M12 17l2.3-2.3"/>',
   open: '<path d="M3.5 7.5h6l2-2h9v12.8H3.5z"/><path d="M3.5 10h17M12 12v5m0-5-2 2m2-2 2 2"/>',
   clear: '<path d="M6 5h12M9 5V3.5h6V5M7.5 8v11.5h9V8"/><path d="m10 11 4 4m0-4-4 4"/>',
@@ -412,8 +414,8 @@ export function cadStudioPage(): string {
         </a>
         <div class="ws-document" aria-label="Current document">
           <span class="ws-document-kind">PART</span>
-          <span class="ws-project-name">Untitled part</span>
-          <span class="ws-local"><i aria-hidden="true"></i> Local autosave</span>
+          <span class="ws-project-name" id="bw-project-name">Untitled part</span>
+          <span class="ws-local" id="bw-storage-state" data-state="saving" role="status"><i aria-hidden="true"></i><span>Saving…</span></span>
         </div>
         <div class="ws-app-actions">
           <div class="ws-edit-actions" aria-label="Edit history">
@@ -421,9 +423,11 @@ export function cadStudioPage(): string {
             <button type="button" class="ws-quick-btn" id="bw-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">${studioIcon('redo', 'ws-quick-icon')}</button>
           </div>
           <div class="ws-file-actions" id="bw-project-actions" aria-label="Project and export">
+            <button type="button" class="ws-quick-btn ws-quick-labeled ws-template-open" id="bw-templates-open" title="Start from an editable template">${studioIcon('library', 'ws-quick-icon')}<span>Templates</span></button>
             <button type="button" class="ws-quick-btn ws-quick-labeled" id="bw-save-file" title="Download project file">${studioIcon('save', 'ws-quick-icon')}<span>Save</span></button>
             <button type="button" class="ws-quick-btn ws-quick-labeled" id="bw-open-btn" title="Open project file">${studioIcon('open', 'ws-quick-icon')}<span>Open</span></button>
             <input type="file" id="bw-open-file" accept=".json" hidden />
+            <button type="button" class="ws-quick-btn ws-quick-labeled" id="bw-recover-open" title="Recover a local project state">${studioIcon('recover', 'ws-quick-icon')}<span>Recover</span></button>
             <button type="button" class="ws-quick-btn" id="bw-clear" title="Clear part" aria-label="Clear part">${studioIcon('clear', 'ws-quick-icon')}<span class="ws-clear-label">Clear</span></button>
             <span class="ws-action-divider" aria-hidden="true"></span>
             <button type="button" class="ws-quick-btn ws-export-btn" id="bw-export-step" title="Export STEP"><span>STEP</span>${studioIcon('step', 'ws-quick-icon')}</button>
@@ -495,7 +499,7 @@ export function cadStudioPage(): string {
           <div class="ws-panel-cap"><span>MODEL</span><small id="bw-tree-summary">2 features</small></div>
           <div class="ws-tree-document">
             ${studioIcon('iso', 'ws-tree-icon')}
-            <span><b>Untitled part</b><small>Parametric body</small></span>
+            <span><b id="bw-tree-project-name">Untitled part</b><small>Parametric body</small></span>
           </div>
           <details class="ws-origin" open>
             <summary><span>Origin</span><small>Reference geometry</small></summary>
@@ -531,20 +535,23 @@ export function cadStudioPage(): string {
           </div>
           <section id="bw-welcome" class="ws-welcome" aria-labelledby="bw-welcome-title" hidden>
             <div class="ws-welcome-card">
-              <p class="ws-welcome-kicker">New part</p>
-              <h1 id="bw-welcome-title">Start with a sketch</h1>
-              <p class="ws-welcome-lede">Draw a closed profile on the base plane, then turn it into a solid.</p>
-              <ol class="ws-welcome-steps">
-                <li><b>Choose Extrude</b><span>Starts a sketch on the base plane.</span></li>
-                <li><b>Draw the profile</b><span>Place a rectangle, circle, or polygon.</span></li>
-                <li><b>Set the height</b><span>Enter a dimension and apply the feature.</span></li>
-              </ol>
+              <div class="ws-welcome-heading">
+                <div><p class="ws-welcome-kicker">New part</p><h1 id="bw-welcome-title">Choose a starting point</h1></div>
+                <span class="ws-welcome-count">28 editable parts</span>
+              </div>
+              <p class="ws-welcome-lede">Open a proven feature recipe, change its dimensions, and make it yours. Every starter is normal editable CAD — never a locked mesh.</p>
+              <div class="ws-welcome-popular" aria-label="Popular starter parts">
+                <button type="button" data-welcome-template="starter-plate"><span class="ws-template-mini" data-shape="plate" aria-hidden="true"></span><b>Starter plate</b><small>2 features · 3 parameters</small></button>
+                <button type="button" data-welcome-template="electronics-tray"><span class="ws-template-mini" data-shape="tray" aria-hidden="true"></span><b>Electronics tray</b><small>2 features · 5 parameters</small></button>
+                <button type="button" data-welcome-template="four-hole-plate"><span class="ws-template-mini" data-shape="mount" aria-hidden="true"></span><b>Mounting plate</b><small>2 features · 4 parameters</small></button>
+                <button type="button" data-welcome-template="turned-knob"><span class="ws-template-mini" data-shape="knob" aria-hidden="true"></span><b>Machine knob</b><small>2 features · 3 parameters</small></button>
+              </div>
               <div class="ws-welcome-actions">
-                <button type="button" class="ws-primary" id="bw-welcome-start">Start sketch <span aria-hidden="true">→</span></button>
-                <button type="button" id="bw-welcome-sample">Open example part</button>
+                <button type="button" class="ws-primary" id="bw-welcome-templates">Browse all templates <span aria-hidden="true">→</span></button>
+                <button type="button" id="bw-welcome-start">Blank sketch</button>
                 <button type="button" id="bw-welcome-open">Open a project</button>
               </div>
-              <button type="button" class="ws-help-link" id="bw-welcome-help">Learn the controls</button>
+              <button type="button" class="ws-help-link" id="bw-welcome-help">Help and keyboard reference</button>
             </div>
           </section>
           <div id="bw-face" class="pick-bar" hidden>
@@ -654,6 +661,7 @@ export function cadStudioPage(): string {
           <div class="ws-help-body">
       <section class="cs-learn">
         <h3>Build your first part</h3>
+        <div class="cs-help-actions"><button type="button" id="bw-help-tour">Show the guided walkthrough</button><button type="button" id="bw-help-templates">Browse editable templates</button></div>
         <ol class="cs-steps">
           <li><b>Start a sketch.</b> Choose <i>Extrude</i>, then use the base plane or select a flat face.</li>
           <li><b>Draw a closed profile.</b> Place a rectangle, circle, or polygon. Select it to type exact dimensions.</li>
@@ -698,6 +706,56 @@ export function cadStudioPage(): string {
         <p><b>What runs underneath?</b> OpenCascade, a 25-year-old industrial B-rep kernel, compiled to WebAssembly — plus <a href="https://replicad.xyz" rel="noopener">replicad</a> and three.js. <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">Read the source</a>.</p>
         <p><b>Made something worth keeping?</b> <a href="/cad">Publish it to a BOMwiki page</a> — your name in the credit, your part in the encyclopedia.</p>
       </section>
+          </div>
+        </div>
+      </dialog>
+      <dialog id="bw-templates" class="ws-templates" aria-labelledby="bw-templates-title">
+        <div class="ws-template-shell">
+          <header class="ws-template-head">
+            <div><span>New part</span><h2 id="bw-templates-title">Component template library</h2></div>
+            <button type="button" id="bw-templates-close" aria-label="Close template library">×</button>
+          </header>
+          <div class="ws-template-workbench">
+            <aside class="ws-template-filter" aria-label="Template categories">
+              <p>PARTS CABINET</p>
+              <nav id="bw-template-categories"></nav>
+              <div class="ws-template-note"><b>Editable by design</b><span>Each part opens with named dimensions and a normal feature history.</span></div>
+            </aside>
+            <main class="ws-template-browser">
+              <label class="ws-template-search"><span>Search components</span><input type="search" id="bw-template-search" placeholder="plate, mount, enclosure…" autocomplete="off" /></label>
+              <div class="ws-template-results"><span id="bw-template-count">28 parts</span><span>Click a card to inspect its recipe</span></div>
+              <div id="bw-template-list" class="ws-template-list" role="listbox" aria-label="Editable component templates"></div>
+            </main>
+            <aside class="ws-template-detail" id="bw-template-detail" aria-live="polite">
+              <div id="bw-template-preview" class="ws-template-preview" aria-hidden="true"></div>
+              <p class="ws-template-eyebrow" id="bw-template-category">Template</p>
+              <h3 id="bw-template-name">Choose a part</h3>
+              <p id="bw-template-description">Select a component to see its parameters and feature recipe.</p>
+              <dl class="ws-template-facts"><div><dt>Envelope</dt><dd id="bw-template-size">—</dd></div><div><dt>Level</dt><dd id="bw-template-level">—</dd></div></dl>
+              <div class="ws-template-recipe"><b>FEATURE RECIPE</b><ol id="bw-template-recipe"></ol></div>
+              <button type="button" class="ws-primary" id="bw-template-use" disabled>Open editable template <span aria-hidden="true">→</span></button>
+            </aside>
+          </div>
+        </div>
+      </dialog>
+      <div id="bw-tour" class="ws-tour" hidden>
+        <section class="ws-tour-card" role="dialog" aria-modal="false" aria-labelledby="bw-tour-title">
+          <div class="ws-tour-progress"><span id="bw-tour-step">1 of 4</span><button type="button" id="bw-tour-skip">Skip tour</button></div>
+          <h2 id="bw-tour-title">Your feature recipe</h2>
+          <p id="bw-tour-copy"></p>
+          <div class="ws-tour-actions"><button type="button" id="bw-tour-back">Back</button><button type="button" class="ws-primary" id="bw-tour-next">Next</button></div>
+        </section>
+      </div>
+      <dialog id="bw-recover" class="ws-help ws-recover" aria-labelledby="bw-recover-title">
+        <div class="ws-help-shell">
+          <header class="ws-help-head">
+            <div><span>Project</span><h2 id="bw-recover-title">Recover local work</h2></div>
+            <button type="button" id="bw-recover-close" aria-label="Close recovery">×</button>
+          </header>
+          <div class="ws-recover-body">
+            <p>Committed states saved in this browser. This is crash recovery, not cloud version history.</p>
+            <ol id="bw-recovery-list" class="ws-recovery-list"></ol>
+            <p id="bw-recovery-empty" class="sk-note" hidden>No committed recovery states yet.</p>
           </div>
         </div>
       </dialog>

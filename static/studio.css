@@ -94,6 +94,18 @@ body.cadstudio-route > main {
   color: #7890a7;
   font-size: 10px;
 }
+
+.ws-local[data-state="unavailable"] {
+  color: #ffb4a9;
+}
+
+.ws-local[data-state="unavailable"] i {
+  background: #ff6b5f;
+}
+
+.ws-local[data-state="saving"] i {
+  background: #f2c14e;
+}
 .ws-app-actions {
   justify-self: end;
   display: flex;
@@ -546,7 +558,7 @@ body.cadstudio-route > main {
   display: none;
 }
 .ws-welcome-card {
-  width: min(480px, 100%);
+  width: min(760px, 100%);
   max-height: calc(100% - 32px);
   overflow-y: auto;
   border: 1px solid #45617d;
@@ -555,6 +567,23 @@ body.cadstudio-route > main {
   background: rgba(24, 36, 49, 0.97);
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
   padding: 26px 28px 22px;
+}
+.ws-welcome-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.ws-welcome-count {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  padding: 6px 8px;
+  border: 1px solid #3c5a75;
+  background: #1b2b3b;
+  color: #9fc8ef;
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 .ws-welcome-kicker {
   margin: 0 0 8px;
@@ -575,11 +604,62 @@ body.cadstudio-route > main {
   letter-spacing: -0.025em;
 }
 .ws-welcome-lede {
-  margin: 9px 0 22px;
+  max-width: 610px;
+  margin: 9px 0 18px;
   color: #b9c7d4;
   font-size: 13px;
   line-height: 1.5;
 }
+.ws-welcome-popular {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 0 16px;
+}
+.ws-welcome-popular button {
+  display: grid;
+  grid-template-rows: 72px auto auto;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #354e67;
+  border-radius: 2px;
+  background: #1a2a39;
+  color: #dce6ef;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-welcome-popular button:hover,
+.ws-welcome-popular button:focus-visible {
+  border-color: #75afe5;
+  background: #20364a;
+}
+.ws-welcome-popular b { font-size: 11px; }
+.ws-welcome-popular small { overflow: hidden; color: #8298ad; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.ws-template-mini {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border: 1px solid #283e52;
+  background-color: #13202c;
+  background-image: linear-gradient(#1d3041 1px, transparent 1px), linear-gradient(90deg, #1d3041 1px, transparent 1px);
+  background-size: 10px 10px;
+}
+.ws-template-mini::before,
+.ws-template-mini::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+}
+.ws-template-mini::before { width: 64px; height: 38px; border: 2px solid #78a8d3; background: rgba(67, 126, 180, .16); transform: translate(-50%, -45%) skewY(-10deg); }
+.ws-template-mini[data-shape="plate"]::after { width: 14px; height: 9px; border: 2px solid #8fc1ef; border-radius: 50%; }
+.ws-template-mini[data-shape="tray"]::before { border-width: 7px 5px; }
+.ws-template-mini[data-shape="mount"]::after { width: 48px; height: 25px; background: radial-gradient(circle at 3px 3px, #8fc1ef 0 2px, transparent 2.5px) 0 0 / 42px 19px; }
+.ws-template-mini[data-shape="knob"]::before { width: 42px; height: 42px; border-radius: 50%; transform: translate(-50%, -50%); }
+.ws-template-mini[data-shape="knob"]::after { width: 19px; height: 19px; border: 2px solid #8fc1ef; border-radius: 50%; }
 .ws-welcome-steps {
   margin: 0 0 22px;
   padding: 0;
@@ -630,6 +710,194 @@ body.cadstudio-route > main {
   font-size: 11px;
   cursor: pointer;
 }
+
+/* Template library: a parts cabinet, with the selected part's construction
+   recipe visible before it replaces the current document. */
+.ws-templates {
+  width: min(1180px, calc(100vw - 32px));
+  height: min(820px, calc(100dvh - 32px));
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 1px solid #45617d;
+  border-radius: 3px;
+  background: #14212d;
+  color: #dce6ef;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, .58);
+}
+.ws-templates::backdrop { background: rgba(5, 10, 16, .76); }
+.ws-template-shell { display: flex; flex-direction: column; height: 100%; }
+.ws-template-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  min-height: 62px;
+  padding: 10px 14px 10px 18px;
+  border-bottom: 1px solid #30485f;
+  background: #111b25;
+}
+.ws-template-head span,
+.ws-template-filter > p,
+.ws-template-eyebrow {
+  color: #7691aa;
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.ws-template-head h2 { margin: 4px 0 0; color: #f1f6fa; font-size: 18px; letter-spacing: -.01em; }
+.ws-template-head button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid #3b5670;
+  border-radius: 2px;
+  background: #1b2b3b;
+  color: #eef5fa;
+  font: 24px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.ws-template-workbench { display: grid; grid-template-columns: 176px minmax(360px, 1fr) 318px; min-height: 0; flex: 1; }
+.ws-template-filter { display: flex; flex-direction: column; padding: 18px 12px; border-right: 1px solid #2d4357; background: #111c27; }
+.ws-template-filter > p { margin: 0 8px 12px; }
+.ws-template-filter nav { display: grid; gap: 3px; }
+.ws-template-filter nav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: #aebdcb;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-template-filter nav button span { color: #657e94; font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ws-template-filter nav button:hover { background: #1a2a39; color: #eef5fa; }
+.ws-template-filter nav button[aria-pressed="true"] { border-color: #356b9e; background: #173653; color: #9fd0ff; }
+.ws-template-note { display: grid; gap: 6px; margin-top: auto; padding: 12px 9px; border-top: 1px solid #2d4357; }
+.ws-template-note b { color: #b9d9f5; font-size: 10px; }
+.ws-template-note span { color: #71869a; font-size: 9.5px; line-height: 1.45; }
+.ws-template-browser { min-width: 0; min-height: 0; padding: 16px; overflow: hidden; }
+.ws-template-search { display: grid; gap: 5px; }
+.ws-template-search span { color: #91a5b9; font-size: 10px; font-weight: 700; }
+.ws-template-search input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid #3c5872;
+  border-radius: 2px;
+  background: #0f1923;
+  color: #eef5fa;
+  font: inherit;
+  font-size: 12px;
+}
+.ws-template-results { display: flex; justify-content: space-between; gap: 10px; padding: 10px 1px; color: #71879b; font-size: 9px; }
+.ws-template-results span:first-child { color: #abc0d3; font-weight: 700; }
+.ws-template-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 7px;
+  height: calc(100% - 83px);
+  overflow-y: auto;
+  padding: 0 3px 14px 0;
+}
+.ws-template-list,
+.ws-template-detail,
+.ws-template-workbench {
+  scrollbar-width: thin;
+  scrollbar-color: #526d84 #101a24;
+}
+.ws-template-list::-webkit-scrollbar,
+.ws-template-detail::-webkit-scrollbar,
+.ws-template-workbench::-webkit-scrollbar { width: 8px; height: 8px; }
+.ws-template-list::-webkit-scrollbar-track,
+.ws-template-detail::-webkit-scrollbar-track,
+.ws-template-workbench::-webkit-scrollbar-track { background: #101a24; }
+.ws-template-list::-webkit-scrollbar-thumb,
+.ws-template-detail::-webkit-scrollbar-thumb,
+.ws-template-workbench::-webkit-scrollbar-thumb { border: 2px solid #101a24; border-radius: 8px; background: #526d84; }
+.ws-template-card {
+  display: grid;
+  grid-template-rows: 84px auto auto;
+  gap: 5px;
+  min-height: 138px;
+  padding: 8px;
+  border: 1px solid #2e465c;
+  border-radius: 2px;
+  background: #172634;
+  color: #dce6ef;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-template-card:hover { border-color: #507a9f; background: #1a2d3e; }
+.ws-template-card[aria-selected="true"] { border-color: #58a2e7; box-shadow: inset 0 0 0 1px #2f76b8; background: #19334b; }
+.ws-template-card .ws-template-mini { height: 84px; }
+.ws-template-card b { overflow: hidden; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ws-template-card small { color: #7c91a5; font-size: 8.5px; }
+.ws-template-detail { min-width: 0; overflow-y: auto; padding: 16px 18px 18px; border-left: 1px solid #2d4357; background: #152432; }
+.ws-template-preview {
+  height: 180px;
+  margin: 0 0 15px;
+  border: 1px solid #314b63;
+  background-color: #101a24;
+  background-image: linear-gradient(#1e3040 1px, transparent 1px), linear-gradient(90deg, #1e3040 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+.ws-template-preview svg { width: 100%; height: 100%; color: #86b5df; }
+.ws-template-preview .solid { fill: rgba(58, 119, 171, .22); stroke: currentColor; stroke-width: 2; }
+.ws-template-preview .edge { fill: none; stroke: #b6d5f2; stroke-width: 1.5; }
+.ws-template-preview .hidden-edge { fill: none; stroke: #557b9f; stroke-width: 1; stroke-dasharray: 4 4; }
+.ws-template-eyebrow { margin: 0 0 7px; color: #79afe1; }
+.ws-template-detail h3 { margin: 0; color: #f2f6fa; font-size: 20px; letter-spacing: -.02em; }
+.ws-template-detail > p:not(.ws-template-eyebrow) { min-height: 45px; margin: 8px 0 14px; color: #9dafc0; font-size: 11px; line-height: 1.45; }
+.ws-template-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 0 15px; }
+.ws-template-facts div { padding: 8px; border: 1px solid #2d465d; background: #111d28; }
+.ws-template-facts dt { color: #6f879c; font-size: 8px; text-transform: uppercase; }
+.ws-template-facts dd { margin: 4px 0 0; color: #cdd9e4; font: 700 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ws-template-recipe { margin: 0 0 16px; }
+.ws-template-recipe > b { color: #718aa0; font: 700 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; }
+.ws-template-recipe ol { margin: 8px 0 0; padding: 0; list-style: none; counter-reset: recipe; }
+.ws-template-recipe li { position: relative; min-height: 31px; padding: 0 0 9px 32px; color: #c4d1dd; font-size: 10px; counter-increment: recipe; }
+.ws-template-recipe li::before { content: counter(recipe, decimal-leading-zero); position: absolute; left: 0; top: -2px; display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid #3b6387; border-radius: 50%; background: #142a3d; color: #8fc4f3; font: 700 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ws-template-recipe li:not(:last-child)::after { content: ''; position: absolute; left: 11px; top: 21px; width: 1px; height: 12px; background: #3b6387; }
+.ws-template-detail > .ws-primary,
+.cs-help-actions button,
+.ws-tour .ws-primary {
+  min-height: 42px;
+  border: 1px solid #1976d2;
+  border-radius: 2px;
+  background: #0b5cad;
+  color: #fff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ws-template-detail > .ws-primary { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 12px; }
+.ws-template-detail > .ws-primary:disabled { border-color: #3b4d5d; background: #263542; color: #738493; cursor: default; }
+.cs-help-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 14px; }
+.cs-help-actions button { padding: 0 12px; }
+.cs-help-actions button + button { border-color: #45617d; background: #203447; }
+
+/* The tour points at live controls; the soft outline travels through the app
+   while the concise card stays out of the user's working area. */
+.ws-tour { position: fixed; inset: 0; z-index: 1001; pointer-events: none; }
+.ws-tour[hidden] { display: none; }
+.ws-tour-target { position: relative; z-index: 1002 !important; outline: 3px solid #73b9f7 !important; outline-offset: 4px; box-shadow: 0 0 0 9999px rgba(4, 9, 14, .55), 0 0 26px rgba(69, 157, 236, .7) !important; }
+.ws-tour-card { position: fixed; left: 50%; bottom: 40px; width: min(390px, calc(100vw - 24px)); padding: 16px 17px; border: 1px solid #5a84aa; border-top: 3px solid #58aaf2; border-radius: 3px; background: #172737; color: #dce6ef; box-shadow: 0 16px 50px rgba(0, 0, 0, .55); transform: translateX(-50%); pointer-events: auto; }
+.ws-tour-progress { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ws-tour-progress span { color: #7fb4e3; font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.ws-tour-progress button { padding: 0; border: 0; background: transparent; color: #8fa4b7; font: inherit; font-size: 10px; text-decoration: underline; cursor: pointer; }
+.ws-tour h2 { margin: 11px 0 5px; color: #f3f7fa; font-size: 17px; }
+.ws-tour p { margin: 0 0 14px; color: #aebdcc; font-size: 11.5px; line-height: 1.5; }
+.ws-tour-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.ws-tour-actions button { min-width: 76px; min-height: 38px; padding: 0 12px; border: 1px solid #405b74; border-radius: 2px; background: #203244; color: #dce6ef; font: inherit; font-size: 10px; cursor: pointer; }
 .ws-welcome-actions button:hover,
 .ws-help-link:hover {
   border-color: #71a6da;
@@ -761,6 +1029,85 @@ body.cadstudio-route > main {
 .cs-shortcuts dt {
   color: #d9e8f7;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ws-recover {
+  width: min(520px, calc(100vw - 32px));
+  height: min(520px, calc(100dvh - 32px));
+}
+.ws-recover-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+}
+.ws-recover-body > p:first-child {
+  margin: 0 0 16px;
+  color: #9fb0c0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ws-recovery-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ws-recovery-project > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0 7px;
+  color: #dce7f1;
+  font-size: 12px;
+}
+.ws-recovery-project > h3 span {
+  padding: 3px 5px;
+  border: 1px solid #396b98;
+  border-radius: 2px;
+  color: #8fc5fa;
+  font: 700 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+}
+.ws-recovery-project > ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ws-recovery-list button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  width: 100%;
+  min-height: 54px;
+  padding: 9px 11px;
+  border: 1px solid #34506a;
+  border-radius: 3px;
+  background: #1b2d3d;
+  color: #d8e4ef;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-recovery-list button:hover,
+.ws-recovery-list button:focus-visible {
+  border-color: #5c91c4;
+  background: #20384d;
+  outline: none;
+}
+.ws-recovery-list b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.ws-recovery-list time,
+.ws-recovery-list small {
+  color: #8fa5b9;
+  font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ws-recovery-list small {
+  grid-column: 1 / -1;
 }
 .cs-shortcuts dl {
   display: grid;
@@ -1115,6 +1462,42 @@ body.cadstudio-route > main {
   .ws-welcome-actions .ws-primary {
     grid-column: 1 / -1;
   }
+  .ws-welcome-heading { gap: 8px; }
+  .ws-welcome-count { display: none; }
+  .ws-welcome-popular { grid-template-columns: 1fr 1fr; }
+  .ws-welcome-popular button { grid-template-rows: 46px auto auto; }
+  .ws-welcome-popular button:nth-child(n + 3) { display: none; }
+  .ws-template-mini { min-height: 46px; }
+  .ws-templates {
+    width: 100vw;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .ws-template-head { min-height: 58px; padding-left: 13px; }
+  .ws-template-head h2 { font-size: 15px; }
+  .ws-template-workbench { grid-template-columns: 1fr; grid-template-rows: auto auto auto; overflow-y: auto; }
+  .ws-template-filter { padding: 8px 10px; overflow-x: auto; border: 0; border-bottom: 1px solid #2d4357; }
+  .ws-template-filter { scrollbar-width: none; }
+  .ws-template-filter::-webkit-scrollbar { display: none; }
+  .ws-template-filter > p,
+  .ws-template-note { display: none; }
+  .ws-template-filter nav { display: flex; min-width: max-content; }
+  .ws-template-filter nav button { min-height: 44px; gap: 7px; }
+  .ws-template-browser { min-height: 430px; padding: 12px 10px 0; }
+  .ws-template-list { grid-template-columns: 1fr 1fr; height: calc(100% - 110px); }
+  .ws-template-card { grid-template-rows: 64px auto auto; min-height: 119px; }
+  .ws-template-card .ws-template-mini { height: 64px; }
+  .ws-template-detail { overflow: visible; padding: 12px; border: 0; border-top: 1px solid #2d4357; }
+  .ws-template-preview { display: none; }
+  .ws-template-detail > p:not(.ws-template-eyebrow) { min-height: 0; }
+  .ws-template-recipe ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .ws-template-recipe li { min-height: 26px; }
+  .ws-template-recipe li::after { display: none; }
+  .ws-template-detail > .ws-primary { position: sticky; bottom: 0; min-height: 48px; }
+  .ws-tour-card { bottom: 12px; }
+  .ws-tour-target { box-shadow: 0 0 0 9999px rgba(4, 9, 14, .42), 0 0 18px rgba(69, 157, 236, .65) !important; }
   .ws-help {
     width: 100vw;
     height: 100dvh;

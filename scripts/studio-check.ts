@@ -12,6 +12,10 @@ import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer, { type Page } from 'puppeteer';
 import { cadStudioPage } from '../src/render/models.ts';
+// @ts-expect-error Browser-native module intentionally has no Node typings.
+import { PROJECT_LIMITS, parseStudioProject, prepareStudioDocument } from '../static/studio-document.js';
+// @ts-expect-error Browser-native module intentionally has no Node typings.
+import { STUDIO_TEMPLATES, STUDIO_TEMPLATE_CATEGORIES } from '../static/studio-templates.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const staticDir = join(here, '..', 'static');
@@ -51,17 +55,96 @@ const port = (server.address() as { port: number }).port;
 const URL_ = `http://127.0.0.1:${port}/cad/studio`;
 
 let failures = 0;
+let checks = 0;
 function check(name: string, ok: boolean, detail?: string): void {
+  checks++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${!ok && detail ? ' — ' + detail : ''}`);
   if (!ok) failures++;
 }
+
+// --- document boundary: detached validation and migration input -----------
+const legacyFixture = {
+  features: [
+    { id: 'legacy-extrude', type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 20, h: 10 }], z: 0 }, h: 5 },
+  ],
+  params: [],
+  extension: { preserved: true },
+};
+const preparedFixture = prepareStudioDocument(legacyFixture);
+check('unversioned V3 fixture is formalized as schema 3', preparedFixture.schemaVersion === 3);
+check('document preparation never mutates its input', !('schemaVersion' in legacyFixture));
+check('unknown document fields survive preparation', preparedFixture.extension.preserved === true);
+let rejectedNewer = false;
+try {
+  prepareStudioDocument({ schemaVersion: 99, features: [], params: [] });
+} catch (error) {
+  rejectedNewer = (error as { code?: string }).code === 'NEWER_SCHEMA';
+}
+check('newer schema is refused explicitly', rejectedNewer);
+let rejectedLimit = false;
+try {
+  prepareStudioDocument({ features: Array.from({ length: PROJECT_LIMITS.features + 1 }, () => ({})), params: [] });
+} catch (error) {
+  rejectedLimit = (error as { code?: string }).code === 'LIMIT_FEATURES';
+}
+check('feature resource limit is enforced before traversal', rejectedLimit);
+let rejectedBytes = false;
+try {
+  parseStudioProject(' '.repeat(PROJECT_LIMITS.bytes + 1));
+} catch (error) {
+  rejectedBytes = (error as { code?: string }).code === 'LIMIT_BYTES';
+}
+check('project byte limit is enforced before JSON parsing', rejectedBytes);
+for (const [name, candidate, code] of [
+  ['string parameter values are refused', { features: [], params: [{ name: 'a', value: '2+2' }] }, 'INVALID_PARAMETER'],
+  [
+    'polygon expression coordinates are refused',
+    { features: [{ id: 'p', type: 'extrude', sketch: { shapes: [{ kind: 'poly', pts: [['a', 0], [1, 0], [0, 1]] }], z: 0 }, h: 5 }], params: [{ name: 'a', value: 2 }] },
+    'INVALID_POINT',
+  ],
+  ['incomplete edge signatures are refused', { features: [{ id: 'f', type: 'fillet', edges: [{}], r: 1 }], params: [] }, 'INVALID_REFERENCE'],
+  ['empty feature sketches are refused', { features: [{ id: 'e', type: 'extrude', sketch: { shapes: [] }, h: 5 }], params: [] }, 'INVALID_SKETCH'],
+  ['fractional imported patterns are refused', { features: [{ id: 'p', type: 'extrude', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 2 }] }, h: 5, pattern: { kind: 'linear', n: 2.5, dx: 5, dy: 0 } }], params: [] }, 'INVALID_PATTERN'],
+  ['string cut flags are refused', { features: [{ id: 'c', type: 'cut', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 2 }] }, h: 5, through: 'false' }], params: [] }, 'INVALID_FEATURE'],
+  ['unknown explicit old schemas are refused', { schemaVersion: 1, features: [], params: [] }, 'UNSUPPORTED_SCHEMA'],
+] as const) {
+  let rejected = false;
+  try {
+    prepareStudioDocument(candidate);
+  } catch (error) {
+    rejected = (error as { code?: string }).code === code;
+  }
+  check(name, rejected);
+}
+const validExpressionFixture = prepareStudioDocument({
+  features: [{ id: 'expression', type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 'size*2', h: 'size+1' }] }, h: 'size/2' }],
+  params: [{ name: 'size', value: 10 }],
+});
+check('supported dimension expressions remain valid', validExpressionFixture.features[0].h === 'size/2');
+check('template cabinet contains 28 editable starter parts', STUDIO_TEMPLATES.length === 28);
+check('template cabinet spans five practical categories', STUDIO_TEMPLATE_CATEGORIES.length === 5);
+check('template IDs are stable and unique', new Set(STUDIO_TEMPLATES.map((template: { id: string }) => template.id)).size === STUDIO_TEMPLATES.length);
+let allTemplatesValid = true;
+for (const template of STUDIO_TEMPLATES) {
+  try {
+    prepareStudioDocument(template.document);
+  } catch (error) {
+    allTemplatesValid = false;
+    console.error('invalid template', template.id, error);
+  }
+}
+check('every template passes the production project-file boundary', allTemplatesValid);
 
 const browser = await puppeteer.launch({
   headless: true,
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
 const newStudioPage = async (showWelcome = false): Promise<Page> => {
-  const next = await browser.newPage();
+  // Each scenario gets a real isolated browser profile. CAD Studio V4 keeps
+  // its command journal in IndexedDB, so clearing only localStorage is no
+  // longer sufficient isolation and would hide cross-project persistence bugs.
+  const context = await browser.createBrowserContext();
+  const next = await context.newPage();
   if (!showWelcome) {
     await next.evaluateOnNewDocument(() => localStorage.setItem('bw-studio-welcome-v1', '1'));
   }
@@ -133,6 +216,47 @@ await waitReady();
 check('starter part seeds two features', (await page.$$('.hist-item')).length === 2);
 check('starter part builds without errors', ((await S<string[]>('(s) => s.errors()')) as string[]).length === 0);
 check('boot leaves undo empty', (await S<number>('(s) => s.undoDepth()')) === 0);
+check('successful journal boot reports Saved locally', await page.$eval('#bw-storage-state', (el) => /Saved locally/.test(el.textContent || '')));
+const templateGeometry = await page.evaluate(async () => {
+  // @ts-expect-error This import resolves inside the served browser page.
+  const { STUDIO_TEMPLATES } = await import('/static/studio-templates.js');
+  const worker = new Worker('/static/studio-kernel.worker.js', { type: 'module' });
+  const failures: string[] = [];
+  let revision = 0;
+  for (const template of STUDIO_TEMPLATES) {
+    revision++;
+    const response = await new Promise<any>((resolve, reject) => {
+      const requestId = 'template-' + revision;
+      const timeout = setTimeout(() => reject(new Error(template.id + ' timed out in the CAD kernel')), 60_000);
+      const onMessage = (event: MessageEvent) => {
+        if (event.data?.requestId !== requestId) return;
+        clearTimeout(timeout);
+        worker.removeEventListener('message', onMessage);
+        if (event.data.kind === 'kernel-error') reject(new Error(event.data.message || template.id + ' kernel error'));
+        else resolve(event.data);
+      };
+      worker.addEventListener('message', onMessage);
+      worker.postMessage({
+        kind: 'rebuild',
+        requestId,
+        projectId: 'template-geometry-gate',
+        revision,
+        document: template.document,
+      });
+    });
+    if (response.errors?.length || !response.mesh?.vertices?.byteLength) {
+      failures.push(template.id + ': ' + (response.errors?.map((error: { message: string }) => error.message).join('; ') || 'empty solid'));
+    }
+  }
+  worker.terminate();
+  return { count: STUDIO_TEMPLATES.length, failures };
+});
+check('all 28 templates rebuild through OpenCascade', templateGeometry.count === 28);
+check('every template produces a nonempty solid with zero feature errors', templateGeometry.failures.length === 0, templateGeometry.failures.join(' | '));
+const stepExport = await S<{ size: number; errors: unknown[] }>('async (s) => s.exportForTest("step")');
+const stlExport = await S<{ size: number; errors: unknown[] }>('async (s) => s.exportForTest("stl")');
+check('worker STEP export returns a non-empty clean blob', stepExport.size > 100 && stepExport.errors.length === 0, `size ${stepExport.size}`);
+check('worker STL export returns a non-empty clean blob', stlExport.size > 100 && stlExport.errors.length === 0, `size ${stlExport.size}`);
 
 // --- ribbon icon system: complete, semantic, and state-stable ------------
 const iconAudit = await page.evaluate(() => {
@@ -152,7 +276,7 @@ const iconAudit = await page.evaluate(() => {
     views,
     step: document.querySelector<SVGElement>('#bw-export-step svg')?.dataset.icon,
     stl: document.querySelector<SVGElement>('#bw-export-stl svg')?.dataset.icon,
-    appComplete: appIcons.length === 9 && appIcons.every((icon) => icon.closest('[aria-hidden="true"]') && icon.getAttribute('focusable') === 'false'),
+    appComplete: appIcons.length === 11 && appIcons.every((icon) => icon.closest('[aria-hidden="true"]') && icon.getAttribute('focusable') === 'false'),
     pressedDecoration: getComputedStyle(extrudeIcon, '::after').content,
   };
 });
@@ -272,7 +396,12 @@ const openBad = (payload: string) =>
     inp.files = dt.files;
     inp.dispatchEvent(new Event('change', { bubbles: true }));
   }, payload);
-for (const payload of ['{"nope": true}', '{"features":[null]}', 'not json at all']) {
+for (const payload of [
+  '{"nope": true}',
+  '{"features":[null]}',
+  '{"schemaVersion":99,"features":[],"params":[]}',
+  'not json at all',
+]) {
   const undoBefore = await S<number>('(s) => s.undoDepth()');
   const redoBefore = await S<number>('(s) => s.redoDepth()');
   await openBad(payload);
@@ -286,10 +415,87 @@ page.on('dialog', (d) => d.accept());
 await page.click('#bw-clear');
 await new Promise((r) => setTimeout(r, 1200));
 check('clear empties the document', (await S<string>('(s) => s.docJson()')).includes('"features":[]'));
+const projectBeforeReload = await S<string>('(s) => s.projectId()');
+const undoBeforeReload = await S<number>('(s) => s.undoDepth()');
+await S<null>('async (s) => { await s.flushStorage(); return null; }');
 await page.reload({ waitUntil: 'domcontentloaded' });
 await waitForStudioPage(page, { timeout: 30_000 });
 await new Promise((r) => setTimeout(r, 2500));
 check('reload after clear stays empty (no starter resurrection)', (await S<string>('(s) => s.docJson()')).includes('"features":[]'));
+check('reload restores the active project identity', (await S<string>('(s) => s.projectId()')) === projectBeforeReload);
+check('reload restores the undo cursor', (await S<number>('(s) => s.undoDepth()')) === undoBeforeReload);
+const compactJournal = await S<Record<string, unknown>>('async (s) => s.journalState()');
+check('journal persists compact commands with a cursor', Boolean(compactJournal.history) && !('undoStack' in compactJournal) && !('redoStack' in compactJournal));
+const recovery = await S<Array<{ label: string }>>('async (s) => s.recovery()');
+check('committed states appear in local recovery', recovery.some((entry) => entry.label === 'Clear part'));
+await page.keyboard.down('Control');
+await page.keyboard.press('z');
+await page.keyboard.up('Control');
+await waitForStudioPage(page, { solid: true, idle: true, timeout: 30_000 });
+check('undo remains functional after reload', (await page.$$('.hist-item')).length > 0);
+await page.click('#bw-recover-open');
+await page.waitForSelector('#bw-recover[open]');
+check('Project > Recover lists committed local states', (await page.$$('#bw-recovery-list [data-recover]')).length > 0);
+check('recovery groups identify the active project', (await page.$$('#bw-recovery-list .ws-recovery-project h3 span')).length === 1);
+await page.click('#bw-recovery-list [data-recover]');
+await waitForStudioPage(page, { idle: true, timeout: 30_000 });
+check('restoring an active-project snapshot is one undoable command', ((await S<string[]>('(s) => s.undoLabels()')) as string[]).at(-1) === 'Restore recovered state');
+await page.keyboard.down('Control');
+await page.keyboard.press('z');
+await page.keyboard.up('Control');
+await waitForStudioPage(page, { solid: true, idle: true, timeout: 30_000 });
+check('recovery restore can be undone', (await page.$$('.hist-item')).length > 0);
+
+// --- cross-project recovery keeps the target project's command journal ----
+const pageR = await newStudioPage();
+await pageR.evaluateOnNewDocument(() => {
+  localStorage.setItem('bw-studio-v2-seeded', '1');
+  localStorage.setItem('bw-studio-doc-v2', JSON.stringify({
+    title: 'Recovery A',
+    features: [{ id: 'ra', type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 20, h: 20 }] }, h: 5, through: false }],
+    params: [],
+  }));
+});
+await pageR.goto(URL_, { waitUntil: 'domcontentloaded' });
+await waitForStudioPage(pageR, { solid: true, idle: true });
+const SR = async <T>(fn: string): Promise<T> => pageR.evaluate(`(() => (${fn})(window.__bwStudio))()`) as Promise<T>;
+await pageR.click('#bw-param-add');
+await SR<null>('async (s) => { await s.flushStorage(); return null; }');
+const recoveryProjectA = await SR<string>('(s) => s.projectId()');
+await pageR.evaluate(() => {
+  const project = {
+    title: 'Recovery B',
+    features: [{ id: 'rb', type: 'extrude', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 8 }] }, h: 4, through: false }],
+    params: [],
+  };
+  const transfer = new DataTransfer();
+  transfer.items.add(new File([JSON.stringify(project)], 'recovery-b.bomcad.json', { type: 'application/json' }));
+  const input = document.getElementById('bw-open-file') as HTMLInputElement;
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await pageR.waitForFunction((projectA) => (window as any).__bwStudio?.projectId() !== projectA, {}, recoveryProjectA);
+await pageR.click('#bw-param-add');
+await SR<null>('async (s) => { await s.flushStorage(); return null; }');
+const recoverySnapshotA = (await SR<Array<{ projectId: string; snapshotId: string }>>('async (s) => s.recovery()'))
+  .find((snapshot) => snapshot.projectId === recoveryProjectA);
+if (!recoverySnapshotA) throw new Error('Cross-project recovery fixture was not persisted.');
+await pageR.click('#bw-recover-open');
+await pageR.waitForSelector(`[data-recover="${recoverySnapshotA.snapshotId}"]`);
+await pageR.click(`[data-recover="${recoverySnapshotA.snapshotId}"]`);
+let recoveredProjectA = false;
+for (let attempt = 0; attempt < 120 && !recoveredProjectA; attempt++) {
+  recoveredProjectA = (await SR<string>('(s) => s.projectId()')) === recoveryProjectA;
+  if (!recoveredProjectA) await new Promise((resolve) => setTimeout(resolve, 250));
+}
+if (!recoveredProjectA) throw new Error('Cross-project recovery did not switch to the target journal.');
+check('cross-project recovery restores the target journal', (await SR<number>('(s) => s.undoDepth()')) === 2);
+check('cross-project recovery is itself undoable', ((await SR<string[]>('(s) => s.undoLabels()')).at(-1)) === 'Restore recovered state');
+await SR<null>('async (s) => { await s.flushStorage(); return null; }');
+await pageR.reload({ waitUntil: 'domcontentloaded' });
+await waitForStudioPage(pageR, { solid: true, idle: true });
+check('cross-project journal survives reload', (await SR<string>('(s) => s.projectId()')) === recoveryProjectA && (await SR<number>('(s) => s.undoDepth()')) === 2);
+await pageR.close();
 
 // --- PR-2: mode coordinator, views, context panel, keyboard ---------------
 // Fresh page with the starter part.
@@ -648,6 +854,7 @@ check('Clear accepted: document empty', (await SE<string>('(s) => s.docJson()'))
 await pageE.click('[data-feat="extrude"]'); // empty doc -> sketch directly
 await pageE.waitForSelector('#bw-sketch:not([hidden])');
 calls = await confirmCallsE();
+const projectBeforeOpen = await SE<string>('(s) => s.projectId()');
 await pageE.evaluate(() => {
   const json = JSON.stringify({
     features: [{ id: 'op1', type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 20, h: 20 }], z: 0 }, h: 5, through: false }],
@@ -663,6 +870,7 @@ await new Promise((r) => setTimeout(r, 1500));
 check('Open during clean editor: no prompt', (await confirmCallsE()) === calls);
 check('Open during clean editor: editor cancelled', (await SE<string>('(s) => s.mode().kind')) === 'idle' && (await pageE.$eval('#bw-sketch', (el) => (el as HTMLElement).hidden)));
 check('Open during clean editor: project loaded', (await SE<string>('(s) => s.docJson()')).includes('"op1"'));
+check('Open switches to a new project journal', (await SE<string>('(s) => s.projectId()')) !== projectBeforeOpen && (await SE<number>('(s) => s.undoDepth()')) === 0);
 
 // P2-5: feature buttons carry programmatic active state
 await waitForStudioPage(pageE, { solid: true, timeout: 30_000 });
@@ -808,6 +1016,32 @@ await pageP.evaluate(() => {
 });
 await new Promise((r) => setTimeout(r, 2000));
 check('rapid pattern edits both persist', (await SP<string>('(s) => s.docJson()')).includes('"n":4') && (await SP<string>('(s) => s.docJson()')).includes('"dx":22'));
+check('kernel runs in a worker', await SP<boolean>('(s) => s.kernelWorkerActive()'));
+const staleProbe = await pageP.evaluate(async () => {
+  const studio = (window as any).__bwStudio;
+  const logStart = studio.appliedRevisionLog().length;
+  studio.delayNextKernelReply(900);
+  const older = studio.rebuildForTest();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const newer = studio.rebuildForTest();
+  await Promise.all([older, newer]);
+  return {
+    applied: studio.appliedRevisionLog().slice(logStart),
+    latest: studio.documentRevision(),
+  };
+});
+check('delayed stale rebuild never reaches the display', staleProbe.applied.length === 1 && staleProbe.applied[0] === staleProbe.latest, JSON.stringify(staleProbe));
+const generationBeforeCrash = await SP<number>('(s) => s.kernelGeneration()');
+const revisionBeforeCrash = await SP<number>('(s) => s.appliedRevision()');
+await pageP.evaluate(() => (window as any).__bwStudio.failKernelForTest());
+let workerReplayed = false;
+for (let attempt = 0; attempt < 120 && !workerReplayed; attempt++) {
+  workerReplayed = await SP<boolean>(`(s) => s.kernelGeneration() > ${generationBeforeCrash} && s.appliedRevision() > ${revisionBeforeCrash} && s.appliedRevision() === s.documentRevision()`);
+  if (!workerReplayed) await new Promise((resolve) => setTimeout(resolve, 250));
+}
+if (!workerReplayed) throw new Error('Restarted worker did not replay the committed document.');
+check('worker crash restarts a fresh kernel generation', (await SP<number>('(s) => s.kernelGeneration()')) === generationBeforeCrash + 1);
+check('worker restart replays the committed document', (await SP<number>('(s) => s.triCount()')) > 0 && (await SP<string[]>('(s) => s.errors()')).length === 0);
 // invalid count: inline error, no commit
 const undoBeforeInvalid = await SP<number>('(s) => s.undoDepth()');
 await pageP.evaluate(() => {
@@ -912,6 +1146,53 @@ const bootOk = await waitForStudioPage(page3, { solid: true })
 check('boot survives disabled localStorage (starter part builds)', bootOk);
 await page3.close();
 
+// --- complete storage failure is visible but modeling remains available ---
+const page4 = await newStudioPage();
+await page4.evaluateOnNewDocument(() => {
+  Object.defineProperty(window, 'localStorage', {
+    get() {
+      throw new DOMException('denied', 'SecurityError');
+    },
+  });
+  Object.defineProperty(window, 'indexedDB', {
+    get() {
+      throw new DOMException('denied', 'SecurityError');
+    },
+  });
+});
+await page4.goto(URL_, { waitUntil: 'domcontentloaded' });
+await waitForStudioPage(page4, { solid: true });
+check('complete storage failure is reported in the document bar', await page4.$eval('#bw-storage-state', (el) => /Storage unavailable/.test(el.textContent || '')));
+const storageFailureUndo = await page4.evaluate(() => (window as any).__bwStudio.undoDepth());
+await page4.click('#bw-param-add');
+check('storage failure does not block modeling', (await page4.evaluate(() => (window as any).__bwStudio.undoDepth())) === storageFailureUndo + 1);
+await page4.close();
+
+// --- invalid feature order reports an isolated kernel error ---------------
+const pageK = await newStudioPage();
+await pageK.evaluateOnNewDocument(() => {
+  localStorage.setItem('bw-studio-v2-seeded', '1');
+  localStorage.setItem('bw-studio-doc-v2', JSON.stringify({
+    title: 'Cut first',
+    features: [{ id: 'cut-first', type: 'cut', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 5 }] }, h: 5, through: false }],
+    params: [],
+  }));
+});
+await pageK.goto(URL_, { waitUntil: 'domcontentloaded' });
+let cutFirstBuilt = false;
+for (let attempt = 0; attempt < 120 && !cutFirstBuilt; attempt++) {
+  cutFirstBuilt = await pageK.evaluate(() => {
+    const studio = (window as any).__bwStudio;
+    return Boolean(studio && studio.documentRevision() > 0 && studio.appliedRevision() === studio.documentRevision());
+  });
+  if (!cutFirstBuilt) await new Promise((resolve) => setTimeout(resolve, 250));
+}
+if (!cutFirstBuilt) throw new Error('Cut-first fixture did not finish rebuilding.');
+const cutFirstResult = await pageK.evaluate(() => ({ triangles: (window as any).__bwStudio.triCount(), errors: (window as any).__bwStudio.errors() }));
+check('cut-first remains blank instead of inventing a base solid', cutFirstResult.triangles === 0);
+check('cut-first reports the missing upstream solid', cutFirstResult.errors.some((error: string) => /nothing to cut yet/.test(error)), JSON.stringify(cutFirstResult));
+await pageK.close();
+
 // --- V3 precision workspace ------------------------------------------------
 // The canvas is now flanked by a model tree and inspector, with contextual
 // workspaces above it and view/navigation instruments directly on the stage.
@@ -1002,7 +1283,7 @@ check('mobile Project tab opens real file and export actions',
   await pageV.$eval('#bw-project-actions', (el) => Boolean(el.getClientRects().length)) &&
   (await pageV.$$('#bw-project-actions button')).length >= 5 &&
   (await pageV.$$eval('#bw-project-actions button', (buttons) =>
-    buttons.map((button) => (button.textContent || '').trim()).filter(Boolean).join(','))) === 'Save,Open,Clear,STEP,STL');
+    buttons.map((button) => (button.textContent || '').trim()).filter(Boolean).join(','))) === 'Templates,Save,Open,Recover,Clear,STEP,STL');
 await pageV.click('#bw-mtab-project');
 check('mobile Project sheet toggles closed',
   !(await pageV.$eval('.cadstudio-app', (el) => el.classList.contains('m-open-project'))));
@@ -1046,11 +1327,17 @@ check(
   JSON.stringify(shell),
 );
 check('long documentation page is removed', shell.oldDocsGone);
-check('brand-new project shows Start with a sketch', shell.welcomeVisible);
-check('first-run screen has three concrete project choices', (await welcomePage.$$('.ws-welcome-actions button')).length === 3);
+check('brand-new project shows the template-first launchpad', shell.welcomeVisible && (await welcomePage.$eval('#bw-welcome-title', (el) => el.textContent)) === 'Choose a starting point');
+check('first-run launchpad shows four useful quick starters', (await welcomePage.$$('[data-welcome-template]')).length === 4);
+check('first-run screen keeps template, blank, and existing-project choices', (await welcomePage.$$('.ws-welcome-actions button')).length === 3);
 await welcomePage.click('#bw-welcome-help');
 check('Help opens inside the application', await welcomePage.$eval('#bw-help', (el) => (el as HTMLDialogElement).open));
-await welcomePage.$eval('#bw-help-close', (el) => (el as HTMLButtonElement).click());
+check('Help exposes tour replay and the template cabinet', (await welcomePage.$$('#bw-help-tour, #bw-help-templates')).length === 2);
+await welcomePage.click('#bw-help-tour');
+check('first-run Help walkthrough points to the available start controls', (await welcomePage.$eval('#bw-tour-title', (el) => el.textContent)) === 'Start from proven geometry');
+await welcomePage.click('#bw-tour-skip');
+check('finishing the Help walkthrough returns to the unfinished launchpad', !(await welcomePage.$eval('#bw-welcome', (el) => (el as HTMLElement).hidden)));
+await welcomePage.evaluate(() => localStorage.removeItem('bw-studio-tour-v1'));
 const fullscreenRequested = await welcomePage.evaluate(async () => {
   let called = false;
   const app = document.getElementById('studio') as HTMLElement;
@@ -1067,16 +1354,77 @@ check(
     (await welcomePage.$eval('#bw-fullscreen', (el) => el.getAttribute('aria-pressed'))) === 'false' &&
     (await welcomePage.$eval('#bw-fullscreen-label', (el) => el.textContent)) === 'Full screen',
 );
+
+await welcomePage.click('#bw-welcome-templates');
+await welcomePage.waitForSelector('#bw-templates[open]');
+check('first run opens a real in-app component library', await welcomePage.$eval('#bw-templates', (el) => (el as HTMLDialogElement).open));
+check('library exposes all 28 components and six category choices', (await welcomePage.$$('.ws-template-card')).length === 28 && (await welcomePage.$$('#bw-template-categories button')).length === 6);
+check('selected component shows its feature recipe before opening', (await welcomePage.$$('#bw-template-recipe li')).length >= 2 && !(await welcomePage.$eval('#bw-template-use', (el) => (el as HTMLButtonElement).disabled)));
+await welcomePage.keyboard.press('Escape');
+check('Escape closes the library and restores the unfinished first run', !(await welcomePage.$eval('#bw-templates', (el) => (el as HTMLDialogElement).open)) && !(await welcomePage.$eval('#bw-welcome', (el) => (el as HTMLElement).hidden)));
+await welcomePage.click('#bw-welcome-templates');
+await welcomePage.waitForSelector('#bw-templates[open]');
+await welcomePage.$eval('#bw-template-search', (el) => {
+  (el as HTMLInputElement).value = 'electronics tray';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+check('template search filters immediately', (await welcomePage.$$('.ws-template-card')).length === 1 && (await welcomePage.$eval('.ws-template-card b', (el) => el.textContent)) === 'Electronics tray');
+await welcomePage.click('#bw-template-use');
+await welcomePage.waitForFunction(() => !(document.getElementById('bw-templates') as HTMLDialogElement).open && document.querySelectorAll('.hist-item').length === 2);
+check(
+  'opening a template creates a normal editable document',
+  (await welcomePage.$eval('#bw-project-name', (el) => el.textContent)) === 'Electronics tray' &&
+  (await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson())).includes('"wall"'),
+);
+await new Promise((resolve) => setTimeout(resolve, 900));
+const firstTourState = await welcomePage.evaluate(() => ({
+  hidden: (document.getElementById('bw-tour') as HTMLElement).hidden,
+  seen: localStorage.getItem('bw-studio-tour-v1'),
+  title: document.getElementById('bw-tour-title')?.textContent,
+  targetCount: document.querySelectorAll('.ws-tour-target').length,
+}));
+check('first template opens an anchored walkthrough over live controls', !firstTourState.hidden && firstTourState.targetCount === 1 && (await welcomePage.$eval('#bw-tour-step', (el) => el.textContent)) === '1 of 4', JSON.stringify(firstTourState));
+await welcomePage.click('#bw-tour-next');
+check('walkthrough advances from feature tree to a real dimension field', (await welcomePage.$eval('#bw-tour-title', (el) => el.textContent)) === 'Edit the driving numbers' && (await welcomePage.$$('.ws-tour-target')).length === 1);
+await welcomePage.click('#bw-tour-next');
+await welcomePage.click('#bw-tour-next');
+await welcomePage.click('#bw-tour-next');
+check('walkthrough finishes cleanly and removes its highlight', await welcomePage.$eval('#bw-tour', (el) => (el as HTMLElement).hidden) && (await welcomePage.$$('.ws-tour-target')).length === 0);
+await welcomePage.click('#bw-help-open');
+await welcomePage.click('#bw-help-tour');
+check('Help can replay the walkthrough at any time', !(await welcomePage.$eval('#bw-tour', (el) => (el as HTMLElement).hidden)));
+await welcomePage.click('#bw-tour-skip');
+
+await welcomePage.setViewport({ width: 375, height: 700 });
+await new Promise((resolve) => setTimeout(resolve, 150));
+await welcomePage.$eval('#bw-mtab-project', (el) => (el as HTMLButtonElement).click());
+await welcomePage.$eval('#bw-templates-open', (el) => (el as HTMLButtonElement).click());
+await welcomePage.waitForSelector('#bw-templates[open]');
+const mobileLibrary = await welcomePage.evaluate(() => {
+  const dialog = document.getElementById('bw-templates')!.getBoundingClientRect();
+  const search = document.getElementById('bw-template-search')!.getBoundingClientRect();
+  const close = document.getElementById('bw-templates-close')!.getBoundingClientRect();
+  const list = document.getElementById('bw-template-list')!.getBoundingClientRect();
+  const detail = document.getElementById('bw-template-detail')!.getBoundingClientRect();
+  return { width: dialog.width, viewport: innerWidth, search: search.height, close: close.height, overflow: document.documentElement.scrollWidth - innerWidth, listBottom: list.bottom, detailTop: detail.top };
+});
+check('375px: component library fills the screen without horizontal overflow', mobileLibrary.width <= mobileLibrary.viewport + 1 && mobileLibrary.overflow <= 1, JSON.stringify(mobileLibrary));
+check('375px: library search and close are touch-sized', mobileLibrary.search >= 44 && mobileLibrary.close >= 44, JSON.stringify(mobileLibrary));
+check('375px: template list and detail form separate vertical rows', mobileLibrary.listBottom <= mobileLibrary.detailTop + 1, JSON.stringify(mobileLibrary));
+await welcomePage.click('#bw-templates-close');
 await welcomePage.$eval('#bw-welcome-start', (el) => (el as HTMLButtonElement).click());
 await welcomePage.waitForSelector('#bw-sketch:not([hidden])');
 check(
-  'Start sketch opens a blank Extrude sketch',
+  'Blank sketch remains a first-class start and opens Extrude',
   (await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson())).includes('"features":[]'),
 );
+// The template flow above exercises automatic first-run tour launch and Help
+// replay. This hidden-button invocation exists only to keep the blank-project
+// choice covered after the launchpad itself has already been completed.
 await welcomePage.$eval('#bw-sk-cancel', (el) => (el as HTMLButtonElement).click());
 await welcomePage.close();
 
 await browser.close();
 server.close();
-console.log(failures === 0 ? '\nall studio checks passed' : `\n${failures} FAILURES`);
+console.log(failures === 0 ? `\nall ${checks} studio checks passed` : `\n${failures} FAILURES across ${checks} checks`);
 process.exit(failures === 0 ? 0 : 1);
