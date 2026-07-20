@@ -280,7 +280,7 @@ const iconAudit = await page.evaluate(() => {
     pressedDecoration: getComputedStyle(extrudeIcon, '::after').content,
   };
 });
-check('every contextual ribbon command has one inline SVG icon', iconAudit.buttonCount === 16 && iconAudit.complete);
+check('every contextual ribbon command has one inline SVG icon', iconAudit.buttonCount === 17 && iconAudit.complete);
 check('ribbon has no operating-system glyph fallbacks', iconAudit.noGlyphFallbacks);
 check('ribbon command icons have unique semantic identities', iconAudit.uniqueNames);
 check('all five View commands have orientation icons', iconAudit.views.join(',') === 'top,front,right,iso,fit', iconAudit.views.join(','));
@@ -411,8 +411,9 @@ for (const payload of [
 }
 
 // --- clear -> reload stays empty ------------------------------------------
-page.on('dialog', (d) => d.accept());
 await page.click('#bw-clear');
+check('Clear requires an explicit in-app destructive action', await page.$eval('#bw-clear-decision', (el) => (el as HTMLDialogElement).open));
+await page.click('#bw-clear-confirm');
 await new Promise((r) => setTimeout(r, 1200));
 check('clear empties the document', (await S<string>('(s) => s.docJson()')).includes('"features":[]'));
 const projectBeforeReload = await S<string>('(s) => s.projectId()');
@@ -587,22 +588,18 @@ pageC.on('pageerror', (e) => check('no page errors (workspace pass)', false, Str
 await pageC.evaluateOnNewDocument(() => {
   localStorage.removeItem('bw-studio-doc-v2');
   localStorage.removeItem('bw-studio-v2-seeded');
-  // Controllable confirm stub: tests flip the result and count the calls.
+  // Any native confirmation is a regression: project decisions belong to
+  // the branded in-app panels below.
   (window as unknown as { __confirmCalls: number }).__confirmCalls = 0;
-  (window as unknown as { __confirmResult: boolean }).__confirmResult = true;
   window.confirm = () => {
     (window as unknown as { __confirmCalls: number }).__confirmCalls++;
-    return (window as unknown as { __confirmResult: boolean }).__confirmResult;
+    return false;
   };
 });
 await pageC.goto(URL_, { waitUntil: 'domcontentloaded' });
 await waitForStudioPage(pageC, { solid: true });
 const SC = async <T>(fn: string): Promise<T> => pageC.evaluate(`(() => (${fn})(window.__bwStudio))()`) as Promise<T>;
 const confirmCalls = () => pageC.evaluate(() => (window as unknown as { __confirmCalls: number }).__confirmCalls);
-const setConfirm = (v: boolean) =>
-  pageC.evaluate((r: boolean) => {
-    (window as unknown as { __confirmResult: boolean }).__confirmResult = r;
-  }, v);
 
 // (15) command strip mirrors the mode and its buttons work
 await pageC.click('[data-feat="extrude"]');
@@ -629,7 +626,7 @@ const callsBefore = await confirmCalls();
 await pageC.click('[data-feat="fillet"]');
 check('fillet enters picking-edges', (await SC<string>('(s) => s.mode().kind')) === 'picking-edges');
 await pageC.click('[data-feat="extrude"]');
-check('clean pick -> extrude switches silently', (await confirmCalls()) === callsBefore && (await SC<string>('(s) => s.mode().kind')) === 'choose-face');
+check('clean pick -> extrude switches silently', (await confirmCalls()) === callsBefore && !(await pageC.$eval('#bw-draft-decision', (el) => (el as HTMLDialogElement).open)) && (await SC<string>('(s) => s.mode().kind')) === 'choose-face');
 await pageC.keyboard.press('Escape');
 
 // (1) history Edit during a pick mode: single owner, no stray commit
@@ -650,14 +647,16 @@ await pageC.evaluate(() => {
   ev('pointermove', r.left + 80, r.top + 80);
   ev('pointerup', r.left + 80, r.top + 80); // dirty: a drawn rect in the draft
 });
-await setConfirm(false);
 const callsBeforeDirty = await confirmCalls();
 await pageC.click('[data-feat="fillet"]');
-check('dirty draft: switching asks first', (await confirmCalls()) === callsBeforeDirty + 1);
-check('dirty draft: declining keeps the sketch open', (await SC<string>('(s) => s.mode().kind')) === 'sketching');
-await setConfirm(true);
+check('dirty draft: switching opens the in-app decision panel', await pageC.$eval('#bw-draft-decision', (el) => (el as HTMLDialogElement).open));
+check('dirty draft: never invokes a browser confirmation', (await confirmCalls()) === callsBeforeDirty);
+await pageC.click('#bw-draft-keep');
+check('dirty draft: Keep editing preserves the sketch', (await SC<string>('(s) => s.mode().kind')) === 'sketching');
+const undoBeforeApply = await SC<number>('(s) => s.undoDepth()');
 await pageC.click('[data-feat="fillet"]');
-check('dirty draft: accepting switches to the new operation', (await SC<string>('(s) => s.mode().kind')) === 'picking-edges');
+await pageC.click('#bw-draft-apply');
+check('dirty draft: Apply and continue commits then switches', (await SC<string>('(s) => s.mode().kind')) === 'picking-edges' && (await SC<number>('(s) => s.undoDepth()')) === undoBeforeApply + 1);
 await pageC.keyboard.press('Escape');
 
 // (11) per-type context properties: cut exposes through-all + shape stats
@@ -720,10 +719,13 @@ check('focus returns to the opening control', await pageC.evaluate(() => documen
 
 // (4) Clear with an active selection: no ghost panel, empty doc
 await pageC.evaluate(() => (document.querySelectorAll('.hist-item')[0] as HTMLElement).click());
-await pageC.click('#bw-clear'); // confirm stub returns true
+await pageC.click('#bw-clear');
+check('Clear uses the branded destructive decision panel', await pageC.$eval('#bw-clear-decision', (el) => (el as HTMLDialogElement).open));
+await pageC.click('#bw-clear-confirm');
 await new Promise((r) => setTimeout(r, 1200));
 check('clear with selection empties the doc', (await SC<string>('(s) => s.docJson()')).includes('"features":[]'));
 check('clear with selection hides the context panel', await pageC.$eval('#bw-context-wrap', (el) => (el as HTMLElement).hidden));
+check('Clear never invokes a browser confirmation', (await confirmCalls()) === callsBeforeDirty);
 
 // (14) build a fresh part; the Rebuilding state must be externally
 // observable between Apply and the finished rebuild
@@ -792,61 +794,58 @@ await pageE.evaluateOnNewDocument(() => {
   localStorage.removeItem('bw-studio-doc-v2');
   localStorage.removeItem('bw-studio-v2-seeded');
   (window as unknown as { __confirmCalls: number }).__confirmCalls = 0;
-  (window as unknown as { __confirmResult: boolean }).__confirmResult = true;
   window.confirm = () => {
     (window as unknown as { __confirmCalls: number }).__confirmCalls++;
-    return (window as unknown as { __confirmResult: boolean }).__confirmResult;
+    return false;
   };
 });
 await pageE.goto(URL_, { waitUntil: 'domcontentloaded' });
 await waitForStudioPage(pageE, { solid: true });
 const SE = async <T>(fn: string): Promise<T> => pageE.evaluate(`(() => (${fn})(window.__bwStudio))()`) as Promise<T>;
 const confirmCallsE = () => pageE.evaluate(() => (window as unknown as { __confirmCalls: number }).__confirmCalls);
-const setConfirmE = (v: boolean) =>
-  pageE.evaluate((r: boolean) => {
-    (window as unknown as { __confirmResult: boolean }).__confirmResult = r;
-  }, v);
 
 // P1-1: a typed radius alone makes the draft dirty
 await pageE.click('[data-feat="fillet"]');
 await pageE.click('#bw-pick-r', { count: 3 });
 await pageE.keyboard.type('7');
-await setConfirmE(false);
 let calls = await confirmCallsE();
 await pageE.click('[data-feat="chamfer"]');
-check('typed radius: switching asks first', (await confirmCallsE()) === calls + 1);
-check('typed radius: declining keeps the picker', (await SE<{ kind: string; feat?: string }>('(s) => s.mode()')).feat === 'fillet');
-check('typed radius: value survives the decline', await pageE.$eval('#bw-pick-r', (el) => (el as HTMLInputElement).value === '7'));
-await setConfirmE(true);
-await pageE.keyboard.press('Escape');
+check('typed radius: switching opens the draft panel', await pageE.$eval('#bw-draft-decision', (el) => (el as HTMLDialogElement).open));
+check('typed radius: native confirmation stays unused', (await confirmCallsE()) === calls);
+await pageE.click('#bw-draft-keep');
+check('typed radius: Keep editing keeps the picker', (await SE<{ kind: string; feat?: string }>('(s) => s.mode()')).feat === 'fillet');
+check('typed radius: value survives Keep editing', await pageE.$eval('#bw-pick-r', (el) => (el as HTMLInputElement).value === '7'));
+await pageE.click('#bw-pick-cancel');
 
 // P1-1: a typed sketch height alone makes the draft dirty
 await pageE.click('[data-feat="extrude"]');
 await pageE.click('#bw-face-base');
 await pageE.click('#bw-sk-op-h', { count: 3 });
 await pageE.keyboard.type('44');
-await setConfirmE(false);
 calls = await confirmCallsE();
 await pageE.click('[data-feat="fillet"]');
-check('typed height: switching asks first', (await confirmCallsE()) === calls + 1);
-check('typed height: declining keeps the sketch', (await SE<string>('(s) => s.mode().kind')) === 'sketching');
-await setConfirmE(true);
+check('typed height: switching opens the draft panel', await pageE.$eval('#bw-draft-decision', (el) => (el as HTMLDialogElement).open));
+check('typed height: native confirmation stays unused', (await confirmCallsE()) === calls);
+await pageE.click('#bw-draft-keep');
+check('typed height: Keep editing keeps the sketch', (await SE<string>('(s) => s.mode().kind')) === 'sketching');
 
 // P1-2: Clear during a dirty sketch asks, declining preserves everything
 const docE = await SE<string>('(s) => s.docJson()');
-await setConfirmE(false);
 calls = await confirmCallsE();
 await pageE.click('#bw-clear');
-check('Clear during dirty sketch: asks first', (await confirmCallsE()) === calls + 1);
-check('Clear during dirty sketch: declining keeps the sketch open', (await SE<string>('(s) => s.mode().kind')) === 'sketching');
+check('Clear during dirty sketch: opens the draft decision first', await pageE.$eval('#bw-draft-decision', (el) => (el as HTMLDialogElement).open));
+await pageE.click('#bw-draft-keep');
+check('Clear during dirty sketch: Keep editing preserves the sketch', (await SE<string>('(s) => s.mode().kind')) === 'sketching');
 check('Clear during dirty sketch: document untouched', (await SE<string>('(s) => s.docJson()')) === docE);
-check('Clear declined: typed value survives', await pageE.$eval('#bw-sk-op-h', (el) => (el as HTMLInputElement).value === '44'));
-// accepting cancels the editor and empties the document
-await setConfirmE(true);
-calls = await confirmCallsE();
+check('Clear kept: typed value survives', await pageE.$eval('#bw-sk-op-h', (el) => (el as HTMLInputElement).value === '44'));
+// Discard closes only the draft, then the separate destructive panel owns Clear.
 await pageE.click('#bw-clear');
+await pageE.click('#bw-draft-discard');
+check('Clear after Discard draft opens its destructive panel', await pageE.$eval('#bw-clear-decision', (el) => (el as HTMLDialogElement).open));
+check('Discard draft leaves the committed document intact', (await SE<string>('(s) => s.docJson()')) === docE);
+await pageE.click('#bw-clear-confirm');
 await new Promise((r) => setTimeout(r, 1200));
-check('Clear accepted: one atomic confirmation', (await confirmCallsE()) === calls + 1);
+check('Clear flow never invokes a native confirmation', (await confirmCallsE()) === calls);
 check('Clear accepted: editor closed', (await SE<string>('(s) => s.mode().kind')) === 'idle' && (await pageE.$eval('#bw-sketch', (el) => (el as HTMLElement).hidden)));
 check('Clear accepted: document empty', (await SE<string>('(s) => s.docJson()')).includes('"features":[]'));
 
@@ -955,6 +954,24 @@ const visibleIn = (sel: string) =>
       return r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight + 1 && r.left >= 0 && r.right <= innerWidth + 1;
     },
   );
+await pageM.evaluate(() => {
+  (document.querySelector('[data-feat="fillet"]') as HTMLButtonElement).click();
+  (document.getElementById('bw-pick-r') as HTMLInputElement).value = '7';
+  (document.querySelector('[data-feat="chamfer"]') as HTMLButtonElement).click();
+});
+await pageM.waitForSelector('#bw-draft-decision[open]');
+const mobileDecision = await pageM.evaluate(() => {
+  const card = document.querySelector('#bw-draft-decision .ws-decision-card')!.getBoundingClientRect();
+  const buttons = [...document.querySelectorAll('#bw-draft-decision button')].map((button) => button.getBoundingClientRect());
+  return {
+    within: card.left >= 0 && card.right <= innerWidth && card.top >= 0 && card.bottom <= innerHeight,
+    touchSized: buttons.every((button) => button.height >= 43.5),
+  };
+});
+check('mobile: draft decision fits entirely inside the viewport', mobileDecision.within);
+check('mobile: draft decision actions are 44px touch targets', mobileDecision.touchSized);
+await pageM.click('#bw-draft-keep');
+await pageM.evaluate(() => (document.getElementById('bw-pick-cancel') as HTMLButtonElement).click());
 check('mobile: tab bar visible', await visibleIn('#bw-mtab-history'));
 const tabRect = await pageM.$eval('#bw-mtab-history', (el) => el.getBoundingClientRect().height);
 check('mobile: tabs are 44px targets', tabRect >= 43.5, `h ${tabRect}`);
@@ -1386,8 +1403,8 @@ const firstTourState = await welcomePage.evaluate(() => ({
 }));
 check('first template opens an anchored walkthrough over live controls', !firstTourState.hidden && firstTourState.targetCount === 1 && (await welcomePage.$eval('#bw-tour-step', (el) => el.textContent)) === '1 of 4', JSON.stringify(firstTourState));
 await welcomePage.waitForFunction(() => {
-  const studio = (window as unknown as { __bwStudio: { appliedRevision(): number; documentRevision(): number } }).__bwStudio;
-  return studio.appliedRevision() === studio.documentRevision();
+  const studio = (window as unknown as { __bwStudio: { triCount(): number; appliedRevision(): number } }).__bwStudio;
+  return studio.triCount() > 0 && studio.appliedRevision() > 0 && document.querySelectorAll('.ws-tour-target').length === 1;
 });
 check('walkthrough reanchors after a delayed rebuild replaces the feature tree', (await welcomePage.$$('.ws-tour-target')).length === 1);
 await welcomePage.click('#bw-tour-next');
@@ -1400,6 +1417,63 @@ await welcomePage.click('#bw-help-open');
 await welcomePage.click('#bw-help-tour');
 check('Help can replay the walkthrough at any time', !(await welcomePage.$eval('#bw-tour', (el) => (el as HTMLElement).hidden)));
 await welcomePage.click('#bw-tour-skip');
+
+// Template changes are autosaved transitions, not browser interruptions.
+const transitionBefore = await welcomePage.evaluate(() => {
+  const studio = (window as unknown as { __bwStudio: { docJson(): string; projectId(): string; undoDepth(): number; redoDepth(): number } }).__bwStudio;
+  (window as unknown as { __nativeConfirmCalls: number }).__nativeConfirmCalls = 0;
+  window.confirm = () => {
+    (window as unknown as { __nativeConfirmCalls: number }).__nativeConfirmCalls++;
+    return false;
+  };
+  return { doc: studio.docJson(), projectId: studio.projectId(), undo: studio.undoDepth(), redo: studio.redoDepth() };
+});
+await welcomePage.click('#bw-templates-open');
+await welcomePage.waitForSelector('#bw-templates[open]');
+await welcomePage.$eval('#bw-template-search', (el) => {
+  (el as HTMLInputElement).value = 'phone stand profile';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await welcomePage.click('#bw-template-use');
+await welcomePage.waitForFunction(() => document.getElementById('bw-project-name')?.textContent === 'Phone stand profile' && !(document.getElementById('bw-templates') as HTMLDialogElement).open);
+const templateTransition = await welcomePage.evaluate(async () => {
+  const studio = (window as unknown as { __bwStudio: { projectId(): string; flushStorage(): Promise<void>; recovery(): Promise<Array<{ projectId: string; label: string }>> } }).__bwStudio;
+  await studio.flushStorage();
+  return {
+    projectId: studio.projectId(),
+    nativeConfirms: (window as unknown as { __nativeConfirmCalls: number }).__nativeConfirmCalls,
+    toastOpen: !(document.getElementById('bw-transition-toast') as HTMLElement).hidden,
+    toastTitle: document.getElementById('bw-transition-title')?.textContent,
+    toastDetail: document.getElementById('bw-transition-detail')?.textContent,
+    undoVisible: !(document.getElementById('bw-transition-undo') as HTMLElement).hidden,
+    canvasFocused: document.activeElement === document.querySelector('#bw-studio > canvas'),
+    recovery: await studio.recovery(),
+  };
+});
+check('template switch never invokes a browser confirmation', templateTransition.nativeConfirms === 0);
+check('template switch opens immediately as a new project', templateTransition.projectId !== transitionBefore.projectId);
+check('template switch reports the recoverable transition in-app', templateTransition.toastOpen && /Phone stand profile/.test(templateTransition.toastTitle || '') && /Recover/.test(templateTransition.toastDetail || '') && templateTransition.undoVisible);
+check('template switch returns keyboard focus to the 3D canvas', templateTransition.canvasFocused);
+check('template switch journals the previous part before opening', templateTransition.recovery.some((entry) => entry.projectId === transitionBefore.projectId && entry.label === 'Before opening Phone stand profile'));
+await welcomePage.click('#bw-transition-undo');
+await welcomePage.waitForFunction((previousProjectId) => (window as unknown as { __bwStudio: { projectId(): string } }).__bwStudio.projectId() === previousProjectId, {}, transitionBefore.projectId);
+const transitionRestored = await welcomePage.evaluate(async () => {
+  const studio = (window as unknown as { __bwStudio: { docJson(): string; projectId(): string; undoDepth(): number; redoDepth(): number; flushStorage(): Promise<void>; recovery(): Promise<Array<{ projectId: string; label: string }>> } }).__bwStudio;
+  await studio.flushStorage();
+  return {
+    doc: studio.docJson(),
+    projectId: studio.projectId(),
+    undo: studio.undoDepth(),
+    redo: studio.redoDepth(),
+    projectName: document.getElementById('bw-project-name')?.textContent,
+    toastTitle: document.getElementById('bw-transition-title')?.textContent,
+    undoHidden: (document.getElementById('bw-transition-undo') as HTMLElement).hidden,
+    recovery: await studio.recovery(),
+  };
+});
+check('template Undo restores the previous project byte-for-byte', transitionRestored.doc === transitionBefore.doc && transitionRestored.projectId === transitionBefore.projectId && transitionRestored.undo === transitionBefore.undo && transitionRestored.redo === transitionBefore.redo);
+check('template Undo restores the previous project chrome', transitionRestored.projectName === 'Electronics tray' && transitionRestored.toastTitle === 'Previous part restored' && transitionRestored.undoHidden);
+check('template Undo leaves the opened template in Recover', transitionRestored.recovery.some((entry) => entry.projectId === templateTransition.projectId && entry.label === 'Before restoring Electronics tray'));
 
 await welcomePage.setViewport({ width: 375, height: 700 });
 await new Promise((resolve) => setTimeout(resolve, 150));
@@ -1418,16 +1492,127 @@ check('375px: component library fills the screen without horizontal overflow', m
 check('375px: library search and close are touch-sized', mobileLibrary.search >= 44 && mobileLibrary.close >= 44, JSON.stringify(mobileLibrary));
 check('375px: template list and detail form separate vertical rows', mobileLibrary.listBottom <= mobileLibrary.detailTop + 1, JSON.stringify(mobileLibrary));
 await welcomePage.click('#bw-templates-close');
+await welcomePage.setViewport({ width: 1440, height: 900 });
+await new Promise((resolve) => setTimeout(resolve, 150));
+await welcomePage.$eval('#bw-transition-toast', (el) => {
+  (el as HTMLElement).hidden = false;
+  el.classList.add('is-visible');
+});
 await welcomePage.$eval('#bw-welcome-start', (el) => (el as HTMLButtonElement).click());
 await welcomePage.waitForSelector('#bw-sketch:not([hidden])');
+check('starting a modeling command dismisses passive recovery notices', await welcomePage.$eval('#bw-transition-toast', (el) => (el as HTMLElement).hidden));
 check(
   'Blank sketch remains a first-class start and opens Extrude',
   (await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson())).includes('"features":[]'),
 );
-// The template flow above exercises automatic first-run tour launch and Help
-// replay. This hidden-button invocation exists only to keep the blank-project
-// choice covered after the launchpad itself has already been completed.
-await welcomePage.$eval('#bw-sk-cancel', (el) => (el as HTMLButtonElement).click());
+
+// --- direct sketch-to-solid flow: line chain -> region -> Press / Pull ----
+await welcomePage.click('[data-sktool="line"]');
+check('Line is a first-class contextual sketch command',
+  (await welcomePage.$eval('[data-sktool="line"]', (el) => el.getAttribute('aria-pressed'))) === 'true');
+await welcomePage.evaluate(() => {
+  const canvas = document.getElementById('bw-sketch-canvas')!;
+  const r = canvas.getBoundingClientRect();
+  const point = (x: number, y: number) =>
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: r.left + r.width / 2 + x, clientY: r.top + r.height / 2 + y, button: 0, bubbles: true }));
+  point(-48, 34);
+  point(48, 34);
+  point(0, -45);
+});
+const openProfile = await welcomePage.evaluate(() => ({
+  prompt: document.getElementById('bw-cmd-mode')?.textContent,
+  region: Boolean(document.getElementById('bw-sk-presspull')),
+  doc: (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson(),
+}));
+check('three unclosed points stay an in-progress line chain', /next point/.test(openProfile.prompt || '') && !openProfile.region && openProfile.doc.includes('"features":[]'), JSON.stringify(openProfile));
+await welcomePage.keyboard.press('Escape');
+check('Escape cancels only the in-progress line chain',
+  (await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { mode(): { kind: string } } }).__bwStudio.mode().kind)) === 'sketching' &&
+  await welcomePage.$eval('#bw-cmd-mode', (el) => /first point/.test(el.textContent || '')));
+await welcomePage.evaluate(() => {
+  const canvas = document.getElementById('bw-sketch-canvas')!;
+  const r = canvas.getBoundingClientRect();
+  const point = (x: number, y: number) =>
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: r.left + r.width / 2 + x, clientY: r.top + r.height / 2 + y, button: 0, bubbles: true }));
+  point(-48, 34);
+  point(48, 34);
+  point(0, -45);
+  canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left + r.width / 2 - 48, clientY: r.top + r.height / 2 + 34, button: 0, bubbles: true }));
+  canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: r.left + r.width / 2 - 48, clientY: r.top + r.height / 2 + 34, button: 0, bubbles: true }));
+});
+const closedProfile = await welcomePage.evaluate(() => ({
+  label: document.getElementById('bw-sk-dims')?.textContent,
+  pull: Boolean(document.getElementById('bw-sk-presspull')),
+  selectedTool: document.querySelector('[data-sktool][aria-pressed="true"]')?.getAttribute('data-sktool'),
+  doc: (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson(),
+}));
+check('clicking the first endpoint closes and recognizes the three-edge region', /Closed region · 3 edges/.test(closedProfile.label || '') && closedProfile.pull && closedProfile.selectedTool === 'select', JSON.stringify(closedProfile));
+check('recognized region remains a transactional draft', closedProfile.doc.includes('"features":[]'));
+const cameraBeforePull = await welcomePage.evaluate(() =>
+  (window as unknown as { __bwStudio: { cameraDir(): number[] } }).__bwStudio.cameraDir(),
+);
+await welcomePage.click('#bw-sk-presspull');
+await welcomePage.waitForSelector('#bw-presspull:not([hidden])');
+const pullStarted = await welcomePage.evaluate(() => {
+  const studio = (window as unknown as { __bwStudio: { mode(): { kind: string }; pressPullPreviewTriangles(): number } }).__bwStudio;
+  return {
+    mode: studio.mode().kind,
+    triangles: studio.pressPullPreviewTriangles(),
+    sketchHidden: (document.getElementById('bw-sketch') as HTMLElement).hidden,
+    pullVisible: !(document.getElementById('bw-presspull') as HTMLElement).hidden,
+  };
+});
+check('Press / Pull switches from the 2D editor to a real shaded 3D preview', pullStarted.mode === 'press-pull' && pullStarted.triangles > 0 && pullStarted.sketchHidden && pullStarted.pullVisible, JSON.stringify(pullStarted));
+await welcomePage.evaluate(() =>
+  (window as unknown as { __bwStudio: { rebuildForTest(): Promise<void> } }).__bwStudio.rebuildForTest(),
+);
+check('a late committed-document rebuild does not erase the live Press / Pull preview',
+  (await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { pressPullPreviewTriangles(): number } }).__bwStudio.pressPullPreviewTriangles())) > 0);
+const pullCanvas = await welcomePage.$eval('#bw-studio > canvas', (el) => {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width * 0.72, y: r.top + r.height * 0.7 };
+});
+const heightBeforeDrag = await welcomePage.$eval('#bw-presspull-h', (el) => Number((el as HTMLInputElement).value));
+await welcomePage.mouse.move(pullCanvas.x, pullCanvas.y);
+await welcomePage.mouse.down();
+await welcomePage.mouse.move(pullCanvas.x, pullCanvas.y - 36, { steps: 4 });
+await welcomePage.mouse.up();
+const heightAfterDrag = await welcomePage.$eval('#bw-presspull-h', (el) => Number((el as HTMLInputElement).value));
+check('dragging the shaded preview changes extrusion distance live', heightAfterDrag > heightBeforeDrag, `${heightBeforeDrag} -> ${heightAfterDrag}`);
+await welcomePage.click('#bw-presspull-back');
+check('Back to sketch preserves the closed region without committing',
+  await welcomePage.$eval('#bw-sketch', (el) => !(el as HTMLElement).hidden) &&
+  (await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson())).includes('"features":[]'));
+const cameraAfterBack = await welcomePage.evaluate(() =>
+  (window as unknown as { __bwStudio: { cameraDir(): number[] } }).__bwStudio.cameraDir(),
+);
+check('Back to sketch restores the camera from before Press / Pull',
+  cameraAfterBack.every((value, index) => Math.abs(value - cameraBeforePull[index]) < 1e-6),
+  `${cameraBeforePull.join(',')} -> ${cameraAfterBack.join(',')}`);
+await welcomePage.click('#bw-sk-presspull');
+await welcomePage.waitForSelector('#bw-presspull:not([hidden])');
+const cameraDuringFinalPull = await welcomePage.evaluate(() =>
+  (window as unknown as { __bwStudio: { cameraDir(): number[] } }).__bwStudio.cameraDir(),
+);
+await welcomePage.$eval('#bw-presspull-h', (el) => {
+  (el as HTMLInputElement).value = '12';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  (el as HTMLInputElement).focus();
+});
+await welcomePage.keyboard.press('Enter');
+await waitForStudioPage(welcomePage, { solid: true, idle: true, timeout: 30_000 });
+const finishedPull = await welcomePage.evaluate(() => {
+  const studio = (window as unknown as { __bwStudio: { docJson(): string; undoDepth(): number; triCount(): number } }).__bwStudio;
+  return { doc: studio.docJson(), undo: studio.undoDepth(), triangles: studio.triCount() };
+});
+check('typed Press / Pull distance commits the triangular solid', finishedPull.doc.includes('"kind":"poly"') && finishedPull.doc.includes('"h":12') && finishedPull.triangles > 0, finishedPull.doc);
+check('the entire line-to-solid interaction is one undoable command', finishedPull.undo === 1, `undo depth ${finishedPull.undo}`);
+const cameraAfterPull = await welcomePage.evaluate(() =>
+  (window as unknown as { __bwStudio: { cameraDir(): number[] } }).__bwStudio.cameraDir(),
+);
+check('committing Press / Pull keeps the preview camera on the finished solid',
+  cameraAfterPull.every((value, index) => Math.abs(value - cameraDuringFinalPull[index]) < 1e-6),
+  `${cameraDuringFinalPull.join(',')} -> ${cameraAfterPull.join(',')}`);
 await welcomePage.close();
 
 await browser.close();

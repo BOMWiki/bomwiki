@@ -243,6 +243,8 @@
   }
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.domElement.tabIndex = 0;
+  renderer.domElement.setAttribute('aria-label', '3D modeling canvas');
   stage.appendChild(renderer.domElement);
   const scene = new THREE.Scene();
   scene.add(new THREE.HemisphereLight(0xffffff, 0x778, 1.5));
@@ -640,7 +642,8 @@
   const MODE_TEXT = {
     idle: () => (buildErrors.size ? 'A feature is failing — edit or delete it in History' : 'Ready — pick a feature to start'),
     'choose-face': (m) => OP_LABEL[m.feat] + ' · click a flat face, or use the base plane',
-    sketching: (m) => 'Sketch · ' + m.tool + ' — click to place, type exact numbers below',
+    sketching: (m) => m.prompt || ('Sketch · ' + m.tool + ' — click to place, type exact numbers below'),
+    'press-pull': (m) => 'Press / Pull · ' + m.height + ' mm — drag the solid or type a distance · Enter to finish',
     'picking-edges': (m) => OP_LABEL[m.feat] + ' · click edges on the part (' + m.count + ' picked)',
     'picking-faces': (m) => 'Shell · pick the opening faces (' + m.count + ' picked)',
     rebuilding: () => 'Rebuilding…',
@@ -679,6 +682,10 @@
     b.addEventListener('click', () => showWorkspace(b.dataset.workspace, false)),
   );
   function setMode(next) {
+    // Passive recovery notices must never sit on top of an active modeling
+    // command. Starting work dismisses them immediately; their content stays
+    // available in Project > Recover.
+    if (isWorking(next.kind) && next.kind !== mode.kind) hideTransitionToast(true);
     modeLog.push(next.kind);
     if (modeLog.length > 200) modeLog.shift();
     if (isWorking(mode.kind) && isWorking(next.kind) && mode.kind !== next.kind) {
@@ -691,12 +698,13 @@
     const cmd = $('bw-cmd-mode');
     if (cmd) cmd.textContent = text;
     const actions = $('bw-cmd-actions');
-    if (actions) actions.hidden = !(mode.kind === 'sketching' || mode.kind === 'picking-edges' || mode.kind === 'picking-faces');
+    if (actions) actions.hidden = !(mode.kind === 'sketching' || mode.kind === 'press-pull' || mode.kind === 'picking-edges' || mode.kind === 'picking-faces');
     const rib = document.getElementById('rib-sketch');
     if (rib) rib.hidden = mode.kind !== 'sketching';
     const sketchTab = document.querySelector('[data-workspace="sketch"]');
     if (sketchTab) sketchTab.disabled = mode.kind !== 'sketching';
     if (mode.kind === 'sketching') showWorkspace('sketch', true);
+    else if (mode.kind === 'press-pull') showWorkspace('solid', true);
     else if (mode.kind === 'picking-edges' || mode.kind === 'picking-faces') showWorkspace('modify', true);
     else if (mode.kind === 'choose-face') showWorkspace('solid', true);
     else if (mode.kind === 'idle') showWorkspace(preferredWorkspace, true);
@@ -881,8 +889,13 @@
   let faceByHash = new Map(); // faceId -> serializable planar-face metadata
 
   function setMeshData(mesh) {
-    while (partGroup.children.length) {
-      const c = partGroup.children.pop();
+    // A document rebuild can finish while a new Press / Pull draft is already
+    // visible. Replace only committed geometry so that late kernel output does
+    // not erase the live draft preview underneath the user's pointer.
+    const draftPreviews = partGroup.children.filter((child) => child.userData?.pressPullPreview);
+    for (const c of [...partGroup.children]) {
+      partGroup.remove(c);
+      if (draftPreviews.includes(c)) continue;
       c.geometry?.dispose();
       if (c.material && c.material !== MAT) c.material.dispose?.();
     }
@@ -891,7 +904,10 @@
     faceRanges = [];
     faceByHash = new Map();
     meshBounds = mesh?.bounds ?? null;
-    if (!mesh) return;
+    if (!mesh) {
+      for (const preview of draftPreviews) partGroup.add(preview);
+      return;
+    }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
     if (mesh.normals) geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
@@ -912,6 +928,8 @@
       partGroup.add(line);
       edgeLines.push(line);
     }
+    // Keep the translucent draft above the rebuilt committed body.
+    for (const preview of draftPreviews) partGroup.add(preview);
   }
 
   // --- history panel -------------------------------------------------------
@@ -1161,14 +1179,7 @@
   $('bw-export-stl').addEventListener('click', () => exportBlob('stl'));
   $('bw-export-step').addEventListener('click', () => exportBlob('step'));
   $('bw-clear').addEventListener('click', () => {
-    const hasDirtyDraft = isWorking(mode.kind) && activeDraftDirty();
-    const warning = hasDirtyDraft
-      ? 'Discard the unfinished edit and clear the whole part? Undo can restore the saved part, but not the unfinished edit.'
-      : 'Clear the whole part? (Undo can bring it back.)';
-    if (!confirm(warning)) return;
-    startOperation(() => {
-      commit('Clear part', () => ({ ...doc, features: [], params: [] }));
-    }, { discardConfirmed: true });
+    startOperation(openClearDecision, { nextLabel: 'clear this part' });
   });
 
   // --- 2D sketcher ---------------------------------------------------------
@@ -1176,6 +1187,7 @@
     const wrap = $('bw-sketch');
     const canvas = $('bw-sketch-canvas');
     const ctx = canvas.getContext('2d');
+    const pressPull = $('bw-presspull');
     let feature = null; // DRAFT copy being edited; the document is untouched until Apply
     let isNew = false;
     let tool = 'rect';
@@ -1183,9 +1195,12 @@
     let view = { cx: 0, cy: 0, pxPerMm: 6 };
     let selShape = null;
     let refOutline = [];
+    let previewGroup = null;
+    let previewCamera = null;
+    let pullDrag = null;
 
     function wrapOpenMode() {
-      setMode({ kind: 'sketching', tool: 'rect', featureType: feature.type });
+      setMode({ kind: 'sketching', tool, featureType: feature.type });
     }
     let openedJson = '';
     let openedFields = '';
@@ -1289,6 +1304,7 @@
     }
 
     function close(applyIt) {
+      if (!pressPull.hidden) leavePressPull(false);
       if (applyIt) {
         try {
           feature.h = readDim('bw-sk-op-h', 'Height');
@@ -1342,6 +1358,7 @@
         }
       }
       wrap.hidden = true;
+      pressPull.hidden = true;
       feature = null;
       pending = null;
       setMode({ kind: 'idle' });
@@ -1359,7 +1376,10 @@
     function setTool(t) {
       tool = t;
       pending = null;
-      if (feature) setMode({ kind: 'sketching', tool: t, featureType: feature.type });
+      if (feature) {
+        const prompt = t === 'line' ? 'Line · specify first point' : null;
+        setMode({ kind: 'sketching', tool: t, featureType: feature.type, prompt });
+      }
       document.querySelectorAll('[data-sktool]').forEach((b) => {
         b.classList.toggle('on', b.dataset.sktool === t);
         b.setAttribute('aria-pressed', b.dataset.sktool === t ? 'true' : 'false');
@@ -1390,6 +1410,166 @@
       canvas.style.height = h - 0 + 'px';
       draw2d();
     }
+
+    function threeShape(s) {
+      const shape = new THREE.Shape();
+      if (s.kind === 'rect') {
+        const sw = NS(s.w, 1), sh = NS(s.h, 1), sx = NS(s.x, 0), sy = NS(s.y, 0);
+        shape.moveTo(sx - sw / 2, sy - sh / 2);
+        shape.lineTo(sx + sw / 2, sy - sh / 2);
+        shape.lineTo(sx + sw / 2, sy + sh / 2);
+        shape.lineTo(sx - sw / 2, sy + sh / 2);
+        shape.closePath();
+      } else if (s.kind === 'circle') {
+        shape.absarc(NS(s.x, 0), NS(s.y, 0), Math.max(0.1, NS(s.r, 1)), 0, Math.PI * 2, false);
+      } else if (s.kind === 'poly') {
+        s.pts.forEach((p, i) => i ? shape.lineTo(p[0], p[1]) : shape.moveTo(p[0], p[1]));
+        shape.closePath();
+      }
+      return shape;
+    }
+
+    function dropPressPullPreview() {
+      if (!previewGroup) return;
+      partGroup.remove(previewGroup);
+      previewGroup.traverse((child) => {
+        child.geometry?.dispose?.();
+        child.material?.dispose?.();
+      });
+      previewGroup = null;
+    }
+
+    function renderPressPullPreview(height, frameIt = false) {
+      if (!feature || !selShape) return;
+      dropPressPullPreview();
+      const depth = Math.max(0.5, Math.min(10000, Number(height) || 0.5));
+      feature.h = depth;
+      $('bw-sk-op-h').value = String(depth);
+      $('bw-presspull-h').value = String(depth);
+      $('bw-presspull-readout').textContent = (Number.isInteger(depth) ? depth : depth.toFixed(1)) + ' mm';
+      const geometry = new THREE.ExtrudeGeometry(threeShape(selShape), {
+        depth,
+        bevelEnabled: false,
+        curveSegments: 48,
+      });
+      geometry.translate(0, 0, NS(feature.sketch.z, 0));
+      const mesh = new THREE.Mesh(
+        geometry,
+        new THREE.MeshStandardMaterial({ color: 0x66a9da, metalness: 0.08, roughness: 0.48, transparent: true, opacity: 0.88 }),
+      );
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry, 24),
+        new THREE.LineBasicMaterial({ color: 0xd9f0ff, transparent: true, opacity: 0.82 }),
+      );
+      previewGroup = new THREE.Group();
+      previewGroup.userData.pressPullPreview = true;
+      previewGroup.add(mesh, edges);
+      partGroup.add(previewGroup);
+      if (frameIt) {
+        geometry.computeBoundingBox();
+        const box = geometry.boundingBox;
+        const centre = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const worldCentre = new THREE.Vector3(centre.x, centre.z, -centre.y);
+        const radius = Math.max(18, size.length() * 0.72);
+        orbit.target.copy(worldCentre);
+        camera.position.copy(worldCentre).add(new THREE.Vector3(radius * 1.05, radius * 0.82, radius * 1.28));
+        camera.near = Math.max(0.05, radius / 100);
+        camera.far = Math.max(8000, radius * 80);
+        camera.updateProjectionMatrix();
+        orbit.update();
+      }
+      setMode({ kind: 'press-pull', featureType: feature.type, height: depth });
+    }
+
+    function canPressPull() {
+      return Boolean(
+        feature && isNew && selShape && feature.type === 'extrude' && !feature.onFace && !feature.pattern && feature.sketch.shapes.length === 1,
+      );
+    }
+
+    function startPressPull() {
+      if (!canPressPull()) return say('Press / Pull is available for one base-plane Extrude profile.');
+      pending = null;
+      previewCamera = {
+        position: camera.position.clone(),
+        target: orbit.target.clone(),
+        near: camera.near,
+        far: camera.far,
+      };
+      wrap.hidden = true;
+      pressPull.hidden = false;
+      appEl?.classList.add('is-presspull');
+      orbit.enabled = false;
+      renderPressPullPreview(Math.max(0.5, NS(feature.h, 20)), true);
+      requestAnimationFrame(() => renderer.domElement.focus());
+    }
+
+    function leavePressPull(returnToSketch, keepPreviewView = false) {
+      pullDrag = null;
+      dropPressPullPreview();
+      pressPull.hidden = true;
+      appEl?.classList.remove('is-presspull');
+      orbit.enabled = true;
+      if (!keepPreviewView && previewCamera) {
+        camera.position.copy(previewCamera.position);
+        orbit.target.copy(previewCamera.target);
+        camera.near = previewCamera.near;
+        camera.far = previewCamera.far;
+        camera.updateProjectionMatrix();
+        orbit.update();
+      }
+      if (returnToSketch && feature) {
+        wrap.hidden = false;
+        setTool('select');
+        resize();
+        draw2d();
+        requestAnimationFrame(() => canvas.focus());
+      }
+      previewCamera = null;
+    }
+
+    function applyPressPull() {
+      if (!feature) return;
+      const height = Number($('bw-presspull-h').value);
+      if (!Number.isFinite(height) || height < 0.5 || height > 10000) {
+        say('Press / Pull distance must be between 0.5 and 10,000 mm.');
+        return;
+      }
+      feature.h = height;
+      $('bw-sk-op-h').value = String(height);
+      // Preserve the view the user chose while shaping the solid. Back and
+      // Cancel restore the pre-command camera; a successful Apply should not
+      // make the finished part jump away from the preview.
+      leavePressPull(false, true);
+      close(true);
+    }
+
+    $('bw-presspull-apply').addEventListener('click', applyPressPull);
+    $('bw-presspull-back').addEventListener('click', () => leavePressPull(true));
+    $('bw-presspull-h').addEventListener('input', (event) => {
+      const height = Number(event.target.value);
+      if (Number.isFinite(height) && height >= 0.5 && height <= 10000) renderPressPullPreview(height);
+    });
+
+    renderer.domElement.addEventListener('pointerdown', (event) => {
+      if (mode.kind !== 'press-pull' || event.button !== 0) return;
+      event.preventDefault();
+      pullDrag = { pointerId: event.pointerId, y: event.clientY, height: Math.max(0.5, Number($('bw-presspull-h').value) || 0.5) };
+      renderer.domElement.setPointerCapture(event.pointerId);
+    });
+    renderer.domElement.addEventListener('pointermove', (event) => {
+      if (!pullDrag || event.pointerId !== pullDrag.pointerId) return;
+      const height = Math.max(0.5, Math.min(10000, Math.round((pullDrag.height + (pullDrag.y - event.clientY) / 3) * 2) / 2));
+      renderPressPullPreview(height);
+    });
+    const finishPullDrag = (event) => {
+      if (!pullDrag || event.pointerId !== pullDrag.pointerId) return;
+      pullDrag = null;
+      try { renderer.domElement.releasePointerCapture(event.pointerId); } catch {}
+    };
+    renderer.domElement.addEventListener('pointerup', finishPullDrag);
+    renderer.domElement.addEventListener('pointercancel', finishPullDrag);
 
     function draw2d() {
       if (wrap.hidden) return;
@@ -1449,8 +1629,13 @@
         ctx.setLineDash([5, 4]);
         ctx.lineWidth = 1.5;
         pathShape(pending);
+        if (pending.snapClose) {
+          ctx.fillStyle = 'rgba(230,126,34,0.14)';
+          ctx.fill();
+        }
         ctx.stroke();
         ctx.setLineDash([]);
+        if (tool === 'line' && pending.kind === 'poly') drawLineFeedback(pending);
       }
     }
     function pathShape(s) {
@@ -1469,6 +1654,36 @@
         });
         if (s.closed !== false) ctx.closePath();
       }
+    }
+
+    function drawLineFeedback(line) {
+      const committed = line.pts.slice(0, -1);
+      const cursor = line.pts[line.pts.length - 1];
+      for (let i = 0; i < committed.length; i++) {
+        const [px, py] = toPx(committed[i][0], committed[i][1]);
+        ctx.beginPath();
+        ctx.fillStyle = i === 0 && line.snapClose ? '#65c18c' : '#ecf3f9';
+        ctx.arc(px, py, i === 0 ? 4.2 : 3.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#15202a';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      const previous = committed[committed.length - 1];
+      if (!previous || !cursor) return;
+      const dx = cursor[0] - previous[0], dy = cursor[1] - previous[1];
+      const length = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+      const [px, py] = toPx((previous[0] + cursor[0]) / 2, (previous[1] + cursor[1]) / 2);
+      const label = line.snapClose ? 'CLOSE PROFILE' : length.toFixed(1) + ' mm  ' + Math.round(angle) + '°';
+      ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(12,19,26,.94)';
+      ctx.fillRect(px - tw / 2 - 6, py - 25, tw + 12, 19);
+      ctx.strokeStyle = line.snapClose ? '#65c18c' : '#536b80';
+      ctx.strokeRect(px - tw / 2 - 6, py - 25, tw + 12, 19);
+      ctx.fillStyle = line.snapClose ? '#9fe1b8' : '#d9e5ee';
+      ctx.fillText(label, px - tw / 2, py - 11);
     }
 
     // pointer handling: click-click placement, wheel zoom, drag-pan (2nd button or two fingers not handled; single-pointer pan via 'pan' tool)
@@ -1507,7 +1722,7 @@
       clickAt(mx, my, e);
     });
     canvas.addEventListener('dblclick', () => {
-      if (pending?.kind !== 'poly') return;
+      if (tool !== 'poly' || pending?.kind !== 'poly') return;
       // The closing double-click also registered as ordinary clicks, so the
       // point list carries duplicates; collapse them (and a wrapped-around
       // last point) before handing the profile to the kernel.
@@ -1526,6 +1741,28 @@
       syncShapePanel();
     });
 
+    function finishLineProfile() {
+      if (tool !== 'line' || pending?.kind !== 'poly') return false;
+      const pts = [];
+      for (const point of pending.pts.slice(0, -1)) {
+        const last = pts[pts.length - 1];
+        if (!last || Math.hypot(point[0] - last[0], point[1] - last[1]) >= 0.5) pts.push(point);
+      }
+      if (pts.length < 3) {
+        say('A closed profile needs at least three connected lines.');
+        return false;
+      }
+      const shape = { kind: 'poly', pts, closed: true };
+      feature.sketch.shapes.push(shape);
+      selShape = shape;
+      pending = null;
+      setTool('select');
+      draw2d();
+      syncShapePanel();
+      say('Closed profile recognised — the region is ready to Press / Pull.');
+      return true;
+    }
+
     function clickAt(mx, my) {
       if (tool === 'rect') {
         if (!pending) pending = { kind: 'rect', ax: mx, ay: my, x: mx, y: my, w: 0, h: 0 };
@@ -1536,6 +1773,23 @@
       } else if (tool === 'poly') {
         if (!pending) pending = { kind: 'poly', pts: [[mx, my], [mx, my]], closed: false };
         else pending.pts.push([mx, my]);
+      } else if (tool === 'line') {
+        if (!pending) {
+          pending = { kind: 'poly', pts: [[mx, my], [mx, my]], closed: false, sourceTool: 'line', snapClose: false };
+          setMode({ kind: 'sketching', tool: 'line', featureType: feature.type, prompt: 'Line · specify next point · click the first endpoint to close' });
+        } else {
+          const first = pending.pts[0];
+          const committed = pending.pts.slice(0, -1);
+          const closeDistance = Math.max(0.75, 10 / view.pxPerMm);
+          if (committed.length >= 3 && Math.hypot(mx - first[0], my - first[1]) <= closeDistance) {
+            finishLineProfile();
+          } else {
+            pending.pts[pending.pts.length - 1] = [mx, my];
+            pending.pts.push([mx, my]);
+            pending.snapClose = false;
+            draw2d();
+          }
+        }
       } else if (tool === 'select') {
         // Not findLast: ES2023, missing on the older mobile browsers this
         // studio explicitly targets.
@@ -1559,7 +1813,11 @@
       } else if (pending.kind === 'circle') {
         pending.r = Math.max(1, Math.round(Math.hypot(mx - pending.x, my - pending.y)));
       } else if (pending.kind === 'poly') {
-        pending.pts[pending.pts.length - 1] = [mx, my];
+        const first = pending.pts[0];
+        const committed = pending.pts.slice(0, -1);
+        const closeDistance = Math.max(0.75, 10 / view.pxPerMm);
+        pending.snapClose = tool === 'line' && committed.length >= 3 && Math.hypot(mx - first[0], my - first[1]) <= closeDistance;
+        pending.pts[pending.pts.length - 1] = pending.snapClose ? [...first] : [mx, my];
       }
     }
     function commitPending() {
@@ -1610,7 +1868,8 @@
       const dia = typeof s.r === 'number' ? s.r * 2 : '(' + s.r + ')*2';
       if (s.kind === 'rect') p.innerHTML = num('W', 'w', s.w) + num('H', 'h', s.h) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape">Delete shape</button>';
       else if (s.kind === 'circle') p.innerHTML = num('Ø', 'd', dia) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape">Delete shape</button>';
-      else p.innerHTML = '<span class="sk-note">Polygon · ' + s.pts.length + ' points</span><button id="bw-sk-delshape">Delete shape</button>';
+      else p.innerHTML = '<span class="sk-note">Closed region · ' + s.pts.length + ' edges</span><button id="bw-sk-delshape">Delete shape</button>';
+      if (canPressPull()) p.insertAdjacentHTML('beforeend', '<button type="button" class="sk-pull" id="bw-sk-presspull">Press / Pull ↕</button>');
       p.querySelectorAll('[data-dim]').forEach((inp) =>
         inp.addEventListener('change', () => {
           const raw = inp.value.trim();
@@ -1635,14 +1894,30 @@
         syncShapePanel();
         draw2d();
       });
+      $('bw-sk-presspull')?.addEventListener('click', startPressPull);
     }
 
     return {
       open,
       resize,
-      isOpen: () => !wrap.hidden,
+      isOpen: () => Boolean(feature),
       cancel: () => {
-        if (!wrap.hidden) close(false);
+        if (feature) close(false);
+      },
+      cancelStep: () => {
+        if (!pending) return false;
+        pending = null;
+        setMode({ kind: 'sketching', tool, featureType: feature.type, prompt: tool === 'line' ? 'Line · specify first point' : null });
+        draw2d();
+        return true;
+      },
+      finishPending: () => finishLineProfile(),
+      applyPressPull,
+      backFromPressPull: () => leavePressPull(true),
+      previewTriangles: () => {
+        const mesh = previewGroup?.children?.find((child) => child.isMesh);
+        const g = mesh?.geometry;
+        return g ? (g.getIndex() ? g.getIndex().count / 3 : g.getAttribute('position').count / 3) : 0;
       },
       isDirty: () => Boolean(feature) && (Boolean(pending) || JSON.stringify(feature) !== openedJson || opFieldsNow() !== openedFields),
     };
@@ -1822,6 +2097,7 @@
       const g = solidMesh?.geometry;
       return g ? (g.getIndex() ? g.getIndex().count / 3 : g.getAttribute('position').count / 3) : 0;
     },
+    pressPullPreviewTriangles: () => sketch.previewTriangles(),
     pickAt: (fx, fy) => {
       const ray = new THREE.Raycaster();
       ray.params.Line = { threshold: 1.5 };
@@ -2242,7 +2518,7 @@
   // history Edit, context Edit). A working mode with untouched state is
   // dropped silently; touched state asks before being discarded.
   function activeDraftDirty() {
-    if (mode.kind === 'sketching') return sketch.isDirty();
+    if (mode.kind === 'sketching' || mode.kind === 'press-pull') return sketch.isDirty();
     if (mode.kind === 'picking-edges') return picker.isDirty();
     if (mode.kind === 'picking-faces') return shellPick.isDirty();
     return false;
@@ -2253,12 +2529,146 @@
     shellPick.cancel();
     facePick.cancel();
   }
+  const draftDecision = $('bw-draft-decision');
+  const clearDecision = $('bw-clear-decision');
+  const transitionToast = $('bw-transition-toast');
+  let queuedOperation = null;
+  let transitionUndo = null;
+  let transitionTimer = null;
+  let transitionHideTimer = null;
+
+  function focusActiveWorkspace() {
+    if (mode.kind === 'sketching') $('bw-sketch-canvas')?.focus();
+    else if (mode.kind === 'press-pull') renderer.domElement.focus();
+    else if (mode.kind === 'picking-edges') $('bw-pick-r')?.focus();
+    else if (mode.kind === 'picking-faces') $('bw-shell-t')?.focus();
+    else renderer.domElement.focus();
+  }
+  function closeDecision(dialog) {
+    if (typeof dialog?.close === 'function' && dialog.open) dialog.close();
+    else dialog?.removeAttribute('open');
+  }
+  function runOperation(fn) {
+    try {
+      const result = fn();
+      if (result?.catch) result.catch((error) => say('Could not continue: ' + String(error?.message || error)));
+    } catch (error) {
+      say('Could not continue: ' + String(error?.message || error));
+    }
+  }
+  function keepEditing() {
+    queuedOperation = null;
+    closeDecision(draftDecision);
+    requestAnimationFrame(focusActiveWorkspace);
+  }
+  function takeQueuedOperation() {
+    const request = queuedOperation;
+    queuedOperation = null;
+    closeDecision(draftDecision);
+    return request;
+  }
+  function openDraftDecision(fn, opts = {}) {
+    queuedOperation = { fn, opts };
+    const next = opts.nextLabel || 'continue';
+    $('bw-draft-decision-copy').textContent = 'Apply the unfinished edit before you ' + next + ', discard only the draft, or keep editing.';
+    if (typeof draftDecision?.showModal === 'function') {
+      if (!draftDecision.open) draftDecision.showModal();
+    } else draftDecision?.setAttribute('open', '');
+    requestAnimationFrame(() => $('bw-draft-keep')?.focus());
+  }
+  $('bw-draft-keep')?.addEventListener('click', keepEditing);
+  $('bw-draft-discard')?.addEventListener('click', () => {
+    const request = takeQueuedOperation();
+    if (!request) return;
+    cancelAllEditors();
+    runOperation(request.fn);
+  });
+  $('bw-draft-apply')?.addEventListener('click', () => {
+    const request = takeQueuedOperation();
+    if (!request) return;
+    applyCurrent();
+    if (isWorking(mode.kind)) {
+      requestAnimationFrame(focusActiveWorkspace);
+      return;
+    }
+    runOperation(request.fn);
+  });
+  draftDecision?.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    keepEditing();
+  });
+  draftDecision?.addEventListener('click', (event) => {
+    if (event.target === draftDecision) keepEditing();
+  });
+
+  function closeClearDecision() {
+    closeDecision(clearDecision);
+    requestAnimationFrame(focusActiveWorkspace);
+  }
+  function openClearDecision() {
+    if (typeof clearDecision?.showModal === 'function') {
+      if (!clearDecision.open) clearDecision.showModal();
+    } else clearDecision?.setAttribute('open', '');
+    requestAnimationFrame(() => $('bw-clear-cancel')?.focus());
+  }
+  $('bw-clear-cancel')?.addEventListener('click', closeClearDecision);
+  $('bw-clear-confirm')?.addEventListener('click', () => {
+    closeDecision(clearDecision);
+    commit('Clear part', () => ({ ...doc, features: [], params: [] }));
+    requestAnimationFrame(focusActiveWorkspace);
+  });
+  clearDecision?.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    closeClearDecision();
+  });
+  clearDecision?.addEventListener('click', (event) => {
+    if (event.target === clearDecision) closeClearDecision();
+  });
+
+  function hideTransitionToast(immediate = false) {
+    clearTimeout(transitionTimer);
+    clearTimeout(transitionHideTimer);
+    transitionUndo = null;
+    if (!transitionToast || transitionToast.hidden) return;
+    if (immediate) {
+      transitionToast.classList.remove('is-visible');
+      transitionToast.hidden = true;
+      return;
+    }
+    transitionToast.classList.remove('is-visible');
+    transitionHideTimer = setTimeout(() => {
+      transitionToast.hidden = true;
+    }, 190);
+  }
+  function showTransitionToast(title, detail, undo = null) {
+    if (!transitionToast) return;
+    clearTimeout(transitionTimer);
+    clearTimeout(transitionHideTimer);
+    transitionUndo = undo;
+    $('bw-transition-title').textContent = title;
+    $('bw-transition-detail').textContent = detail;
+    $('bw-transition-undo').hidden = !undo;
+    transitionToast.hidden = false;
+    transitionToast.classList.remove('is-visible');
+    requestAnimationFrame(() => transitionToast.classList.add('is-visible'));
+    transitionTimer = setTimeout(hideTransitionToast, 5200);
+  }
+  $('bw-transition-close')?.addEventListener('click', hideTransitionToast);
+  $('bw-transition-undo')?.addEventListener('click', () => {
+    const undo = transitionUndo;
+    hideTransitionToast();
+    if (undo) runOperation(undo);
+  });
+
   function startOperation(fn, opts) {
     if (isWorking(mode.kind)) {
-      if (!opts?.discardConfirmed && activeDraftDirty() && !window.confirm('Discard the unfinished edit in progress?')) return false;
+      if (!opts?.discardConfirmed && activeDraftDirty()) {
+        openDraftDecision(fn, opts);
+        return false;
+      }
       cancelAllEditors();
     }
-    fn();
+    runOperation(fn);
     return true;
   }
 
@@ -2387,11 +2797,34 @@
     if (!used && templateLibraryFromWelcome && !hasFlag(WELCOME)) showWelcome();
     templateLibraryFromWelcome = false;
   }
-  async function useTemplate(template) {
-    if (!template) return;
-    if (doc.features.length && !window.confirm('Start a new part from “' + template.name + '”? Your current part will remain in Recover.')) return;
-    if (!startOperation(() => {})) return;
-    if (doc.features.length) await save('Before opening ' + template.name);
+  function projectTransitionSnapshot() {
+    return {
+      projectId,
+      document: deepCopy(doc),
+      undoStack: deepCopy(undoStack),
+      redoStack: deepCopy(redoStack),
+      title: doc.title,
+    };
+  }
+  async function restoreTemplateTransition(previous, openedTitle) {
+    await save('Before restoring ' + previous.title);
+    projectId = previous.projectId;
+    doc = normalizeDoc(deepCopy(previous.document));
+    undoStack.splice(0, undoStack.length, ...deepCopy(previous.undoStack));
+    redoStack.splice(0, redoStack.length, ...deepCopy(previous.redoStack));
+    selectedFeatureId = null;
+    afterDocumentChange('Restored previous part');
+    requestAnimationFrame(() => renderer.domElement.focus());
+    showTransitionToast('Previous part restored', '“' + openedTitle + '” remains available in Recover.');
+  }
+  async function openTemplateNow(template) {
+    const previous = doc.features.length || doc.params.length ? projectTransitionSnapshot() : null;
+    const journal = previous ? await journalReady : null;
+    let previousSavedToRecovery = false;
+    if (previous) {
+      await save('Before opening ' + template.name);
+      previousSavedToRecovery = Boolean(journal && storageStateEl?.dataset.state === 'saved');
+    }
     const { prepareStudioDocument } = await documentToolsReady;
     projectId = makeProjectId();
     doc = normalizeDoc(prepareStudioDocument(structuredClone(template.document)));
@@ -2401,8 +2834,22 @@
     finishWelcome();
     closeTemplateLibrary(true);
     afterDocumentChange('Started from ' + template.name);
-    say('Opened “' + template.name + '” — select a feature or parameter to change it.');
+    requestAnimationFrame(() => renderer.domElement.focus());
+    showTransitionToast(
+      'Opened “' + template.name + '”',
+      previous
+        ? previousSavedToRecovery
+          ? 'Your previous part was saved to Recover.'
+          : 'Local recovery is unavailable — use Undo now.'
+        : 'Ready to edit.',
+      previous ? () => restoreTemplateTransition(previous, template.name) : null,
+    );
     if (!hasFlag(TOUR_SEEN)) setTimeout(() => startTour('part'), 350);
+  }
+  async function useTemplate(template) {
+    if (!template) return;
+    if (isWorking(mode.kind) && activeDraftDirty() && templateDialog?.open) closeTemplateLibrary(true);
+    startOperation(() => openTemplateNow(template), { nextLabel: 'open “' + template.name + '”' });
   }
   $('bw-templates-open')?.addEventListener('click', openTemplateLibrary);
   $('bw-welcome-templates')?.addEventListener('click', openTemplateLibrary);
@@ -2715,22 +3162,38 @@
   }
 
   // --- global keys: Escape, Enter, Delete, F, Space-pan ---------------------
-  const cancelCurrent = () => {
-    if (mode.kind === 'sketching') $('bw-sk-cancel').click();
+  function cancelCurrent() {
+    if (mode.kind === 'sketching') {
+      if (!sketch.cancelStep()) $('bw-sk-cancel').click();
+    }
+    else if (mode.kind === 'press-pull') sketch.backFromPressPull();
     else if (mode.kind === 'picking-edges') $('bw-pick-cancel').click();
     else if (mode.kind === 'picking-faces') $('bw-shell-cancel').click();
     else if (mode.kind === 'choose-face') $('bw-face-cancel').click();
     else if (selectedFeatureId) selectFeature(null);
-  };
-  const applyCurrent = () => {
-    if (mode.kind === 'sketching') $('bw-sk-apply').click();
+  }
+  function applyCurrent() {
+    if (mode.kind === 'sketching') {
+      if (!sketch.finishPending()) $('bw-sk-apply').click();
+    }
+    else if (mode.kind === 'press-pull') sketch.applyPressPull();
     else if (mode.kind === 'picking-edges') $('bw-pick-apply').click();
     else if (mode.kind === 'picking-faces') $('bw-shell-apply').click();
-  };
+  }
   $('bw-cmd-apply')?.addEventListener('click', () => applyCurrent());
   $('bw-cmd-cancel')?.addEventListener('click', () => cancelCurrent());
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (draftDecision?.open) {
+        e.preventDefault();
+        keepEditing();
+        return;
+      }
+      if (clearDecision?.open) {
+        e.preventDefault();
+        closeClearDecision();
+        return;
+      }
       if (helpDialog?.open) {
         e.preventDefault();
         closeHelp();
@@ -2746,7 +3209,10 @@
     if (inField()) {
       // Enter inside a numeric field commits that field (blur fires the
       // change handler); it must not also Apply the whole editor.
-      if (e.key === 'Enter') document.activeElement.blur();
+      if (e.key === 'Enter') {
+        document.activeElement.blur();
+        if (mode.kind === 'press-pull') sketch.applyPressPull();
+      }
       return; // every other global key defers to the field
     }
     if (e.key === 'Enter') applyCurrent();

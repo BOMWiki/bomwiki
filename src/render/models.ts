@@ -353,6 +353,7 @@ const STUDIO_ICON_PATHS = {
   fullscreen: '<path d="M9 4H4v5M15 4h5v5M20 15v5h-5M4 15v5h5"/>',
   rect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
   circle: '<circle cx="12" cy="12" r="7.5"/>',
+  line: '<path d="m4 18 6-11 10 7"/><circle cx="4" cy="18" r="1.3" fill="currentColor" stroke="none"/><circle cx="10" cy="7" r="1.3" fill="currentColor" stroke="none"/><circle cx="20" cy="14" r="1.3" fill="currentColor" stroke="none"/>',
   polygon: '<path d="m12 3.8 8 6.2-3 9.2H7L4 10z"/>',
   select: '<path d="m5.5 3.5 11.2 9.8-5.3.8-2.8 5z"/><path d="m12.1 14 3 5.2"/>',
   pan: '<path d="M8.2 11V6.8a1.35 1.35 0 0 1 2.7 0V10m0-4.9a1.35 1.35 0 0 1 2.7 0V10m0-3.9a1.35 1.35 0 0 1 2.7 0v5m0-2.5a1.35 1.35 0 0 1 2.7 0v4.1c0 4.3-2.5 7.3-6.6 7.3h-.7c-2.1 0-3.3-.8-4.7-2.5L4.6 15a1.45 1.45 0 0 1 2.1-2z"/>',
@@ -463,6 +464,7 @@ export function cadStudioPage(): string {
           <div class="ws-group" id="rib-sketch" hidden>
             <span class="wsg-title">Draw and constrain</span>
             <div class="wsg-tools">
+              <button type="button" class="wsr-btn wsr-accent" data-sktool="line" aria-pressed="false">${studioIcon('line')}<span class="wsr-label">Line</span><small>Chain + close</small></button>
               <button type="button" class="wsr-btn" data-sktool="rect" aria-pressed="false">${studioIcon('rect')}<span class="wsr-label">Rectangle</span><small>Two corners</small></button>
               <button type="button" class="wsr-btn" data-sktool="circle" aria-pressed="false">${studioIcon('circle')}<span class="wsr-label">Circle</span><small>Centre + edge</small></button>
               <button type="button" class="wsr-btn" data-sktool="poly" aria-pressed="false">${studioIcon('polygon')}<span class="wsr-label">Polygon</span><small>Closed profile</small></button>
@@ -605,12 +607,25 @@ export function cadStudioPage(): string {
                 <button type="button" id="bw-sk-cancel">Cancel</button>
               </span>
             </div>
-            <canvas id="bw-sketch-canvas"></canvas>
+            <canvas id="bw-sketch-canvas" tabindex="0" aria-label="2D sketch canvas"></canvas>
             <div class="sk-bottom">
               <span id="bw-sk-hint" class="sk-note"></span>
               <span id="bw-sk-dims"></span>
             </div>
           </div>
+          <section id="bw-presspull" class="ws-presspull" aria-labelledby="bw-presspull-title" hidden>
+            <div class="pp-card">
+              <span class="pp-kicker">Closed profile recognised</span>
+              <b id="bw-presspull-title">Press / Pull</b>
+              <p>Drag on the shaded solid, or type an exact distance.</p>
+              <label>Distance <input type="number" inputmode="decimal" id="bw-presspull-h" value="20" min="0.5" max="10000" step="0.5" /> mm</label>
+              <div class="pp-actions">
+                <button type="button" class="sr-accent" id="bw-presspull-apply">Finish solid</button>
+                <button type="button" id="bw-presspull-back">Back to sketch</button>
+              </div>
+            </div>
+            <div class="pp-drag-cue" aria-hidden="true"><i></i><b id="bw-presspull-readout">20 mm</b><span>DRAG</span></div>
+          </section>
           <noscript><p class="mv-error">The studio needs JavaScript.</p></noscript>
         </div>
         <aside class="ws-side" id="bw-side" aria-label="Properties inspector">
@@ -738,6 +753,42 @@ export function cadStudioPage(): string {
           </div>
         </div>
       </dialog>
+      <dialog id="bw-draft-decision" class="ws-decision" aria-labelledby="bw-draft-decision-title" aria-describedby="bw-draft-decision-copy">
+        <section class="ws-decision-card">
+          <header>
+            <span>Unfinished edit</span>
+            <h2 id="bw-draft-decision-title">Finish this edit?</h2>
+          </header>
+          <p id="bw-draft-decision-copy">Apply the unfinished edit before continuing, discard only the draft, or keep editing.</p>
+          <footer>
+            <button type="button" id="bw-draft-keep">Keep editing</button>
+            <button type="button" id="bw-draft-discard" class="ws-decision-discard">Discard draft</button>
+            <button type="button" id="bw-draft-apply" class="ws-primary">Apply and continue</button>
+          </footer>
+        </section>
+      </dialog>
+      <dialog id="bw-clear-decision" class="ws-decision ws-decision-danger" aria-labelledby="bw-clear-decision-title" aria-describedby="bw-clear-decision-copy">
+        <section class="ws-decision-card">
+          <header>
+            <span>Project</span>
+            <h2 id="bw-clear-decision-title">Clear this part?</h2>
+          </header>
+          <p id="bw-clear-decision-copy">The feature history and parameters will be removed. Undo can restore the cleared part.</p>
+          <footer>
+            <button type="button" id="bw-clear-cancel">Cancel</button>
+            <button type="button" id="bw-clear-confirm" class="ws-danger">Clear part</button>
+          </footer>
+        </section>
+      </dialog>
+      <div id="bw-transition-toast" class="ws-transition-toast" hidden>
+        <span class="ws-transition-mark" aria-hidden="true">${studioIcon('recover', 'ws-transition-icon')}</span>
+        <div id="bw-transition-status" role="status" aria-live="polite" aria-atomic="true">
+          <strong id="bw-transition-title"></strong>
+          <small id="bw-transition-detail"></small>
+        </div>
+        <button type="button" id="bw-transition-undo" class="ws-transition-action">Undo</button>
+        <button type="button" id="bw-transition-close" class="ws-transition-close" aria-label="Dismiss notification">×</button>
+      </div>
       <div id="bw-tour" class="ws-tour" hidden>
         <section class="ws-tour-card" role="dialog" aria-modal="false" aria-labelledby="bw-tour-title">
           <div class="ws-tour-progress"><span id="bw-tour-step">1 of 4</span><button type="button" id="bw-tour-skip">Skip tour</button></div>

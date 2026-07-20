@@ -544,6 +544,155 @@ body.cadstudio-route > main {
   pointer-events: none;
 }
 
+/* Project transitions stay inside the CAD shell. Recoverable template changes
+   use a quiet instrument-style toast; only unfinished edits and destructive
+   Clear actions interrupt with a decision panel. */
+.ws-decision {
+  width: min(470px, calc(100vw - 32px));
+  max-width: none;
+  margin: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #dce6ef;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.ws-decision::backdrop {
+  background: rgba(4, 9, 14, .72);
+  backdrop-filter: blur(2px);
+}
+.ws-decision-card {
+  overflow: hidden;
+  border: 1px solid #45617d;
+  border-top: 3px solid #4d9ae8;
+  border-radius: 4px;
+  background: #172532;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, .62);
+}
+.ws-decision-card header {
+  padding: 18px 20px 13px;
+  border-bottom: 1px solid #2e4559;
+  background: #121e29;
+}
+.ws-decision-card header span {
+  color: #79afe1;
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.ws-decision-card h2 {
+  margin: 6px 0 0;
+  color: #f2f7fb;
+  font-size: 18px;
+  letter-spacing: -.015em;
+}
+.ws-decision-card > p {
+  margin: 0;
+  padding: 17px 20px;
+  color: #a9bac9;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.ws-decision-card footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 12px 14px;
+  border-top: 1px solid #2e4559;
+  background: #111c26;
+}
+.ws-decision-card button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #3d5871;
+  border-radius: 3px;
+  background: #203142;
+  color: #d8e3ec;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ws-decision-card button:hover { border-color: #6487a8; background: #283d50; }
+.ws-decision-card button:focus-visible { outline: 2px solid #82bfff; outline-offset: 2px; }
+.ws-decision-card .ws-primary { border-color: #4d9ae8; background: #1768b1; color: #fff; }
+.ws-decision-card .ws-primary:hover { background: #2179c6; }
+.ws-decision-discard { color: #efc4bc !important; }
+.ws-decision-danger .ws-decision-card { border-top-color: #d6745f; }
+.ws-decision-danger .ws-decision-card header span { color: #e7a191; }
+.ws-decision-card .ws-danger { border-color: #b85d4b; background: #8d3f32; color: #fff; }
+.ws-decision-card .ws-danger:hover { background: #a84d3d; }
+
+.ws-transition-toast {
+  position: absolute;
+  right: 18px;
+  bottom: 42px;
+  z-index: 45;
+  display: grid;
+  grid-template-columns: 34px minmax(180px, 1fr) auto 28px;
+  align-items: center;
+  gap: 10px;
+  width: min(440px, calc(100% - 36px));
+  min-height: 58px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid #426786;
+  border-left: 3px solid #4d9ae8;
+  border-radius: 3px;
+  background: rgba(18, 31, 43, .97);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .48);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 160ms ease, transform 180ms ease;
+}
+.ws-transition-toast.is-visible { opacity: 1; transform: translateY(0); }
+.ws-transition-toast[hidden] { display: none; }
+.ws-transition-mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid #365b7c;
+  background: #142b3f;
+  color: #83c2fa;
+}
+.ws-transition-icon { width: 17px; height: 17px; }
+#bw-transition-status { display: grid; gap: 3px; min-width: 0; }
+#bw-transition-status strong { overflow: hidden; color: #edf5fb; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+#bw-transition-status small { color: #8ea5b8; font-size: 9.5px; line-height: 1.3; }
+.ws-transition-toast button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: #9fd0ff;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ws-transition-toast button:hover { background: #1d3a53; color: #d9ecff; }
+.ws-transition-toast button:focus-visible { outline: 2px solid #82bfff; outline-offset: 1px; }
+.ws-transition-action { padding: 0 11px; border: 1px solid #356b9e !important; }
+.ws-transition-action[hidden] { display: none; }
+.ws-transition-close { width: 28px; padding: 0; color: #7890a4 !important; font-size: 17px !important; }
+
+@media (max-width: 600px) {
+  .ws-decision-card footer { display: grid; grid-template-columns: 1fr; }
+  .ws-decision-card button { min-height: 44px; }
+  .ws-decision-card .ws-primary { grid-row: 1; }
+  .ws-transition-toast {
+    right: 10px;
+    bottom: 58px;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    width: calc(100% - 20px);
+  }
+  .ws-transition-close { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-transition-toast { transition: none; }
+}
+
 /* First run is guidance inside the tool, over the actual modeling surface. */
 .ws-welcome {
   position: absolute;
@@ -1399,6 +1548,120 @@ body.cadstudio-route > main {
   cursor: crosshair;
   touch-action: none;
 }
+.sk-pull {
+  border-color: #4388c7 !important;
+  background: #153f65 !important;
+  color: #f3f8fc !important;
+  font-weight: 700 !important;
+}
+
+/* Direct-manipulation solid preview. The WebGL canvas stays the work surface;
+   only the compact numeric palette and drag cue sit above it. */
+.ws-presspull {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  color: #e8eef4;
+}
+.ws-presspull::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(7, 12, 18, .22), transparent 28%);
+}
+.pp-card {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: min(330px, calc(100% - 32px));
+  padding: 14px 15px 13px;
+  border: 1px solid #40576c;
+  border-radius: 3px;
+  background: rgba(23, 31, 40, .96);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .38);
+  pointer-events: auto;
+}
+.pp-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: #69a9df;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+.pp-card > b { display: block; font-size: 17px; }
+.pp-card > p { margin: 5px 0 11px; color: #aebdca; font-size: 12px; line-height: 1.45; }
+.pp-card label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.pp-card input {
+  width: 90px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid #4c647a;
+  border-radius: 2px;
+  background: #0f1821;
+  color: #f3f7fb;
+  font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pp-actions { display: flex; gap: 7px; margin-top: 12px; }
+.pp-actions button {
+  min-height: 34px;
+  padding: 5px 11px;
+  border: 1px solid #455b6f;
+  border-radius: 2px;
+  background: #253442;
+  color: #e5edf4;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pp-actions .sr-accent { border-color: #1672bd; background: #1268ad; color: #fff; }
+.pp-drag-cue {
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  display: grid;
+  justify-items: center;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .65));
+}
+.pp-drag-cue i {
+  display: block;
+  width: 2px;
+  height: 78px;
+  background: #6fb6ec;
+  box-shadow: 0 -1px 0 1px #6fb6ec;
+}
+.pp-drag-cue i::before,
+.pp-drag-cue i::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-top: 2px solid #6fb6ec;
+  border-left: 2px solid #6fb6ec;
+}
+.pp-drag-cue i::before { top: 1px; transform: translateX(-50%) rotate(45deg); }
+.pp-drag-cue i::after { top: 67px; transform: translateX(-50%) rotate(225deg); }
+.pp-drag-cue b {
+  margin-top: 8px;
+  padding: 4px 7px;
+  border: 1px solid #69a9df;
+  background: #101820;
+  color: #eef7ff;
+  font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pp-drag-cue span { margin-top: 5px; color: #9ab2c6; font-size: 9px; font-weight: 800; letter-spacing: .13em; }
+.cadstudio-app.is-presspull #bw-studio > canvas { cursor: ns-resize; }
 .sk-note {
   color: #a9bacb;
   font-size: 12px;
@@ -1414,6 +1677,11 @@ body.cadstudio-route > main {
 }
 
 @media (max-width: 760px) {
+  .pp-card { top: 10px; left: 10px; width: calc(100% - 20px); padding: 11px 12px; }
+  .pp-card > p { display: none; }
+  .pp-card label { margin-top: 8px; }
+  .pp-actions button, .pp-card input { min-height: 44px; }
+  .pp-drag-cue { top: 60%; }
   .ws-appbar {
     grid-template-columns: 1fr auto;
     min-height: 50px;
