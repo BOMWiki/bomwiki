@@ -2856,3 +2856,547 @@ body.cadstudio-route > main {
     display: none;
   }
 }
+
+/* ----------------------------------------------------------------------
+   CAD desktop chrome — the tutorial video's information architecture.
+   A narrow application title strip, text tabs, a dense grouped ribbon,
+   document tabs, then the uninterrupted modeling viewport.
+   ---------------------------------------------------------------------- */
+.cadstudio-app {
+  --cad-title: #1b222c;
+  --cad-tabs: #222b36;
+  --cad-ribbon: #303a47;
+  --cad-ribbon-deep: #29333f;
+  --cad-viewport: #1b242d;
+  --cad-line: #485361;
+  --cad-line-soft: #35404d;
+  --cad-text: #d6dde5;
+  --cad-muted: #8d9aa7;
+  --cad-blue: #4b9bd3;
+  --v3-ink: var(--cad-viewport);
+  --v3-rail: var(--cad-tabs);
+  --v3-panel: #202a35;
+  --v3-panel-2: #26313d;
+  --v3-line: var(--cad-line);
+  --v3-line-soft: var(--cad-line-soft);
+  --v3-text: var(--cad-text);
+  --v3-muted: var(--cad-muted);
+  --v3-blue: var(--cad-blue);
+  font-family: "Segoe UI", Arial, ui-sans-serif, sans-serif;
+}
+
+/* quick-access and title bar */
+.cadstudio-app .ws-appbar {
+  min-height: 32px;
+  height: 32px;
+  grid-template-columns: minmax(170px, 1fr) minmax(210px, auto) minmax(420px, 1fr);
+  gap: 8px;
+  padding: 0 7px;
+  border-bottom: 1px solid #10161d;
+  background: var(--cad-title);
+  box-shadow: 0 1px rgba(255, 255, 255, 0.035) inset;
+}
+.cadstudio-app .ws-brand {
+  min-width: 0;
+  gap: 7px;
+}
+.cadstudio-app .ws-brand-mark {
+  width: 22px;
+  height: 22px;
+  border-color: #526171;
+  border-radius: 1px;
+  background: #283542;
+  color: #b7d9f1;
+  font-size: 7px;
+}
+.cadstudio-app .ws-brand b {
+  color: #ccd5de;
+  font-size: 10px;
+  font-weight: 600;
+}
+.cadstudio-app .ws-brand small {
+  display: none;
+}
+.cadstudio-app .ws-document {
+  justify-self: center;
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #b9c3cd;
+  white-space: nowrap;
+}
+.cadstudio-app .ws-document-kind {
+  height: auto;
+  padding: 0;
+  border: 0;
+  color: #aeb9c4;
+  font: 600 10px/1 "Segoe UI", Arial, sans-serif;
+  letter-spacing: 0;
+}
+.cadstudio-app .ws-document-kind::after {
+  content: " — ";
+  color: #65717e;
+}
+.cadstudio-app .ws-document .ws-project-name,
+.cadstudio-app .ws-document-suffix {
+  padding: 0;
+  color: #d2dae2;
+  font-size: 10px;
+}
+.cadstudio-app .ws-document-suffix {
+  color: #808d99;
+}
+.cadstudio-app .ws-document .ws-local {
+  margin-left: 8px;
+  padding: 0;
+  font-size: 8px;
+}
+.cadstudio-app .ws-app-actions {
+  justify-self: end;
+  gap: 0;
+}
+.cadstudio-app .ws-edit-actions,
+.cadstudio-app .ws-file-actions {
+  gap: 0;
+  padding-right: 2px;
+  border-right-color: #3a4551;
+}
+.cadstudio-app .ws-app-actions .ws-quick-btn,
+.cadstudio-app .ws-app-actions .ws-quick-labeled {
+  min-width: 28px !important;
+  min-height: 27px;
+  height: 27px;
+  gap: 0;
+  padding: 0 5px;
+  border-radius: 1px;
+}
+.cadstudio-app .ws-app-actions .ws-quick-btn > span:not(.ws-quick-icon):not(.ws-visually-hidden),
+.cadstudio-app .ws-export-btn > span:first-child,
+.cadstudio-app .ws-clear-label {
+  display: none;
+}
+.cadstudio-app .ws-app-actions .ws-quick-btn:hover,
+.cadstudio-app .ws-app-actions .ws-quick-btn[aria-pressed='true'] {
+  border-color: #596979;
+  background: #344250;
+}
+.cadstudio-app .ws-app-actions .ws-quick-icon,
+.cadstudio-app .ws-app-actions .ws-quick-icon .ws-icon {
+  width: 15px;
+  height: 15px;
+}
+.cadstudio-app .ws-action-divider {
+  height: 18px;
+  background: #3d4855;
+}
+
+/* tab rail */
+.cadstudio-app .ws-ribbon {
+  flex: 0 0 auto;
+  border-bottom: 1px solid #111820;
+  background: var(--cad-tabs);
+}
+.cadstudio-app .ws-workspace-bar {
+  min-height: 29px;
+  height: 29px;
+  padding: 0 5px;
+  border-bottom: 1px solid #45505d;
+  background: var(--cad-tabs);
+}
+.cadstudio-app .ws-workspaces {
+  gap: 0;
+}
+.cadstudio-app .ws-workspaces button {
+  min-width: 0;
+  padding: 0 13px;
+  color: #b5c0ca;
+  font: 400 11px/1 "Segoe UI", Arial, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.cadstudio-app .ws-workspaces button::after {
+  left: 8px;
+  right: 8px;
+  height: 2px;
+}
+.cadstudio-app .ws-workspaces button:hover:not(:disabled) {
+  background: #34404d;
+  color: #f1f5f8;
+}
+.cadstudio-app .ws-workspaces button[aria-selected='true'] {
+  background: var(--cad-ribbon);
+  color: #fff;
+}
+.cadstudio-app .ws-workspaces button[aria-selected='true']::after {
+  background: var(--cad-blue);
+  box-shadow: none;
+}
+.cadstudio-app .ws-workspaces button:disabled {
+  color: #687581;
+}
+.cadstudio-app .ws-workspace-state {
+  gap: 6px;
+  padding-right: 6px;
+}
+.cadstudio-app .ws-workspace-state > span {
+  width: 5px;
+  height: 5px;
+  background: var(--cad-blue);
+  box-shadow: none;
+}
+.cadstudio-app .ws-workspace-state b {
+  color: #aeb9c3;
+  font-size: 9px;
+  font-weight: 500;
+}
+.cadstudio-app .ws-workspace-state small {
+  color: #778491;
+  font-size: 8px;
+}
+
+/* dense grouped ribbon */
+.cadstudio-app .ws-ribbon-panel {
+  align-items: stretch;
+  min-height: 112px;
+  height: 112px;
+  padding: 4px 4px 2px;
+  background: var(--cad-ribbon);
+  scrollbar-color: #637181 #2b3541;
+}
+.cadstudio-app .ws-ribbon-panel[hidden] {
+  display: none;
+}
+.cadstudio-app .ws-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  min-width: max-content;
+  height: 104px;
+  padding: 0 7px 18px;
+  border-right: 1px solid #1f2832;
+  box-shadow: 1px 0 rgba(255, 255, 255, 0.055);
+}
+.cadstudio-app .wsg-title {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: auto;
+  bottom: 1px;
+  display: block;
+  width: auto;
+  height: 15px;
+  margin: 0;
+  padding: 2px 5px 0;
+  border: 0;
+  color: #9ca8b3;
+  font: 400 9px/1 "Segoe UI", Arial, sans-serif;
+  text-align: center;
+  white-space: nowrap;
+}
+.cadstudio-app .wsg-tools {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 82px;
+}
+.cadstudio-app .wsg-stack {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, 22px);
+  grid-auto-columns: minmax(124px, auto);
+  gap: 1px 3px;
+}
+.cadstudio-app .wsr-btn,
+.cadstudio-app .wsr-btn.is-large,
+.cadstudio-app .wsr-btn.is-compact {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 1px;
+  background: transparent;
+  color: var(--cad-text);
+  box-shadow: none;
+  text-align: left;
+}
+.cadstudio-app .wsr-btn.is-large {
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 62px;
+  height: 82px;
+  padding: 4px 5px 3px;
+  text-align: center;
+}
+.cadstudio-app .wsr-btn.is-compact {
+  flex-direction: row;
+  width: 100%;
+  height: 22px;
+  padding: 1px 5px;
+}
+.cadstudio-app .wsr-btn:hover {
+  border-color: #71808e;
+  background: #43515f;
+}
+.cadstudio-app .wsr-btn.on,
+.cadstudio-app .wsr-btn[aria-pressed='true'] {
+  border-color: #76b5df;
+  background: #316f9b;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset;
+}
+.cadstudio-app .wsr-btn .wsr-i,
+.cadstudio-app .wsr-btn .wsr-i .ws-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  color: #a7d0eb;
+}
+.cadstudio-app .wsr-btn.is-large .wsr-i,
+.cadstudio-app .wsr-btn.is-large .wsr-i .ws-icon {
+  width: 34px;
+  height: 34px;
+}
+.cadstudio-app .wsr-btn .wsr-label {
+  align-self: auto;
+  color: inherit;
+  font: 400 10px/1.1 "Segoe UI", Arial, sans-serif;
+  white-space: nowrap;
+}
+.cadstudio-app .wsr-btn.is-large .wsr-label {
+  font-size: 10px;
+}
+.cadstudio-app .wsr-btn small {
+  display: none;
+}
+
+/* open-document rail */
+.cadstudio-app .ws-document-tabs {
+  flex: 0 0 32px;
+  display: flex;
+  align-items: stretch;
+  min-height: 32px;
+  border-top: 1px solid #46515d;
+  border-bottom: 1px solid #111820;
+  background: #202934;
+  color: #adb8c2;
+}
+.cadstudio-app .ws-document-tabs a,
+.cadstudio-app .ws-document-tabs button {
+  border: 0;
+  border-right: 1px solid #111820;
+  background: transparent;
+  color: inherit;
+  font: 400 10px/1 "Segoe UI", Arial, sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+.cadstudio-app .ws-doc-menu {
+  display: grid;
+  place-items: center;
+  width: 37px;
+  font-size: 15px !important;
+}
+.cadstudio-app .ws-doc-start {
+  display: grid;
+  place-items: center;
+  min-width: 58px;
+  padding: 0 12px;
+}
+.cadstudio-app .ws-doc-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 145px;
+  max-width: 260px;
+  padding: 0 15px 0 10px;
+  border-right: 1px solid #111820;
+  background: #303b47;
+  color: #eef2f5;
+  font-size: 10px;
+}
+.cadstudio-app .ws-doc-tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--cad-blue);
+}
+.cadstudio-app .ws-doc-tab > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cadstudio-app .ws-doc-tab i {
+  width: 5px;
+  height: 5px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #62bf85;
+}
+.cadstudio-app .ws-doc-cube {
+  color: #91c7e8;
+  font-size: 15px;
+}
+.cadstudio-app .ws-doc-new {
+  width: 35px;
+  font-size: 18px !important;
+}
+.cadstudio-app .ws-document-tabs a:hover,
+.cadstudio-app .ws-document-tabs button:hover {
+  background: #36434f;
+  color: #fff;
+}
+.cadstudio-app .ws-doc-spacer {
+  flex: 1;
+}
+.cadstudio-app .ws-visual-style {
+  display: flex;
+  align-items: center;
+  padding: 0 11px;
+  color: #7f8d9b;
+  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cadstudio-app .ws-main,
+.cadstudio-app #bw-studio {
+  min-height: 0;
+}
+.cadstudio-app #bw-studio {
+  background: var(--cad-viewport);
+}
+
+@media (max-width: 1180px) {
+  .cadstudio-app .ws-appbar {
+    grid-template-columns: minmax(120px, 1fr) minmax(180px, auto) minmax(300px, 1fr);
+  }
+  .cadstudio-app .ws-document-suffix,
+  .cadstudio-app .ws-document .ws-local,
+  .cadstudio-app .ws-workspace-state small {
+    display: none;
+  }
+  .cadstudio-app .ws-workspaces button {
+    padding-inline: 10px;
+  }
+}
+
+@media (max-width: 760px) {
+  .cadstudio-app .ws-appbar {
+    min-height: 38px;
+    height: 38px;
+    grid-template-columns: 31px minmax(0, 1fr) auto;
+    gap: 4px;
+    padding: 0 4px;
+  }
+  .cadstudio-app .ws-brand-mark {
+    width: 26px;
+    height: 26px;
+  }
+  .cadstudio-app .ws-brand > span:last-child,
+  .cadstudio-app .ws-document-kind,
+  .cadstudio-app .ws-document-suffix,
+  .cadstudio-app .ws-document .ws-local {
+    display: none;
+  }
+  .cadstudio-app .ws-document {
+    justify-self: stretch;
+    height: 34px;
+  }
+  .cadstudio-app .ws-document .ws-project-name {
+    display: block;
+    width: 100%;
+    padding-left: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cadstudio-app .ws-app-actions .ws-quick-btn,
+  .cadstudio-app .ws-app-actions .ws-quick-labeled {
+    min-width: 36px !important;
+    min-height: 36px;
+    height: 36px;
+  }
+  .cadstudio-app .ws-workspace-bar {
+    min-height: 38px;
+    height: 38px;
+    padding: 0;
+    overflow-x: auto;
+  }
+  .cadstudio-app .ws-workspaces button {
+    min-width: auto;
+    min-height: 38px;
+    padding: 0 13px;
+    white-space: nowrap;
+  }
+  .cadstudio-app .ws-ribbon-panel {
+    min-height: 78px;
+    height: 78px;
+    padding: 3px;
+  }
+  .cadstudio-app .ws-group {
+    height: 70px;
+    padding: 0 4px;
+  }
+  .cadstudio-app .wsg-title {
+    display: none;
+  }
+  .cadstudio-app .wsg-tools,
+  .cadstudio-app .wsg-stack {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    height: 70px;
+  }
+  .cadstudio-app .wsr-btn,
+  .cadstudio-app .wsr-btn.is-large,
+  .cadstudio-app .wsr-btn.is-compact {
+    flex: 0 0 66px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    width: 66px;
+    min-width: 66px;
+    height: 68px;
+    min-height: 44px;
+    padding: 3px 4px;
+    text-align: center;
+  }
+  .cadstudio-app .wsr-btn .wsr-i,
+  .cadstudio-app .wsr-btn .wsr-i .ws-icon,
+  .cadstudio-app .wsr-btn.is-large .wsr-i,
+  .cadstudio-app .wsr-btn.is-large .wsr-i .ws-icon {
+    width: 27px;
+    height: 27px;
+  }
+  .cadstudio-app .wsr-btn .wsr-label {
+    max-width: 62px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 9px;
+  }
+  .cadstudio-app .ws-document-tabs {
+    flex-basis: 32px;
+    min-height: 32px;
+  }
+  .cadstudio-app .ws-doc-start,
+  .cadstudio-app .ws-visual-style {
+    display: none;
+  }
+  .cadstudio-app .ws-doc-tab {
+    min-width: 0;
+    max-width: none;
+    flex: 1;
+  }
+}

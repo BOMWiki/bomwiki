@@ -654,10 +654,12 @@
   let preferredWorkspace = 'solid';
   let activeWorkspace = 'solid';
   const WORKSPACE_META = {
-    solid: ['Solid tools', 'Create material from a profile'],
-    sketch: ['Sketch tools', 'Draw and edit a closed profile'],
-    modify: ['Modify tools', 'Refine edges and hollow the body'],
-    inspect: ['Inspect tools', 'Orient and frame the part'],
+    home: ['Home', 'Common modeling and project commands'],
+    sketch: ['Sketch', 'Draw and edit a closed profile'],
+    solid: ['3D modeling', 'Create and refine solid bodies'],
+    view: ['View', 'Orient, frame, and inspect the part'],
+    manage: ['Manage', 'Project files, recovery, and history'],
+    output: ['Output', 'Export manufacturing and project files'],
   };
   function showWorkspace(name, forced) {
     if (!WORKSPACE_META[name]) return false;
@@ -680,6 +682,27 @@
   }
   document.querySelectorAll('[data-workspace]').forEach((b) =>
     b.addEventListener('click', () => showWorkspace(b.dataset.workspace, false)),
+  );
+  // Ribbon tabs may surface the same real command in more than one context.
+  // Proxies keep one canonical control per command, avoiding duplicate IDs and
+  // duplicate feature state while preserving the dense desktop-CAD ribbon.
+  document.querySelectorAll('[data-command-target]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const target = $(b.dataset.commandTarget);
+      if (target) target.click();
+    }),
+  );
+  document.querySelectorAll('[data-command-feat]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const target = document.querySelector('[data-feat="' + b.dataset.commandFeat + '"]');
+      if (target) target.click();
+    }),
+  );
+  document.querySelectorAll('[data-command-view]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const target = document.querySelector('[data-view="' + b.dataset.commandView + '"]');
+      if (target) target.click();
+    }),
   );
   function setMode(next) {
     // Passive recovery notices must never sit on top of an active modeling
@@ -705,13 +728,18 @@
     if (sketchTab) sketchTab.disabled = mode.kind !== 'sketching';
     if (mode.kind === 'sketching') showWorkspace('sketch', true);
     else if (mode.kind === 'press-pull') showWorkspace('solid', true);
-    else if (mode.kind === 'picking-edges' || mode.kind === 'picking-faces') showWorkspace('modify', true);
+    else if (mode.kind === 'picking-edges' || mode.kind === 'picking-faces') showWorkspace('solid', true);
     else if (mode.kind === 'choose-face') showWorkspace('solid', true);
     else if (mode.kind === 'idle') showWorkspace(preferredWorkspace, true);
     if (!isWorking(mode.kind)) currentOpType = null;
     document.querySelectorAll('[data-feat]').forEach((b) => {
       b.setAttribute('aria-pressed', b.dataset.feat === currentOpType && isWorking(mode.kind) ? 'true' : 'false');
       b.classList.toggle('on', b.dataset.feat === currentOpType && isWorking(mode.kind));
+    });
+    document.querySelectorAll('[data-command-feat]').forEach((b) => {
+      const on = b.dataset.commandFeat === currentOpType && isWorking(mode.kind);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.classList.toggle('on', on);
     });
     renderContext();
   }
@@ -937,6 +965,7 @@
     const list = $('bw-history');
     list.innerHTML = '';
     if ($('bw-project-name')) $('bw-project-name').textContent = doc.title;
+    if ($('bw-tab-project-name')) $('bw-tab-project-name').textContent = doc.title;
     if ($('bw-tree-project-name')) $('bw-tree-project-name').textContent = doc.title;
     const featureMark = { extrude: 'EX', cut: 'CU', revolve: 'RV', fillet: 'FL', chamfer: 'CH', shell: 'SH' };
     doc.features.forEach((f, i) => {

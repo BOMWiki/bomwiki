@@ -267,12 +267,15 @@ const iconAudit = await page.evaluate(() => {
   const views = Array.from(document.querySelectorAll<SVGElement>('[data-view] svg.ws-icon')).map(
     (icon) => icon.dataset.icon,
   );
+  const canonicalIcons = Array.from(document.querySelectorAll<SVGElement>('[data-feat] svg.ws-icon, [data-sktool] svg.ws-icon, [data-view] svg.ws-icon'))
+    .map((icon) => icon.dataset.icon ?? '');
   const extrudeIcon = document.querySelector('[data-feat="extrude"] .wsr-i')!;
   return {
     buttonCount: buttons.length,
     complete: icons.every(Boolean),
     noGlyphFallbacks: buttons.every((button) => button.querySelector('.wsr-i')?.textContent === ''),
-    uniqueNames: new Set(iconNames).size === iconNames.length,
+    named: iconNames.every(Boolean),
+    canonicalUnique: new Set(canonicalIcons).size === canonicalIcons.length,
     views,
     step: document.querySelector<SVGElement>('#bw-export-step svg')?.dataset.icon,
     stl: document.querySelector<SVGElement>('#bw-export-stl svg')?.dataset.icon,
@@ -280,9 +283,9 @@ const iconAudit = await page.evaluate(() => {
     pressedDecoration: getComputedStyle(extrudeIcon, '::after').content,
   };
 });
-check('every contextual ribbon command has one inline SVG icon', iconAudit.buttonCount === 17 && iconAudit.complete);
+check('every contextual ribbon command has one inline SVG icon', iconAudit.buttonCount >= 35 && iconAudit.complete, JSON.stringify(iconAudit));
 check('ribbon has no operating-system glyph fallbacks', iconAudit.noGlyphFallbacks);
-check('ribbon command icons have unique semantic identities', iconAudit.uniqueNames);
+check('canonical ribbon commands retain unique semantic identities', iconAudit.named && iconAudit.canonicalUnique);
 check('all five View commands have orientation icons', iconAudit.views.join(',') === 'top,front,right,iso,fit', iconAudit.views.join(','));
 check('STEP solid and STL mesh exports have distinct icons', iconAudit.step === 'step' && iconAudit.stl === 'stl');
 check('all document, export, Help and Full screen controls use hidden SVG icons', iconAudit.appComplete);
@@ -1210,9 +1213,10 @@ check('cut-first remains blank instead of inventing a base solid', cutFirstResul
 check('cut-first reports the missing upstream solid', cutFirstResult.errors.some((error: string) => /nothing to cut yet/.test(error)), JSON.stringify(cutFirstResult));
 await pageK.close();
 
-// --- V3 precision workspace ------------------------------------------------
-// The canvas is now flanked by a model tree and inspector, with contextual
-// workspaces above it and view/navigation instruments directly on the stage.
+// --- desktop-CAD application chrome ---------------------------------------
+// The canvas is flanked by a model tree and inspector. Above it, the tutorial
+// video's hierarchy is explicit: title bar, tab rail, grouped ribbon, document
+// tabs, then the uninterrupted viewport.
 const pageV = await newStudioPage();
 await pageV.evaluateOnNewDocument(() => {
   localStorage.setItem('bw-studio-doc-v2', JSON.stringify({
@@ -1235,27 +1239,47 @@ const v3Shell = await pageV.evaluate(() => {
   const panels = [...document.querySelectorAll<HTMLElement>('[data-workspace-panel]')];
   return {
     tabs: document.querySelectorAll('[data-workspace]').length,
+    tabLabels: [...document.querySelectorAll<HTMLElement>('[data-workspace]')].map((tab) => tab.textContent?.trim()).join(','),
     selected: document.querySelector('[data-workspace][aria-selected="true"]')?.getAttribute('data-workspace'),
     visiblePanels: panels.filter((panel) => !panel.hidden && panel.getClientRects().length).map((panel) => panel.dataset.workspacePanel),
     ordered: tree.left < stage.left && stage.right <= side.left,
     heightsAligned: Math.abs(tree.top - stage.top) < 2 && Math.abs(side.top - stage.top) < 2,
+    chrome: {
+      appbar: document.querySelector('.ws-appbar')!.getBoundingClientRect().height,
+      tabs: document.querySelector('.ws-workspace-bar')!.getBoundingClientRect().height,
+      ribbon: document.querySelector('[data-workspace-panel="solid"]')!.getBoundingClientRect().height,
+      documents: document.querySelector('.ws-document-tabs')!.getBoundingClientRect().height,
+    },
+    solidGroups: document.querySelectorAll('#ws-panel-solid .ws-group').length,
+    solidLarge: document.querySelectorAll('#ws-panel-solid .wsr-btn.is-large').length,
+    solidCompact: document.querySelectorAll('#ws-panel-solid .wsr-btn.is-compact').length,
+    compactRowsClear: [...document.querySelectorAll<HTMLElement>('#ws-panel-solid .wsr-btn.is-compact')].every((button) => {
+      const icon = button.querySelector<HTMLElement>('.wsr-i')?.getBoundingClientRect();
+      const label = button.querySelector<HTMLElement>('.wsr-label')?.getBoundingClientRect();
+      return Boolean(icon && label && icon.right + 2 <= label.left && Math.abs((icon.top + icon.bottom) / 2 - (label.top + label.bottom) / 2) < 3);
+    }),
+    documentName: document.getElementById('bw-tab-project-name')?.textContent,
   };
 });
-check('V3 has four contextual workspaces', v3Shell.tabs === 4);
-check('Solid is the single initial workspace', v3Shell.selected === 'solid' && v3Shell.visiblePanels.join(',') === 'solid', JSON.stringify(v3Shell));
+check('ribbon exposes the six video-derived application tabs', v3Shell.tabs === 6 && v3Shell.tabLabels === 'Home,Sketch,3D Tools,View,Manage,Output', JSON.stringify(v3Shell));
+check('3D Tools is the single initial workspace', v3Shell.selected === 'solid' && v3Shell.visiblePanels.join(',') === 'solid', JSON.stringify(v3Shell));
 check('model tree, canvas and inspector form one aligned workspace', v3Shell.ordered && v3Shell.heightsAligned, JSON.stringify(v3Shell));
+check('desktop chrome uses a compact title-tab-ribbon-document hierarchy',
+  Math.abs(v3Shell.chrome.appbar - 32) < 2 && Math.abs(v3Shell.chrome.tabs - 29) < 2 && Math.abs(v3Shell.chrome.ribbon - 112) < 2 && Math.abs(v3Shell.chrome.documents - 32) < 2,
+  JSON.stringify(v3Shell.chrome));
+check('3D Tools uses dense grouped large and compact commands', v3Shell.solidGroups >= 3 && v3Shell.solidLarge >= 3 && v3Shell.solidCompact >= 6, JSON.stringify(v3Shell));
+check('compact ribbon rows keep icons clear of their labels', v3Shell.compactRowsClear, JSON.stringify(v3Shell));
+check('active document tab mirrors the project name', v3Shell.documentName === 'Untitled part', JSON.stringify(v3Shell));
 
-await pageV.click('[data-workspace="modify"]');
-check('Modify tab exposes modification tools',
-  await pageV.$eval('#ws-panel-modify', (el) => !(el as HTMLElement).hidden && Boolean(el.querySelector('[data-feat="fillet"]'))));
-await pageV.click('[data-workspace="inspect"]');
-check('Inspect tab exposes view commands',
-  (await pageV.$$('#ws-panel-inspect [data-view]')).length === 5 &&
-  (await pageV.$eval('[data-workspace="inspect"]', (el) => el.getAttribute('aria-selected'))) === 'true');
+check('3D Tools includes the real solid-modification commands', (await pageV.$$('#ws-panel-solid [data-feat="fillet"], #ws-panel-solid [data-feat="chamfer"], #ws-panel-solid [data-feat="shell"]')).length === 3);
+await pageV.click('[data-workspace="view"]');
+check('View tab exposes all orientation commands',
+  (await pageV.$$('#ws-panel-view [data-view]')).length === 5 &&
+  (await pageV.$eval('[data-workspace="view"]', (el) => el.getAttribute('aria-selected'))) === 'true');
 
 check('ViewCube exposes top, front, right and isometric views', (await pageV.$$('[data-cube-view]')).length === 5);
 await pageV.click('[data-cube-view="right"]');
-check('ViewCube click synchronizes the Inspect preset state',
+check('ViewCube click synchronizes the View preset state',
   (await pageV.$eval('[data-view="right"]', (el) => el.getAttribute('aria-pressed'))) === 'true');
 await pageV.click('[data-nav-mode="pan"]');
 check('canvas navigation has exclusive Orbit and Pan modes',
@@ -1280,6 +1304,11 @@ check('document history actions reflect the actual command stacks',
 await pageV.click('#bw-param-add');
 check('a committed edit enables Undo in the document bar',
   !(await pageV.$eval('#bw-undo', (el) => (el as HTMLButtonElement).disabled)));
+
+await pageV.click('[data-workspace="home"]');
+await pageV.click('[data-command-feat="extrude"]');
+check('Home ribbon proxies invoke the canonical modeling command', (await pageV.$eval('#bw-face', (el) => !(el as HTMLElement).hidden)));
+await pageV.click('#bw-face-cancel');
 
 await pageV.click('[data-workspace="solid"]');
 await pageV.click('[data-feat="extrude"]');
