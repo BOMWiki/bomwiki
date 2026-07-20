@@ -1237,6 +1237,14 @@ const v3Shell = await pageV.evaluate(() => {
   const stage = document.getElementById('bw-studio')!.getBoundingClientRect();
   const side = document.getElementById('bw-side')!.getBoundingClientRect();
   const panels = [...document.querySelectorAll<HTMLElement>('[data-workspace-panel]')];
+  const appbar = document.querySelector<HTMLElement>('.ws-appbar')!.getBoundingClientRect();
+  const brand = document.querySelector<HTMLElement>('.ws-brand')!.getBoundingClientRect();
+  const documentTitle = document.querySelector<HTMLElement>('.ws-document')!.getBoundingClientRect();
+  const actions = document.querySelector<HTMLElement>('.ws-app-actions')!.getBoundingClientRect();
+  const titlePieces = [...document.querySelectorAll<HTMLElement>('.ws-document-kind, .ws-document-separator, .ws-document .ws-project-name, .ws-document-suffix')]
+    .map((piece) => ({ rect: piece.getBoundingClientRect(), whiteSpace: getComputedStyle(piece).whiteSpace }));
+  const documentTab = document.querySelector<HTMLElement>('.ws-doc-tab')!.getBoundingClientRect();
+  const documentTabs = document.querySelector<HTMLElement>('.ws-document-tabs')!.getBoundingClientRect();
   return {
     tabs: document.querySelectorAll('[data-workspace]').length,
     tabLabels: [...document.querySelectorAll<HTMLElement>('[data-workspace]')].map((tab) => tab.textContent?.trim()).join(','),
@@ -1258,6 +1266,24 @@ const v3Shell = await pageV.evaluate(() => {
       const label = button.querySelector<HTMLElement>('.wsr-label')?.getBoundingClientRect();
       return Boolean(icon && label && icon.right + 2 <= label.left && Math.abs((icon.top + icon.bottom) / 2 - (label.top + label.bottom) / 2) < 3);
     }),
+    largeColumnsClear: [...document.querySelectorAll<HTMLElement>('#ws-panel-solid .wsr-btn.is-large')].every((button) => {
+      const icon = button.querySelector<HTMLElement>('.wsr-i')?.getBoundingClientRect();
+      const label = button.querySelector<HTMLElement>('.wsr-label')?.getBoundingClientRect();
+      return Boolean(icon && label && icon.bottom < label.top && Math.abs((icon.left + icon.right) / 2 - (label.left + label.right) / 2) < 2);
+    }),
+    groupCaptionsClear: [...document.querySelectorAll<HTMLElement>('#ws-panel-solid .ws-group')].every((group) => {
+      const tools = group.querySelector<HTMLElement>('.wsg-tools')?.getBoundingClientRect();
+      const title = group.querySelector<HTMLElement>('.wsg-title')?.getBoundingClientRect();
+      return Boolean(tools && title && tools.bottom + 4 <= title.top);
+    }),
+    titleBar: {
+      zonesClear: brand.right <= documentTitle.left && documentTitle.right <= actions.left,
+      verticallyCentered: [brand, documentTitle, actions].every((rect) => Math.abs((rect.top + rect.bottom) / 2 - (appbar.top + appbar.bottom) / 2) < 1),
+      oneBaseline: Math.max(...titlePieces.map((piece) => (piece.rect.top + piece.rect.bottom) / 2)) - Math.min(...titlePieces.map((piece) => (piece.rect.top + piece.rect.bottom) / 2)) < 1,
+      oneLine: titlePieces.every((piece) => piece.rect.height <= 11 && piece.whiteSpace === 'nowrap'),
+      kindLayout: getComputedStyle(document.querySelector<HTMLElement>('.ws-document-kind')!).display,
+    },
+    documentTabCentered: Math.abs((documentTab.top + documentTab.bottom) / 2 - (documentTabs.top + documentTabs.bottom) / 2) < 1,
     documentName: document.getElementById('bw-tab-project-name')?.textContent,
   };
 });
@@ -1269,6 +1295,10 @@ check('desktop chrome uses a compact title-tab-ribbon-document hierarchy',
   JSON.stringify(v3Shell.chrome));
 check('3D Tools uses dense grouped large and compact commands', v3Shell.solidGroups >= 3 && v3Shell.solidLarge >= 3 && v3Shell.solidCompact >= 6, JSON.stringify(v3Shell));
 check('compact ribbon rows keep icons clear of their labels', v3Shell.compactRowsClear, JSON.stringify(v3Shell));
+check('large ribbon commands keep centred icon-label columns', v3Shell.largeColumnsClear, JSON.stringify(v3Shell));
+check('ribbon group captions stay below every command row', v3Shell.groupCaptionsClear, JSON.stringify(v3Shell));
+check('document title bar has three clear zones and one visual baseline', v3Shell.titleBar.zonesClear && v3Shell.titleBar.verticallyCentered && v3Shell.titleBar.oneBaseline && v3Shell.titleBar.oneLine && (v3Shell.titleBar.kindLayout === 'inline-flex' || v3Shell.titleBar.kindLayout === 'flex'), JSON.stringify(v3Shell.titleBar));
+check('active document tab is vertically centred in its rail', v3Shell.documentTabCentered, JSON.stringify(v3Shell));
 check('active document tab mirrors the project name', v3Shell.documentName === 'Untitled part', JSON.stringify(v3Shell));
 
 check('3D Tools includes the real solid-modification commands', (await pageV.$$('#ws-panel-solid [data-feat="fillet"], #ws-panel-solid [data-feat="chamfer"], #ws-panel-solid [data-feat="shell"]')).length === 3);
@@ -1320,6 +1350,31 @@ check('sketching promotes Sketch to the active contextual workspace',
 await pageV.click('#bw-sk-cancel');
 check('leaving sketch disables the Sketch workspace again',
   await pageV.$eval('[data-workspace="sketch"]', (el) => (el as HTMLButtonElement).disabled));
+
+for (const [width, maxTitleWidth] of [[900, 160], [768, 100]] as const) {
+  await pageV.setViewport({ width, height: 700 });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const narrowHeader = await pageV.evaluate((expectedMax) => {
+    const project = document.getElementById('bw-project-name')!;
+    project.textContent = 'A deliberately long precision-machined component name';
+    const brand = document.querySelector<HTMLElement>('.ws-brand')!.getBoundingClientRect();
+    const title = document.querySelector<HTMLElement>('.ws-document')!.getBoundingClientRect();
+    const actions = document.querySelector<HTMLElement>('.ws-app-actions')!.getBoundingClientRect();
+    const kind = document.querySelector<HTMLElement>('.ws-document-kind')!;
+    const separator = document.querySelector<HTMLElement>('.ws-document-separator')!;
+    return {
+      zonesClear: brand.right <= title.left && title.right <= actions.left,
+      chromeHidden: getComputedStyle(kind).display === 'none' && getComputedStyle(separator).display === 'none',
+      titleWidth: title.width,
+      maxTitleWidth: expectedMax,
+      overflow: document.documentElement.scrollWidth - innerWidth,
+    };
+  }, maxTitleWidth);
+  check(`${width}px desktop-equivalent header never collides or wraps`,
+    narrowHeader.zonesClear && narrowHeader.chromeHidden && narrowHeader.titleWidth <= narrowHeader.maxTitleWidth + 1 && narrowHeader.overflow === 0,
+    JSON.stringify(narrowHeader));
+}
+await pageV.evaluate(() => { document.getElementById('bw-project-name')!.textContent = 'Untitled part'; });
 
 await pageV.setViewport({ width: 375, height: 700 });
 await new Promise((resolve) => setTimeout(resolve, 250));

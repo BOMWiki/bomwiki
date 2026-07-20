@@ -415,7 +415,9 @@ export function cadStudioPage(): string {
         </a>
         <div class="ws-document" aria-label="Current document">
           <span class="ws-document-kind">BOMwiki CAD Studio</span>
-          <span class="ws-project-name" id="bw-project-name">Untitled part</span><span class="ws-document-suffix"> — Part Design</span>
+          <span class="ws-document-separator" aria-hidden="true">—</span>
+          <span class="ws-project-name" id="bw-project-name">Untitled part</span>
+          <span class="ws-document-suffix">— Part Design</span>
           <span class="ws-local" id="bw-storage-state" data-state="saving" role="status"><i aria-hidden="true"></i><span>Saving…</span></span>
         </div>
         <div class="ws-app-actions">
