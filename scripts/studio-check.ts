@@ -72,6 +72,15 @@ const newStudioPage = async (showWelcome = false): Promise<Page> => {
   Object.defineProperty(next, 'click', {
     configurable: true,
     value: async (selector: string, options: { count?: number; delay?: number } = {}) => {
+      // V3 tools are contextual. Exercise the same path as a person: expose
+      // the tool's workspace first, then send the real pointer click to the
+      // rendered command. Sketch tools are auto-exposed by sketch mode.
+      const workspace = await next.$eval(selector, (el) =>
+        (el.closest('[data-workspace-panel]') as HTMLElement | null)?.dataset.workspacePanel ?? null,
+      );
+      if (workspace && !(await next.$eval(selector, (el) => Boolean(el.getClientRects().length)))) {
+        await next.$eval(`[data-workspace="${workspace}"]`, (tab) => (tab as HTMLButtonElement).click());
+      }
       const point = await next.$eval(selector, (el) => {
         el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         const r = el.getBoundingClientRect();
@@ -129,11 +138,11 @@ check('boot leaves undo empty', (await S<number>('(s) => s.undoDepth()')) === 0)
 const iconAudit = await page.evaluate(() => {
   const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.ws-ribbon .wsr-btn'));
   const icons = buttons.map((button) => button.querySelector<SVGElement>(':scope > .wsr-i > svg.ws-icon'));
-  const iconNames = icons.map((icon) => icon?.dataset.icon ?? '');
+  const appIcons = Array.from(document.querySelectorAll<SVGElement>('.ws-app-actions svg.ws-icon'));
+  const iconNames = [...icons, ...appIcons].map((icon) => icon?.dataset.icon ?? '');
   const views = Array.from(document.querySelectorAll<SVGElement>('[data-view] svg.ws-icon')).map(
     (icon) => icon.dataset.icon,
   );
-  const appIcons = Array.from(document.querySelectorAll<SVGElement>('.ws-app-actions svg.ws-icon'));
   const extrudeIcon = document.querySelector('[data-feat="extrude"] .wsr-i')!;
   return {
     buttonCount: buttons.length,
@@ -143,18 +152,16 @@ const iconAudit = await page.evaluate(() => {
     views,
     step: document.querySelector<SVGElement>('#bw-export-step svg')?.dataset.icon,
     stl: document.querySelector<SVGElement>('#bw-export-stl svg')?.dataset.icon,
-    appComplete:
-      appIcons.length === 2 &&
-      appIcons.every((icon) => icon.closest('[aria-hidden="true"]') && icon.getAttribute('focusable') === 'false'),
+    appComplete: appIcons.length === 9 && appIcons.every((icon) => icon.closest('[aria-hidden="true"]') && icon.getAttribute('focusable') === 'false'),
     pressedDecoration: getComputedStyle(extrudeIcon, '::after').content,
   };
 });
-check('every ribbon command has one inline SVG icon', iconAudit.buttonCount === 23 && iconAudit.complete);
+check('every contextual ribbon command has one inline SVG icon', iconAudit.buttonCount === 16 && iconAudit.complete);
 check('ribbon has no operating-system glyph fallbacks', iconAudit.noGlyphFallbacks);
 check('ribbon command icons have unique semantic identities', iconAudit.uniqueNames);
 check('all five View commands have orientation icons', iconAudit.views.join(',') === 'top,front,right,iso,fit', iconAudit.views.join(','));
 check('STEP solid and STL mesh exports have distinct icons', iconAudit.step === 'step' && iconAudit.stl === 'stl');
-check('Help and Full screen use hidden SVG icons', iconAudit.appComplete);
+check('all document, export, Help and Full screen controls use hidden SVG icons', iconAudit.appComplete);
 check('pressed tools do not gain a fake dropdown marker', iconAudit.pressedDecoration === 'none', iconAudit.pressedDecoration);
 
 // --- transactional drafts: edit + cancel is byte-identical ---------------
@@ -314,7 +321,8 @@ check('escape returns to idle', (await SB<string>('(s) => s.mode().kind')) === '
 const docB = await SB<string>('(s) => s.docJson()');
 await pageB.click('[data-feat="extrude"]');
 await pageB.click('#bw-face-base');
-check('sketch mode announced', (await SB<string>('(s) => s.mode().kind')) === 'sketching');
+const sketchModeB = await SB<{ kind: string }>('(s) => s.mode()');
+check('sketch mode announced', sketchModeB.kind === 'sketching', JSON.stringify(sketchModeB));
 const label = await pageB.$eval('#bw-mode', (el) => el.textContent || '');
 check('mode label describes the sketch state', /Sketch/.test(label));
 await pageB.keyboard.press('Escape');
@@ -568,7 +576,7 @@ const targets = await pageC.evaluate(() =>
     .filter((r) => r.width > 0) // skip buttons in hidden groups (sketch tools)
     .map((r) => Math.min(r.width, r.height)),
 );
-check('375px: ribbon buttons are 44px touch targets', targets.length > 5 && targets.every((t) => t >= 43.5), targets.join(','));
+check('375px: contextual ribbon buttons are 44px touch targets', targets.length >= 3 && targets.every((t) => t >= 43.5), targets.join(','));
 await pageC.close();
 
 // --- re-review set: field dirty, Clear/Open coordination, ribbon state ----
@@ -904,6 +912,102 @@ const bootOk = await waitForStudioPage(page3, { solid: true })
 check('boot survives disabled localStorage (starter part builds)', bootOk);
 await page3.close();
 
+// --- V3 precision workspace ------------------------------------------------
+// The canvas is now flanked by a model tree and inspector, with contextual
+// workspaces above it and view/navigation instruments directly on the stage.
+const pageV = await newStudioPage();
+await pageV.evaluateOnNewDocument(() => {
+  localStorage.setItem('bw-studio-doc-v2', JSON.stringify({
+    params: [{ name: 'size', value: 40 }, { name: 'hole', value: 8 }],
+    features: [
+      { id: 'v3-extrude', type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 'size', h: 'size' }], z: 0 }, h: 5 },
+      { id: 'v3-cut', type: 'cut', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 'hole/2' }], z: 5 }, h: 10, through: true },
+    ],
+  }));
+  localStorage.setItem('bw-studio-v2-seeded', '1');
+});
+await pageV.setViewport({ width: 1440, height: 900 });
+await pageV.goto(URL_, { waitUntil: 'domcontentloaded' });
+await waitForStudioPage(pageV, { solid: true, idle: true });
+
+const v3Shell = await pageV.evaluate(() => {
+  const tree = document.getElementById('bw-tree')!.getBoundingClientRect();
+  const stage = document.getElementById('bw-studio')!.getBoundingClientRect();
+  const side = document.getElementById('bw-side')!.getBoundingClientRect();
+  const panels = [...document.querySelectorAll<HTMLElement>('[data-workspace-panel]')];
+  return {
+    tabs: document.querySelectorAll('[data-workspace]').length,
+    selected: document.querySelector('[data-workspace][aria-selected="true"]')?.getAttribute('data-workspace'),
+    visiblePanels: panels.filter((panel) => !panel.hidden && panel.getClientRects().length).map((panel) => panel.dataset.workspacePanel),
+    ordered: tree.left < stage.left && stage.right <= side.left,
+    heightsAligned: Math.abs(tree.top - stage.top) < 2 && Math.abs(side.top - stage.top) < 2,
+  };
+});
+check('V3 has four contextual workspaces', v3Shell.tabs === 4);
+check('Solid is the single initial workspace', v3Shell.selected === 'solid' && v3Shell.visiblePanels.join(',') === 'solid', JSON.stringify(v3Shell));
+check('model tree, canvas and inspector form one aligned workspace', v3Shell.ordered && v3Shell.heightsAligned, JSON.stringify(v3Shell));
+
+await pageV.click('[data-workspace="modify"]');
+check('Modify tab exposes modification tools',
+  await pageV.$eval('#ws-panel-modify', (el) => !(el as HTMLElement).hidden && Boolean(el.querySelector('[data-feat="fillet"]'))));
+await pageV.click('[data-workspace="inspect"]');
+check('Inspect tab exposes view commands',
+  (await pageV.$$('#ws-panel-inspect [data-view]')).length === 5 &&
+  (await pageV.$eval('[data-workspace="inspect"]', (el) => el.getAttribute('aria-selected'))) === 'true');
+
+check('ViewCube exposes top, front, right and isometric views', (await pageV.$$('[data-cube-view]')).length === 5);
+await pageV.click('[data-cube-view="right"]');
+check('ViewCube click synchronizes the Inspect preset state',
+  (await pageV.$eval('[data-view="right"]', (el) => el.getAttribute('aria-pressed'))) === 'true');
+await pageV.click('[data-nav-mode="pan"]');
+check('canvas navigation has exclusive Orbit and Pan modes',
+  (await pageV.$eval('[data-nav-mode="pan"]', (el) => el.getAttribute('aria-pressed'))) === 'true' &&
+  (await pageV.$eval('[data-nav-mode="orbit"]', (el) => el.getAttribute('aria-pressed'))) === 'false');
+await pageV.click('#bw-tree-base');
+check('Base plane orients the camera normal to XY',
+  (await pageV.$eval('[data-view="top"]', (el) => el.getAttribute('aria-pressed'))) === 'true');
+
+check('model tree renders feature-type badges',
+  (await pageV.$$('.hist-item .hi-glyph')).length === 2 &&
+  (await pageV.$$eval('.hist-item .hi-glyph', (els) => els.map((el) => el.textContent).join(','))) === 'EX,CU');
+check('inspector begins with a deliberate empty-selection state',
+  await pageV.$eval('#bw-inspector-empty', (el) => !(el as HTMLElement).hidden));
+await pageV.click('.hist-item .hi-sel');
+check('feature selection replaces the empty inspector with live properties',
+  await pageV.$eval('#bw-context-wrap', (el) => !(el as HTMLElement).hidden) &&
+  await pageV.$eval('#bw-inspector-empty', (el) => (el as HTMLElement).hidden));
+check('document history actions reflect the actual command stacks',
+  await pageV.$eval('#bw-undo', (el) => (el as HTMLButtonElement).disabled) &&
+  await pageV.$eval('#bw-redo', (el) => (el as HTMLButtonElement).disabled));
+await pageV.click('#bw-param-add');
+check('a committed edit enables Undo in the document bar',
+  !(await pageV.$eval('#bw-undo', (el) => (el as HTMLButtonElement).disabled)));
+
+await pageV.click('[data-workspace="solid"]');
+await pageV.click('[data-feat="extrude"]');
+await pageV.click('#bw-face-base');
+check('sketching promotes Sketch to the active contextual workspace',
+  !(await pageV.$eval('[data-workspace="sketch"]', (el) => (el as HTMLButtonElement).disabled)) &&
+  (await pageV.$eval('[data-workspace="sketch"]', (el) => el.getAttribute('aria-selected'))) === 'true' &&
+  !(await pageV.$eval('#ws-panel-sketch', (el) => (el as HTMLElement).hidden)));
+await pageV.click('#bw-sk-cancel');
+check('leaving sketch disables the Sketch workspace again',
+  await pageV.$eval('[data-workspace="sketch"]', (el) => (el as HTMLButtonElement).disabled));
+
+await pageV.setViewport({ width: 375, height: 700 });
+await new Promise((resolve) => setTimeout(resolve, 250));
+await pageV.click('#bw-mtab-project');
+check('mobile Project tab opens real file and export actions',
+  await pageV.$eval('.cadstudio-app', (el) => el.classList.contains('m-open-project')) &&
+  await pageV.$eval('#bw-project-actions', (el) => Boolean(el.getClientRects().length)) &&
+  (await pageV.$$('#bw-project-actions button')).length >= 5 &&
+  (await pageV.$$eval('#bw-project-actions button', (buttons) =>
+    buttons.map((button) => (button.textContent || '').trim()).filter(Boolean).join(','))) === 'Save,Open,Clear,STEP,STL');
+await pageV.click('#bw-mtab-project');
+check('mobile Project sheet toggles closed',
+  !(await pageV.$eval('.cadstudio-app', (el) => el.classList.contains('m-open-project'))));
+await pageV.close();
+
 // --- application shell + first run ---------------------------------------
 // Run after the legacy interaction suite: Start sketch deliberately begins
 // a kernel load, and this fresh project must not alter any earlier fixtures.
@@ -944,12 +1048,7 @@ check(
 check('long documentation page is removed', shell.oldDocsGone);
 check('brand-new project shows Start with a sketch', shell.welcomeVisible);
 check('first-run screen has three concrete project choices', (await welcomePage.$$('.ws-welcome-actions button')).length === 3);
-const welcomeHelpHit = await welcomePage.$eval('#bw-welcome-help', (el) => {
-  const r = el.getBoundingClientRect();
-  return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === el;
-});
-check('first-run Help control is a reachable hit target', welcomeHelpHit);
-await welcomePage.$eval('#bw-welcome-help', (el) => (el as HTMLButtonElement).click());
+await welcomePage.click('#bw-welcome-help');
 check('Help opens inside the application', await welcomePage.$eval('#bw-help', (el) => (el as HTMLDialogElement).open));
 await welcomePage.$eval('#bw-help-close', (el) => (el as HTMLButtonElement).click());
 const fullscreenRequested = await welcomePage.evaluate(async () => {

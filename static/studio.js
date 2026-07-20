@@ -107,7 +107,7 @@
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
   dirLight.position.set(60, 120, 90);
   scene.add(dirLight);
-  const grid = new THREE.GridHelper(200, 40, 0xb5bfca, 0xe2e7ec);
+  const grid = new THREE.GridHelper(200, 40, 0x567089, 0x2b3b4b);
   scene.add(grid);
   const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 8000);
   camera.position.set(90, 80, 130);
@@ -120,8 +120,8 @@
   // Kernel space is Z-up (CAD convention); three is Y-up.
   partGroup.rotation.x = -Math.PI / 2;
   scene.add(partGroup);
-  const MAT = new THREE.MeshStandardMaterial({ color: 0x9fb0c3, metalness: 0.12, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-  const EDGE_MAT = new THREE.LineBasicMaterial({ color: 0x2c3e50 });
+  const MAT = new THREE.MeshStandardMaterial({ color: 0xa7b8c9, metalness: 0.16, roughness: 0.56, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  const EDGE_MAT = new THREE.LineBasicMaterial({ color: 0x30475c });
 
   // On phones the site header wraps and its height varies, so the fixed
   // calc() in CSS overshoots — measure and pin the app to the viewport.
@@ -224,6 +224,13 @@
   const redoStack = [];
   const STACK_MAX = 100;
 
+  function syncHistoryActions() {
+    const undoButton = $('bw-undo');
+    const redoButton = $('bw-redo');
+    if (undoButton) undoButton.disabled = undoStack.length === 0;
+    if (redoButton) redoButton.disabled = redoStack.length === 0;
+  }
+
   function commit(label, mutate) {
     // Run the mutation (and normalization) BEFORE touching the stacks: a
     // throwing mutation must leave undo history exactly as it was.
@@ -251,6 +258,7 @@
     renderParams();
     renderHistory();
     renderContext();
+    syncHistoryActions();
     rebuild();
   }
 
@@ -293,6 +301,36 @@
   const isWorking = (k) => k !== 'idle' && k !== 'rebuilding';
   const modeLog = []; // recent mode kinds, for the automated checks
   let currentOpType = null; // feature type owning the active operation (ribbon pressed state)
+  let preferredWorkspace = 'solid';
+  let activeWorkspace = 'solid';
+  const WORKSPACE_META = {
+    solid: ['Solid tools', 'Create material from a profile'],
+    sketch: ['Sketch tools', 'Draw and edit a closed profile'],
+    modify: ['Modify tools', 'Refine edges and hollow the body'],
+    inspect: ['Inspect tools', 'Orient and frame the part'],
+  };
+  function showWorkspace(name, forced) {
+    if (!WORKSPACE_META[name]) return false;
+    if (name === 'sketch' && mode.kind !== 'sketching' && !forced) return false;
+    activeWorkspace = name;
+    if (!forced && name !== 'sketch') preferredWorkspace = name;
+    document.querySelectorAll('[data-workspace]').forEach((b) => {
+      const on = b.dataset.workspace === name;
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+    });
+    document.querySelectorAll('[data-workspace-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.workspacePanel !== name;
+    });
+    const meta = WORKSPACE_META[name];
+    if ($('bw-workspace-name')) $('bw-workspace-name').textContent = meta[0];
+    if ($('bw-workspace-hint')) $('bw-workspace-hint').textContent = meta[1];
+    requestAnimationFrame(() => resize());
+    return true;
+  }
+  document.querySelectorAll('[data-workspace]').forEach((b) =>
+    b.addEventListener('click', () => showWorkspace(b.dataset.workspace, false)),
+  );
   function setMode(next) {
     modeLog.push(next.kind);
     if (modeLog.length > 200) modeLog.shift();
@@ -309,6 +347,12 @@
     if (actions) actions.hidden = !(mode.kind === 'sketching' || mode.kind === 'picking-edges' || mode.kind === 'picking-faces');
     const rib = document.getElementById('rib-sketch');
     if (rib) rib.hidden = mode.kind !== 'sketching';
+    const sketchTab = document.querySelector('[data-workspace="sketch"]');
+    if (sketchTab) sketchTab.disabled = mode.kind !== 'sketching';
+    if (mode.kind === 'sketching') showWorkspace('sketch', true);
+    else if (mode.kind === 'picking-edges' || mode.kind === 'picking-faces') showWorkspace('modify', true);
+    else if (mode.kind === 'choose-face') showWorkspace('solid', true);
+    else if (mode.kind === 'idle') showWorkspace(preferredWorkspace, true);
     if (!isWorking(mode.kind)) currentOpType = null;
     document.querySelectorAll('[data-feat]').forEach((b) => {
       b.setAttribute('aria-pressed', b.dataset.feat === currentOpType && isWorking(mode.kind) ? 'true' : 'false');
@@ -684,10 +728,12 @@
   function renderHistory() {
     const list = $('bw-history');
     list.innerHTML = '';
+    const featureMark = { extrude: 'EX', cut: 'CU', revolve: 'RV', fillet: 'FL', chamfer: 'CH', shell: 'SH' };
     doc.features.forEach((f, i) => {
       const li = document.createElement('li');
       li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '') + (f.id === selectedFeatureId ? ' sel' : '');
       li.dataset.sel = f.id;
+      li.dataset.feature = f.type;
       const dims =
         f.type === 'fillet' || f.type === 'chamfer'
           ? 'r ' + f.r + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
@@ -698,6 +744,7 @@
               : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's') + (f.onFace ? ' · on face' : '') + (f.pattern?.n > 1 ? ' · ×' + f.pattern.n : '');
       li.innerHTML =
         '<button type="button" class="hi-sel" data-sel="' + f.id + '" aria-pressed="' + (f.id === selectedFeatureId) + '">' +
+        '<span class="hi-glyph" aria-hidden="true">' + (featureMark[f.type] || 'FT') + '</span>' +
         '<span class="hi-n">' + (i + 1) + '. ' + OP_LABEL[f.type] + '</span>' +
         '<span class="hi-d">' + dims + (buildErrors.has(f.id) ? ' · FAILED' : '') + '</span>' +
         '</button>' +
@@ -707,6 +754,8 @@
     $('bw-hist-empty').hidden = doc.features.length > 0;
     const st = $('bw-status-feat');
     if (st) st.textContent = doc.features.length + ' feature' + (doc.features.length === 1 ? '' : 's');
+    const summary = $('bw-tree-summary');
+    if (summary) summary.textContent = doc.features.length + ' feature' + (doc.features.length === 1 ? '' : 's');
   }
 
   $('bw-history').addEventListener('click', (e) => {
@@ -1866,10 +1915,11 @@
     iso: [1, 0.8, 1],
   };
   function syncViewPressed(name) {
-    document.querySelectorAll('[data-view]').forEach((b) => {
-      if (b.dataset.view === 'fit') return; // Fit is momentary, not a state
-      b.setAttribute('aria-pressed', b.dataset.view === name ? 'true' : 'false');
-      b.classList.toggle('on', b.dataset.view === name);
+    document.querySelectorAll('[data-view], [data-cube-view]').forEach((b) => {
+      const viewName = b.dataset.view || b.dataset.cubeView;
+      if (viewName === 'fit') return; // Fit is momentary, not a state
+      b.setAttribute('aria-pressed', viewName === name ? 'true' : 'false');
+      b.classList.toggle('on', viewName === name);
     });
   }
   function setView(name) {
@@ -1892,6 +1942,22 @@
   // Hand-orbiting leaves the preset views; drop their pressed state.
   orbit.addEventListener('start', () => syncViewPressed(null));
   document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+  document.querySelectorAll('[data-cube-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.cubeView)));
+  $('bw-tree-base')?.addEventListener('click', () => {
+    setView('top');
+    say('Base plane selected · looking normal to XY.');
+  });
+  let navMode = 'orbit';
+  function setNavMode(name) {
+    if (name !== 'orbit' && name !== 'pan') return;
+    navMode = name;
+    orbit.mouseButtons.LEFT = name === 'pan' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+    document.querySelectorAll('[data-nav-mode]').forEach((b) => {
+      b.setAttribute('aria-pressed', b.dataset.navMode === name ? 'true' : 'false');
+    });
+    say(name === 'pan' ? 'Pan mode · drag the canvas to move the view.' : 'Orbit mode · drag the canvas to rotate the part.');
+  }
+  document.querySelectorAll('[data-nav-mode]').forEach((b) => b.addEventListener('click', () => setNavMode(b.dataset.navMode)));
   $('bw-undo')?.addEventListener('click', undo);
   $('bw-redo')?.addEventListener('click', redo);
 
@@ -1948,17 +2014,20 @@
     else sketch.open(f);
   }
 
-  // --- mobile panel tabs (Parameters / History bottom sheets) ---------------
-  const sideEl = $('bw-side');
+  // --- mobile panel tabs (Model / Parameters / Project bottom sheets) -------
+  // Sheet state lives on the application root because the model tree and the
+  // inspector sit on opposite sides of the canvas on desktop.
+  const sideEl = appEl;
   function syncMtabs() {
-    const p = $('bw-mtab-params'), h = $('bw-mtab-history');
+    const p = $('bw-mtab-params'), h = $('bw-mtab-history'), j = $('bw-mtab-project');
     if (p) p.setAttribute('aria-pressed', sideEl.classList.contains('m-open-params') ? 'true' : 'false');
     if (h) h.setAttribute('aria-pressed', sideEl.classList.contains('m-open-history') ? 'true' : 'false');
+    if (j) j.setAttribute('aria-pressed', sideEl.classList.contains('m-open-project') ? 'true' : 'false');
   }
   function toggleSheet(cls) {
     syncSheetBottom();
     const wasOpen = sideEl.classList.contains(cls);
-    sideEl.classList.remove('m-open-params', 'm-open-history');
+    sideEl.classList.remove('m-open-params', 'm-open-history', 'm-open-project');
     if (!wasOpen) {
       // The properties sheet and a tab sheet share the bottom edge — close
       // the selection so they never stack.
@@ -1969,13 +2038,20 @@
   }
   $('bw-mtab-params')?.addEventListener('click', () => toggleSheet('m-open-params'));
   $('bw-mtab-history')?.addEventListener('click', () => toggleSheet('m-open-history'));
+  $('bw-mtab-project')?.addEventListener('click', () => toggleSheet('m-open-project'));
+  $('bw-project-actions')?.addEventListener('click', () => {
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      sideEl.classList.remove('m-open-project');
+      syncMtabs();
+    }
+  });
 
   // --- selection + context properties panel ---------------------------------
   let selectedFeatureId = null;
   function selectFeature(id) {
     selectedFeatureId = id;
     if (id) {
-      sideEl.classList.remove('m-open-params', 'm-open-history');
+      sideEl.classList.remove('m-open-params', 'm-open-history', 'm-open-project');
       syncMtabs();
     }
     renderHistory();
@@ -1984,13 +2060,18 @@
   function renderContext() {
     const wrap = $('bw-context-wrap');
     const panel = $('bw-context');
+    const empty = $('bw-inspector-empty');
+    const kind = $('bw-inspector-kind');
     if (!panel) return;
     const holder = wrap || panel;
     const f = doc.features.find((x) => x.id === selectedFeatureId);
     if (mode.kind !== 'idle' || !f) {
       holder.hidden = true;
+      if (empty) empty.hidden = false;
       return;
     }
+    if (empty) empty.hidden = true;
+    if (kind) kind.textContent = OP_LABEL[f.type] + ' properties';
     syncSheetBottom();
     const escAttr = (v) => String(v).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
     const field = (label, key, val) =>
@@ -2189,7 +2270,7 @@
     }
   });
   window.addEventListener('keyup', (e) => {
-    if (e.key === ' ') orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+    if (e.key === ' ') orbit.mouseButtons.LEFT = navMode === 'pan' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
   });
 
   // --- feature buttons -----------------------------------------------------
@@ -2259,6 +2340,7 @@
   resize();
   renderHistory();
   renderParams();
+  syncHistoryActions();
   // Prototype-v1 scenes (the retired primitives studio) are incompatible;
   // tell the user once, never touch the old key.
   try {

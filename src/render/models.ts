@@ -410,81 +410,125 @@ export function cadStudioPage(): string {
           <span class="ws-brand-mark" aria-hidden="true">BW</span>
           <span><b>BOMwiki CAD</b><small>Parametric part studio</small></span>
         </a>
-        <div class="ws-project" aria-label="Current project">
+        <div class="ws-document" aria-label="Current document">
+          <span class="ws-document-kind">PART</span>
           <span class="ws-project-name">Untitled part</span>
-          <span class="ws-local">Saved locally</span>
+          <span class="ws-local"><i aria-hidden="true"></i> Local autosave</span>
         </div>
         <div class="ws-app-actions">
-          <button type="button" id="bw-help-open">${studioIcon('help', 'ws-app-icon')}<span>Help</span></button>
-          <button type="button" id="bw-fullscreen" aria-pressed="false">
-            ${studioIcon('fullscreen', 'ws-app-icon')}<span id="bw-fullscreen-label">Full screen</span>
+          <div class="ws-edit-actions" aria-label="Edit history">
+            <button type="button" class="ws-quick-btn" id="bw-undo" title="Undo (Ctrl+Z)" aria-label="Undo">${studioIcon('undo', 'ws-quick-icon')}</button>
+            <button type="button" class="ws-quick-btn" id="bw-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">${studioIcon('redo', 'ws-quick-icon')}</button>
+          </div>
+          <div class="ws-file-actions" id="bw-project-actions" aria-label="Project and export">
+            <button type="button" class="ws-quick-btn ws-quick-labeled" id="bw-save-file" title="Download project file">${studioIcon('save', 'ws-quick-icon')}<span>Save</span></button>
+            <button type="button" class="ws-quick-btn ws-quick-labeled" id="bw-open-btn" title="Open project file">${studioIcon('open', 'ws-quick-icon')}<span>Open</span></button>
+            <input type="file" id="bw-open-file" accept=".json" hidden />
+            <button type="button" class="ws-quick-btn" id="bw-clear" title="Clear part" aria-label="Clear part">${studioIcon('clear', 'ws-quick-icon')}<span class="ws-clear-label">Clear</span></button>
+            <span class="ws-action-divider" aria-hidden="true"></span>
+            <button type="button" class="ws-quick-btn ws-export-btn" id="bw-export-step" title="Export STEP"><span>STEP</span>${studioIcon('step', 'ws-quick-icon')}</button>
+            <button type="button" class="ws-quick-btn ws-export-btn" id="bw-export-stl" title="Export STL"><span>STL</span>${studioIcon('stl', 'ws-quick-icon')}</button>
+          </div>
+          <button type="button" class="ws-quick-btn" id="bw-help-open" aria-label="Help" title="Help">${studioIcon('help', 'ws-quick-icon')}</button>
+          <button type="button" class="ws-quick-btn" id="bw-fullscreen" aria-pressed="false" title="Full screen">
+            ${studioIcon('fullscreen', 'ws-quick-icon')}<span class="ws-visually-hidden" id="bw-fullscreen-label">Full screen</span>
           </button>
         </div>
       </header>
-      <div class="ws-ribbon" role="toolbar" aria-label="CAD tools">
-        <div class="ws-group" id="rib-sketch" hidden>
-          <div class="wsg-tools">
-            <button type="button" class="wsr-btn" data-sktool="rect" aria-pressed="false">${studioIcon('rect')}Rect</button>
-            <button type="button" class="wsr-btn" data-sktool="circle" aria-pressed="false">${studioIcon('circle')}Circle</button>
-            <button type="button" class="wsr-btn" data-sktool="poly" aria-pressed="false">${studioIcon('polygon')}Polygon</button>
-            <button type="button" class="wsr-btn" data-sktool="select" aria-pressed="false">${studioIcon('select')}Select</button>
-            <button type="button" class="wsr-btn" data-sktool="pan" aria-pressed="false">${studioIcon('pan')}Pan</button>
-          </div>
-          <span class="wsg-title">Sketch</span>
+      <section class="ws-ribbon" aria-label="CAD workspaces">
+        <div class="ws-workspace-bar">
+          <nav class="ws-workspaces" role="tablist" aria-label="Tool workspaces">
+            <button type="button" role="tab" data-workspace="solid" aria-selected="true" aria-controls="ws-panel-solid">Solid</button>
+            <button type="button" role="tab" data-workspace="sketch" aria-selected="false" aria-controls="ws-panel-sketch" disabled title="Available while editing a sketch">Sketch</button>
+            <button type="button" role="tab" data-workspace="modify" aria-selected="false" aria-controls="ws-panel-modify">Modify</button>
+            <button type="button" role="tab" data-workspace="inspect" aria-selected="false" aria-controls="ws-panel-inspect">Inspect</button>
+          </nav>
+          <div class="ws-workspace-state"><span aria-hidden="true"></span><b id="bw-workspace-name">Solid tools</b><small id="bw-workspace-hint">Create material from a profile</small></div>
         </div>
-        <div class="ws-group">
-          <div class="wsg-tools">
-            <button type="button" class="wsr-btn wsr-accent" data-feat="extrude" aria-pressed="false">${studioIcon('extrude')}Extrude</button>
-            <button type="button" class="wsr-btn" data-feat="cut" aria-pressed="false">${studioIcon('cut')}Cut</button>
-            <button type="button" class="wsr-btn" data-feat="revolve" aria-pressed="false">${studioIcon('revolve')}Revolve</button>
+        <div class="ws-ribbon-panel" id="ws-panel-solid" role="tabpanel" data-workspace-panel="solid">
+          <div class="ws-group">
+            <span class="wsg-title">Create solid</span>
+            <div class="wsg-tools">
+              <button type="button" class="wsr-btn wsr-accent" data-feat="extrude" aria-pressed="false" title="Extrude a closed profile">${studioIcon('extrude')}<span class="wsr-label">Extrude</span><small>Raise profile</small></button>
+              <button type="button" class="wsr-btn" data-feat="cut" aria-pressed="false" title="Remove material with a profile">${studioIcon('cut')}<span class="wsr-label">Cut</span><small>Remove material</small></button>
+              <button type="button" class="wsr-btn" data-feat="revolve" aria-pressed="false" title="Revolve a profile around its axis">${studioIcon('revolve')}<span class="wsr-label">Revolve</span><small>Turn profile</small></button>
+            </div>
           </div>
-          <span class="wsg-title">Features</span>
         </div>
-        <div class="ws-group">
-          <div class="wsg-tools">
-            <button type="button" class="wsr-btn" data-feat="fillet" aria-pressed="false">${studioIcon('fillet')}Fillet</button>
-            <button type="button" class="wsr-btn" data-feat="chamfer" aria-pressed="false">${studioIcon('chamfer')}Chamfer</button>
-            <button type="button" class="wsr-btn" data-feat="shell" aria-pressed="false">${studioIcon('shell')}Shell</button>
+        <div class="ws-ribbon-panel" id="ws-panel-sketch" role="tabpanel" data-workspace-panel="sketch" hidden>
+          <div class="ws-group" id="rib-sketch" hidden>
+            <span class="wsg-title">Draw and constrain</span>
+            <div class="wsg-tools">
+              <button type="button" class="wsr-btn" data-sktool="rect" aria-pressed="false">${studioIcon('rect')}<span class="wsr-label">Rectangle</span><small>Two corners</small></button>
+              <button type="button" class="wsr-btn" data-sktool="circle" aria-pressed="false">${studioIcon('circle')}<span class="wsr-label">Circle</span><small>Centre + edge</small></button>
+              <button type="button" class="wsr-btn" data-sktool="poly" aria-pressed="false">${studioIcon('polygon')}<span class="wsr-label">Polygon</span><small>Closed profile</small></button>
+              <button type="button" class="wsr-btn" data-sktool="select" aria-pressed="false">${studioIcon('select')}<span class="wsr-label">Select</span><small>Edit geometry</small></button>
+              <button type="button" class="wsr-btn" data-sktool="pan" aria-pressed="false">${studioIcon('pan')}<span class="wsr-label">Pan</span><small>Move canvas</small></button>
+            </div>
           </div>
-          <span class="wsg-title">Modify</span>
         </div>
-        <div class="ws-group">
-          <div class="wsg-tools">
-            <button type="button" class="wsr-btn" data-view="top" aria-pressed="false">${studioIcon('top')}Top</button>
-            <button type="button" class="wsr-btn" data-view="front" aria-pressed="false">${studioIcon('front')}Front</button>
-            <button type="button" class="wsr-btn" data-view="right" aria-pressed="false">${studioIcon('right')}Right</button>
-            <button type="button" class="wsr-btn" data-view="iso" aria-pressed="false">${studioIcon('iso')}Iso</button>
-            <button type="button" class="wsr-btn" data-view="fit" aria-pressed="false">${studioIcon('fit')}Fit</button>
+        <div class="ws-ribbon-panel" id="ws-panel-modify" role="tabpanel" data-workspace-panel="modify" hidden>
+          <div class="ws-group">
+            <span class="wsg-title">Refine solid</span>
+            <div class="wsg-tools">
+              <button type="button" class="wsr-btn" data-feat="fillet" aria-pressed="false">${studioIcon('fillet')}<span class="wsr-label">Fillet</span><small>Round edges</small></button>
+              <button type="button" class="wsr-btn" data-feat="chamfer" aria-pressed="false">${studioIcon('chamfer')}<span class="wsr-label">Chamfer</span><small>Bevel edges</small></button>
+              <button type="button" class="wsr-btn" data-feat="shell" aria-pressed="false">${studioIcon('shell')}<span class="wsr-label">Shell</span><small>Hollow body</small></button>
+            </div>
           </div>
-          <span class="wsg-title">View</span>
         </div>
-        <div class="ws-group">
-          <div class="wsg-tools">
-            <button type="button" class="wsr-btn" id="bw-undo" title="Undo (Ctrl+Z)">${studioIcon('undo')}Undo</button>
-            <button type="button" class="wsr-btn" id="bw-redo" title="Redo (Ctrl+Shift+Z)">${studioIcon('redo')}Redo</button>
+        <div class="ws-ribbon-panel" id="ws-panel-inspect" role="tabpanel" data-workspace-panel="inspect" hidden>
+          <div class="ws-group">
+            <span class="wsg-title">Orient and inspect</span>
+            <div class="wsg-tools">
+              <button type="button" class="wsr-btn" data-view="top" aria-pressed="false">${studioIcon('top')}<span class="wsr-label">Top</span><small>XY plane</small></button>
+              <button type="button" class="wsr-btn" data-view="front" aria-pressed="false">${studioIcon('front')}<span class="wsr-label">Front</span><small>XZ plane</small></button>
+              <button type="button" class="wsr-btn" data-view="right" aria-pressed="false">${studioIcon('right')}<span class="wsr-label">Right</span><small>YZ plane</small></button>
+              <button type="button" class="wsr-btn" data-view="iso" aria-pressed="false">${studioIcon('iso')}<span class="wsr-label">Isometric</span><small>3D view</small></button>
+              <button type="button" class="wsr-btn" data-view="fit" aria-pressed="false">${studioIcon('fit')}<span class="wsr-label">Fit</span><small>Frame part</small></button>
+            </div>
           </div>
-          <span class="wsg-title">Edit</span>
         </div>
-        <div class="ws-group">
-          <div class="wsg-tools">
-            <button type="button" class="wsr-btn" id="bw-save-file">${studioIcon('save')}Save</button>
-            <button type="button" class="wsr-btn" id="bw-open-btn">${studioIcon('open')}Open</button>
-            <input type="file" id="bw-open-file" accept=".json" hidden />
-            <button type="button" class="wsr-btn" id="bw-clear">${studioIcon('clear')}Clear</button>
-          </div>
-          <span class="wsg-title">Project</span>
-        </div>
-        <div class="ws-group">
-          <div class="wsg-tools">
-            <button type="button" class="wsr-btn wsr-accent" id="bw-export-step">${studioIcon('step')}STEP</button>
-            <button type="button" class="wsr-btn" id="bw-export-stl">${studioIcon('stl')}STL</button>
-          </div>
-          <span class="wsg-title">Export</span>
-        </div>
-      </div>
+      </section>
       <div class="ws-main">
+        <aside class="ws-tree" id="bw-tree" aria-label="Model tree">
+          <div class="ws-panel-cap"><span>MODEL</span><small id="bw-tree-summary">2 features</small></div>
+          <div class="ws-tree-document">
+            ${studioIcon('iso', 'ws-tree-icon')}
+            <span><b>Untitled part</b><small>Parametric body</small></span>
+          </div>
+          <details class="ws-origin" open>
+            <summary><span>Origin</span><small>Reference geometry</small></summary>
+            <button type="button" id="bw-tree-base" title="Look normal to the base plane">
+              ${studioIcon('top', 'ws-tree-icon')}<span>Base plane</span><kbd>XY</kbd>
+            </button>
+          </details>
+          <div class="wsp wsp-grow wsp-history">
+            <div class="wsp-head"><b>Feature history</b><span class="ws-tree-rule"></span></div>
+            <div class="wsp-body">
+              <ol id="bw-history" class="hist"></ol>
+              <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
+            </div>
+          </div>
+        </aside>
         <div id="bw-studio">
-          <p id="bw-mode" class="mode-label" role="status" aria-live="polite">Ready</p>
+          <p id="bw-mode" class="mode-label" role="status" aria-live="polite"><span aria-hidden="true"></span>Ready</p>
+          <div class="ws-viewcube" aria-label="View cube">
+            <div class="ws-viewcube-shape">
+              <button type="button" class="vc-face vc-top" data-cube-view="top" aria-label="Top view">TOP</button>
+              <button type="button" class="vc-face vc-front" data-cube-view="front" aria-label="Front view">FRONT</button>
+              <button type="button" class="vc-face vc-right" data-cube-view="right" aria-label="Right view">RIGHT</button>
+            </div>
+            <button type="button" class="vc-iso" data-cube-view="iso">ISO</button>
+          </div>
+          <div class="ws-nav-rail" role="toolbar" aria-label="Canvas navigation">
+            <button type="button" data-nav-mode="orbit" aria-pressed="true" title="Orbit with left drag">${studioIcon('revolve', 'ws-hud-icon')}<span>Orbit</span></button>
+            <button type="button" data-nav-mode="pan" aria-pressed="false" title="Pan with left drag">${studioIcon('pan', 'ws-hud-icon')}<span>Pan</span></button>
+            <button type="button" data-cube-view="fit" title="Fit part (F)">${studioIcon('fit', 'ws-hud-icon')}<span>Fit</span></button>
+          </div>
+          <div class="ws-axis-triad" aria-label="World axes: X red, Y green, Z blue">
+            <span class="axis-x">X</span><span class="axis-y">Y</span><span class="axis-z">Z</span><i aria-hidden="true"></i>
+          </div>
           <section id="bw-welcome" class="ws-welcome" aria-labelledby="bw-welcome-title" hidden>
             <div class="ws-welcome-card">
               <p class="ws-welcome-kicker">New part</p>
@@ -562,41 +606,44 @@ export function cadStudioPage(): string {
           </div>
           <noscript><p class="mv-error">The studio needs JavaScript.</p></noscript>
         </div>
-        <aside class="ws-side" id="bw-side" aria-label="Model panels">
+        <aside class="ws-side" id="bw-side" aria-label="Properties inspector">
+          <div class="ws-panel-cap"><span>INSPECTOR</span><small>Selection properties</small></div>
+          <div class="ws-inspector-empty" id="bw-inspector-empty">
+            ${studioIcon('select', 'ws-inspector-empty-icon')}
+            <b>No feature selected</b>
+            <p>Choose a feature in the model tree to inspect dimensions, parameters, and rebuild state.</p>
+          </div>
           <div class="wsp" id="bw-context-wrap" hidden>
-            <div class="wsp-head"><b>Properties</b></div>
+            <div class="wsp-head"><b id="bw-inspector-kind">Feature properties</b><span class="ws-selection-live">LIVE</span></div>
             <div id="bw-context" class="wsp-body"></div>
           </div>
-          <div class="wsp wsp-params">
-            <div class="wsp-head"><b>Parameters</b><button type="button" id="bw-param-add" title="Add parameter">＋</button></div>
+          <div class="wsp wsp-params wsp-grow">
+            <div class="wsp-head"><span><b>Parameters</b><small>Reusable dimensions</small></span><button type="button" id="bw-param-add" title="Add parameter">＋</button></div>
             <div class="wsp-body"><div id="bw-params"></div></div>
-          </div>
-          <div class="wsp wsp-grow wsp-history">
-            <div class="wsp-head"><b>History</b></div>
-            <div class="wsp-body">
-              <ol id="bw-history" class="hist"></ol>
-              <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
-            </div>
           </div>
         </aside>
       </div>
       <div class="ws-mtabs" id="bw-mtabs">
+        <button type="button" id="bw-mtab-history" aria-pressed="false">Model</button>
         <button type="button" id="bw-mtab-params" aria-pressed="false">Parameters</button>
-        <button type="button" id="bw-mtab-history" aria-pressed="false">History</button>
+        <button type="button" id="bw-mtab-project" aria-pressed="false">Project</button>
       </div>
       <div class="ws-cmd">
+        <span class="ws-command-prompt" aria-hidden="true">›</span>
         <span id="bw-cmd-mode">Ready</span>
         <span id="bw-cmd-err" class="ws-cmd-err"></span>
+        <span class="ws-command-help">Enter to apply · Esc to cancel</span>
         <span class="ws-cmd-actions" id="bw-cmd-actions" hidden>
           <button type="button" id="bw-cmd-apply">✓ Apply</button>
           <button type="button" id="bw-cmd-cancel">Cancel</button>
         </span>
       </div>
       <div class="ws-status">
+        <span class="ws-status-mode">PART DESIGN</span>
         <span>mm</span>
-        <span>snap 1 mm · 15°</span>
+        <span>Grid 1 mm · Angle 15°</span>
         <span id="bw-status-feat">0 features</span>
-        <span class="ws-status-right"><button type="button" id="bw-help-status">Help</button><a href="/cad">Exit to 3D models</a></span>
+        <span class="ws-status-right"><span class="ws-kernel-state"><i aria-hidden="true"></i> Local kernel</span><button type="button" id="bw-help-status">Help</button><a href="/cad">Exit studio</a></span>
       </div>
       <dialog id="bw-help" class="ws-help" aria-labelledby="bw-help-title">
         <div class="ws-help-shell">

@@ -529,6 +529,7 @@ body.cadstudio-route > main {
   padding: 7px 14px;
   border-radius: 5px;
   max-width: 80%;
+  pointer-events: none;
 }
 
 /* First run is guidance inside the tool, over the actual modeling surface. */
@@ -546,6 +547,8 @@ body.cadstudio-route > main {
 }
 .ws-welcome-card {
   width: min(480px, 100%);
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
   border: 1px solid #45617d;
   border-top: 3px solid #4d9ae8;
   border-radius: 4px;
@@ -1146,5 +1149,1059 @@ body.cadstudio-route > main {
   .cadstudio-app *::after {
     scroll-behavior: auto !important;
     transition: none !important;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   V3 precision workspace
+
+   The application shell is organised like an engineering instrument:
+   document controls, contextual workspaces, a model tree, the canvas, and a
+   dedicated inspector. The canvas chrome is the visual signature; everything
+   else stays quiet enough for geometry to remain the primary content.
+   ---------------------------------------------------------------------- */
+.cadstudio-app {
+  --v3-ink: #0b121a;
+  --v3-rail: #101923;
+  --v3-panel: #172330;
+  --v3-panel-2: #1c2a38;
+  --v3-line: #2a3a4a;
+  --v3-line-soft: #202e3c;
+  --v3-text: #dce7f2;
+  --v3-muted: #8295a9;
+  --v3-blue: #2f8cff;
+  --v3-blue-deep: #1265c4;
+  --v3-amber: #f4a340;
+  background: var(--v3-ink);
+  color: var(--v3-text);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.cadstudio-app:fullscreen {
+  background: var(--v3-ink);
+}
+.ws-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* application and document bar */
+.cadstudio-app .ws-appbar {
+  min-height: 52px;
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  gap: 18px;
+  padding: 0 10px 0 12px;
+  background: var(--v3-ink);
+  border-bottom-color: #05090e;
+  box-shadow: 0 1px rgba(255, 255, 255, 0.025) inset;
+}
+.cadstudio-app .ws-brand-mark {
+  border-color: #3c5a78;
+  background: #101d2a;
+  color: #85bcf4;
+}
+.cadstudio-app .ws-brand small {
+  color: #667c91;
+}
+.ws-document {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-width: 250px;
+  height: 36px;
+  border: 1px solid var(--v3-line);
+  border-bottom-color: var(--v3-blue);
+  background: #121d28;
+  box-shadow: 0 -2px 0 rgba(47, 140, 255, 0.12) inset;
+}
+.ws-document-kind {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  padding: 0 9px;
+  border-right: 1px solid var(--v3-line);
+  color: #7790a8;
+  font: 700 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+}
+.ws-document .ws-project-name {
+  padding: 0 10px;
+  color: #edf4fa;
+  font-size: 12px;
+}
+.ws-document .ws-local {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding-right: 10px;
+  color: #72869a;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.ws-document .ws-local i,
+.ws-kernel-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #47c98b;
+  box-shadow: 0 0 0 2px rgba(71, 201, 139, 0.12);
+}
+.cadstudio-app .ws-app-actions,
+.ws-edit-actions,
+.ws-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.ws-edit-actions {
+  padding-right: 5px;
+  border-right: 1px solid var(--v3-line);
+}
+.ws-file-actions {
+  padding-right: 5px;
+  border-right: 1px solid var(--v3-line);
+}
+.cadstudio-app .ws-app-actions .ws-quick-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #aebdcb;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.cadstudio-app .ws-app-actions .ws-quick-btn:hover,
+.cadstudio-app .ws-app-actions .ws-quick-btn[aria-pressed='true'] {
+  border-color: #3a526a;
+  background: #172534;
+  color: #f1f6fb;
+}
+.cadstudio-app .ws-app-actions .ws-quick-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ws-quick-icon,
+.ws-quick-icon .ws-icon {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+}
+.ws-quick-labeled {
+  min-width: 58px !important;
+}
+.ws-export-btn {
+  flex-direction: row-reverse;
+  color: #8fc5fa !important;
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  letter-spacing: 0.04em;
+}
+.ws-action-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 2px;
+  background: var(--v3-line);
+}
+.ws-clear-label {
+  display: none;
+}
+
+/* contextual workspaces and tool shelf */
+.cadstudio-app .ws-ribbon {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  background: var(--v3-rail);
+  border-bottom-color: #070c11;
+}
+.ws-workspace-bar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--v3-line-soft);
+  background: #0e1721;
+}
+.ws-workspaces {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.ws-workspaces button {
+  position: relative;
+  min-width: 76px;
+  padding: 0 13px;
+  border: 0;
+  background: transparent;
+  color: #8194a8;
+  font: 700 10px/1 inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ws-workspaces button::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  background: transparent;
+}
+.ws-workspaces button:hover:not(:disabled) {
+  color: #c9d7e4;
+  background: rgba(255, 255, 255, 0.025);
+}
+.ws-workspaces button[aria-selected='true'] {
+  color: #f3f7fb;
+}
+.ws-workspaces button[aria-selected='true']::after {
+  background: var(--v3-blue);
+  box-shadow: 0 -2px 10px rgba(47, 140, 255, 0.4);
+}
+.ws-workspaces button:disabled {
+  color: #415262;
+  cursor: not-allowed;
+}
+.ws-workspace-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #8799ab;
+}
+.ws-workspace-state > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--v3-blue);
+  box-shadow: 0 0 10px rgba(47, 140, 255, 0.7);
+}
+.ws-workspace-state b {
+  color: #aab9c8;
+  font-size: 10px;
+}
+.ws-workspace-state small {
+  padding-left: 7px;
+  border-left: 1px solid var(--v3-line);
+  color: #62778b;
+  font-size: 9px;
+}
+.ws-ribbon-panel {
+  display: flex;
+  min-height: 74px;
+  padding: 6px 10px 7px;
+  background: linear-gradient(180deg, #172330 0%, #131f2a 100%);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.ws-ribbon-panel[hidden] {
+  display: none;
+}
+.cadstudio-app .ws-group {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+  padding: 0 8px 0 76px;
+  border-right-color: var(--v3-line);
+}
+.cadstudio-app .wsg-title {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  width: 66px;
+  margin: 0;
+  padding: 0 8px;
+  border-right: 1px solid var(--v3-line);
+  color: #65798d;
+  font-size: 8.5px;
+  line-height: 1.35;
+  text-align: left;
+}
+.cadstudio-app .wsg-tools {
+  gap: 5px;
+}
+.cadstudio-app .wsr-btn {
+  display: grid;
+  grid-template-columns: 30px auto;
+  grid-template-rows: 1fr 1fr;
+  align-items: center;
+  justify-content: stretch;
+  column-gap: 9px;
+  min-width: 126px;
+  min-height: 58px;
+  padding: 6px 10px;
+  border-color: transparent;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.018);
+  color: #c7d4e0;
+  text-align: left;
+}
+.cadstudio-app .wsr-btn:hover {
+  border-color: #3b536b;
+  background: #203142;
+}
+.cadstudio-app .wsr-btn.on,
+.cadstudio-app .wsr-btn[aria-pressed='true'] {
+  border-color: #438fdf;
+  background: linear-gradient(135deg, #176ec8, #0e579f);
+  box-shadow: 0 0 0 1px rgba(105, 177, 247, 0.12) inset;
+  color: #fff;
+}
+.cadstudio-app .wsr-btn .wsr-i {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  color: #91c8ff;
+}
+.cadstudio-app .wsr-btn .wsr-i .ws-icon {
+  width: 28px;
+  height: 28px;
+}
+.cadstudio-app .wsr-btn[aria-pressed='true'] .wsr-i,
+.cadstudio-app .wsr-btn.on .wsr-i {
+  color: #fff;
+}
+.wsr-label {
+  align-self: end;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.wsr-btn small {
+  align-self: start;
+  color: #75899d;
+  font-size: 8.5px;
+  line-height: 1.2;
+}
+.wsr-btn[aria-pressed='true'] small,
+.wsr-btn.on small {
+  color: #cce5ff;
+}
+
+/* three-column modeling workspace */
+.cadstudio-app .ws-main {
+  background: var(--v3-ink);
+}
+.ws-tree,
+.cadstudio-app .ws-side {
+  flex: 0 0 238px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  background: var(--v3-panel);
+}
+.ws-tree {
+  border-right: 1px solid #080d12;
+}
+.cadstudio-app .ws-side {
+  flex-basis: 280px;
+  border-left: 1px solid #080d12;
+}
+.ws-panel-cap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--v3-line-soft);
+  background: #111b25;
+}
+.ws-panel-cap span {
+  color: #91a4b7;
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+}
+.ws-panel-cap small {
+  color: #53697d;
+  font-size: 8.5px;
+}
+.ws-tree-document {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 50px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--v3-line-soft);
+  background: #192735;
+}
+.ws-tree-icon,
+.ws-tree-icon .ws-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: #83bbf3;
+}
+.ws-tree-document > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-tree-document b {
+  color: #e4edf5;
+  font-size: 11px;
+}
+.ws-tree-document small {
+  color: #71859a;
+  font-size: 9px;
+}
+.ws-origin {
+  border-bottom: 1px solid var(--v3-line-soft);
+  background: #15212d;
+}
+.ws-origin summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  color: #9aabba;
+  font-size: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.ws-origin summary::-webkit-details-marker {
+  display: none;
+}
+.ws-origin summary span::before {
+  content: '›';
+  display: inline-block;
+  margin-right: 7px;
+  color: #5d7185;
+  transform: rotate(90deg);
+}
+.ws-origin:not([open]) summary span::before {
+  transform: rotate(0);
+}
+.ws-origin summary small {
+  color: #52677a;
+  font-size: 8.5px;
+}
+.ws-origin button {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px 0 26px;
+  border: 0;
+  border-top: 1px solid rgba(255,255,255,.025);
+  background: transparent;
+  color: #9dafc0;
+  font: inherit;
+  font-size: 10.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-origin button:hover {
+  background: #1b2c3b;
+  color: #e2edf7;
+}
+.ws-origin kbd {
+  color: #60768a;
+  font: 700 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cadstudio-app .wsp {
+  background: transparent;
+}
+.cadstudio-app .wsp-head {
+  min-height: 34px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--v3-line-soft);
+  color: #879aac;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+.cadstudio-app .wsp-head > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cadstudio-app .wsp-head small {
+  color: #53697c;
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.ws-tree-rule {
+  flex: 1;
+  height: 1px;
+  margin-left: 8px;
+  background: var(--v3-line-soft);
+}
+.cadstudio-app .wsp-body {
+  padding: 7px 8px 10px;
+}
+.cadstudio-app .hist {
+  gap: 2px;
+}
+.cadstudio-app .hist-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  min-height: 44px;
+  padding: 4px 6px;
+  border-color: transparent;
+  border-radius: 3px;
+  background: transparent;
+}
+.cadstudio-app .hist-item:hover {
+  background: #1c2d3d;
+}
+.cadstudio-app .hist-item.sel {
+  border-color: #3e87cf;
+  background: #193553;
+  box-shadow: 3px 0 0 var(--v3-blue) inset;
+}
+.cadstudio-app .hist-item.err {
+  border-color: #b44d4d;
+  background: #38232a;
+}
+.cadstudio-app .hist-item .hi-sel {
+  display: grid;
+  grid-template-columns: 27px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 7px;
+  align-items: center;
+  margin: 0;
+}
+.hi-glyph {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border: 1px solid #385069;
+  border-radius: 2px;
+  background: #12202c;
+  color: #8ebeea;
+  font: 700 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cadstudio-app .hist-item .hi-n {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 10.5px;
+}
+.cadstudio-app .hist-item .hi-d {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 1px 0 0;
+  color: #697e92;
+  font-size: 8.5px;
+}
+.cadstudio-app .hist-item.sel .hi-n::before {
+  content: '';
+}
+.cadstudio-app .hist-item .hi-a {
+  display: flex;
+}
+.cadstudio-app .hist-item .hi-a button {
+  min-width: 27px;
+  min-height: 27px;
+  margin: 0 0 0 3px;
+  padding: 0 6px;
+  border-color: #31485f;
+  background: #182735;
+  font-size: 9px;
+}
+.ws-inspector-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 12px;
+  padding: 16px 14px;
+  border: 1px dashed #31475a;
+  background: rgba(12, 20, 28, 0.28);
+}
+.ws-inspector-empty-icon,
+.ws-inspector-empty-icon .ws-icon {
+  width: 24px;
+  height: 24px;
+  color: #617d98;
+}
+.ws-inspector-empty b {
+  color: #b7c6d4;
+  font-size: 11px;
+}
+.ws-inspector-empty p {
+  margin: 0;
+  color: #63788c;
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+.ws-selection-live {
+  padding: 2px 5px;
+  border: 1px solid rgba(47,140,255,.35);
+  background: rgba(47,140,255,.08);
+  color: #74b4f5;
+  font: 700 7px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+}
+.cadstudio-app #bw-context input[type='text'],
+.cadstudio-app .param-row input {
+  border-color: #344b61;
+  background: #101b25;
+  border-radius: 2px;
+}
+
+/* canvas instrumentation */
+.cadstudio-app #bw-studio {
+  background:
+    radial-gradient(circle at 50% 44%, rgba(46, 67, 87, 0.23), transparent 42%),
+    linear-gradient(180deg, #17232f 0%, #111b25 100%);
+  box-shadow: 0 0 0 1px #0a1016 inset;
+}
+.cadstudio-app .mode-label {
+  top: 12px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(89, 121, 150, 0.34);
+  border-radius: 3px;
+  background: rgba(10, 18, 26, 0.84);
+  box-shadow: 0 7px 20px rgba(0,0,0,.18);
+  color: #c6d4e1;
+  font: 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  backdrop-filter: blur(8px);
+}
+.cadstudio-app .mode-label::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--v3-blue);
+  box-shadow: 0 0 9px rgba(47,140,255,.75);
+}
+.ws-viewcube {
+  position: absolute;
+  top: 13px;
+  right: 14px;
+  z-index: 5;
+  width: 110px;
+  height: 104px;
+  filter: drop-shadow(0 9px 12px rgba(0,0,0,.25));
+}
+.ws-viewcube-shape {
+  position: relative;
+  width: 110px;
+  height: 80px;
+}
+.vc-face {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #4a6177;
+  color: #9db2c5;
+  font: 700 7px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+.vc-face:hover,
+.vc-face.on,
+.vc-face[aria-pressed='true'] {
+  color: #fff;
+  border-color: #72b6f5;
+  background-color: #246fad !important;
+}
+.vc-top {
+  top: 0;
+  left: 28px;
+  width: 56px;
+  height: 42px;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  background: #25384a;
+}
+.vc-front {
+  top: 31px;
+  left: 0;
+  width: 56px;
+  height: 43px;
+  clip-path: polygon(0 0, 100% 25%, 100% 100%, 0 74%);
+  background: #1c2c3a;
+}
+.vc-right {
+  top: 31px;
+  right: 0;
+  width: 56px;
+  height: 43px;
+  clip-path: polygon(0 25%, 100% 0, 100% 74%, 0 100%);
+  background: #213344;
+}
+.vc-iso {
+  position: absolute;
+  right: 3px;
+  bottom: 0;
+  min-width: 34px;
+  min-height: 22px;
+  border: 1px solid #3b5268;
+  border-radius: 2px;
+  background: rgba(12, 21, 29, .84);
+  color: #7991a7;
+  font: 700 7px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+.vc-iso:hover,
+.vc-iso.on,
+.vc-iso[aria-pressed='true'] {
+  border-color: #5ca7ed;
+  color: #ddecfa;
+  background: #194d7d;
+}
+.ws-nav-rail {
+  position: absolute;
+  right: 17px;
+  top: 126px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #2d4357;
+  border-radius: 3px;
+  background: rgba(10, 18, 26, .82);
+  box-shadow: 0 8px 20px rgba(0,0,0,.2);
+  backdrop-filter: blur(8px);
+}
+.ws-nav-rail button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #2b3d4e;
+  background: transparent;
+  color: #7991a7;
+  cursor: pointer;
+}
+.ws-nav-rail button:last-child {
+  border-bottom: 0;
+}
+.ws-nav-rail button:hover,
+.ws-nav-rail button[aria-pressed='true'] {
+  background: #1e3447;
+  color: #9dd0ff;
+}
+.ws-nav-rail button span:last-child {
+  display: none;
+}
+.ws-hud-icon,
+.ws-hud-icon .ws-icon {
+  width: 18px;
+  height: 18px;
+}
+.ws-axis-triad {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  z-index: 3;
+  width: 74px;
+  height: 67px;
+  color: #93a6b8;
+  font: 700 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+.ws-axis-triad i,
+.ws-axis-triad::before,
+.ws-axis-triad::after {
+  content: '';
+  position: absolute;
+  left: 34px;
+  bottom: 16px;
+  width: 31px;
+  height: 2px;
+  transform-origin: left center;
+}
+.ws-axis-triad::before {
+  background: #ef6464;
+  transform: rotate(-18deg);
+}
+.ws-axis-triad::after {
+  background: #65c98a;
+  transform: rotate(202deg);
+}
+.ws-axis-triad i {
+  width: 2px;
+  height: 36px;
+  background: #5d9cf5;
+  transform: none;
+}
+.ws-axis-triad span {
+  position: absolute;
+}
+.axis-x { right: 0; bottom: 2px; color: #ff8585; }
+.axis-y { left: 0; bottom: 8px; color: #7fdda1; }
+.axis-z { left: 31px; top: 0; color: #80b4ff; }
+.cadstudio-app .pick-bar {
+  top: 12px;
+  left: 50%;
+  right: auto;
+  max-width: calc(100% - 300px);
+  transform: translateX(-50%);
+  border-color: #49647d;
+  border-radius: 3px;
+  background: rgba(16, 29, 41, .95);
+  box-shadow: 0 10px 28px rgba(0,0,0,.28);
+  backdrop-filter: blur(10px);
+}
+
+/* command surface and machine status */
+.cadstudio-app .ws-cmd {
+  min-height: 34px;
+  padding: 4px 10px;
+  gap: 8px;
+  border-top-color: #070c11;
+  background: #0d151e;
+  color: #aebfd0;
+  font-size: 10.5px;
+}
+.ws-command-prompt {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #31506d;
+  color: #77b9f7;
+  font-size: 14px;
+}
+.ws-command-help {
+  margin-left: auto;
+  color: #52677a;
+  font-size: 8.5px;
+}
+.cadstudio-app .ws-cmd-actions {
+  margin-left: 6px;
+}
+.cadstudio-app .ws-status {
+  min-height: 25px;
+  gap: 14px;
+  padding: 0 10px;
+  border-top: 1px solid #1c4f82;
+  background: #133f6b;
+  color: #bdd8f0;
+  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ws-status-mode {
+  padding-right: 11px;
+  border-right: 1px solid rgba(255,255,255,.15);
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+.ws-kernel-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #a8cae7;
+}
+
+@media (max-width: 1080px) {
+  .ws-tree { flex-basis: 210px; }
+  .cadstudio-app .ws-side { flex-basis: 250px; }
+  .cadstudio-app .wsr-btn { min-width: 112px; }
+  .ws-document { min-width: 210px; }
+  .ws-export-btn span:first-child { display: none; }
+}
+
+@media (max-width: 760px) {
+  .cadstudio-app .ws-appbar {
+    grid-template-columns: auto 1fr auto;
+    min-height: 48px;
+    gap: 7px;
+  }
+  .ws-brand > span:last-child,
+  .ws-document-kind,
+  .ws-document .ws-local {
+    display: none;
+  }
+  .ws-document {
+    min-width: 0;
+    height: 34px;
+  }
+  .ws-document .ws-project-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ws-edit-actions,
+  .ws-file-actions {
+    display: none;
+  }
+  .cadstudio-app .ws-app-actions .ws-quick-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .cadstudio-app.m-open-project .ws-file-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--bw-sheet-bottom, 0px);
+    z-index: 32;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    padding: 12px 12px 14px;
+    border: 0;
+    border-top: 1px solid #405b72;
+    background: #172634;
+    box-shadow: 0 -10px 28px rgba(0,0,0,.42);
+  }
+  .cadstudio-app.m-open-project .ws-file-actions .ws-quick-btn {
+    flex-direction: column;
+    gap: 6px;
+    min-height: 48px;
+    border-color: #365069;
+    background: #1d3041;
+    color: #c9d8e6;
+    font-size: 10px;
+  }
+  .cadstudio-app.m-open-project .ws-file-actions .ws-quick-btn > span {
+    display: inline !important;
+  }
+  .cadstudio-app.m-open-project .ws-file-actions .ws-export-btn {
+    flex-direction: column-reverse;
+  }
+  .cadstudio-app.m-open-project .ws-file-actions .ws-action-divider {
+    display: none;
+  }
+  .ws-workspace-bar {
+    min-height: 42px;
+    padding: 0;
+    overflow-x: auto;
+  }
+  .ws-workspaces button {
+    min-width: 78px;
+    min-height: 42px;
+    padding: 0 10px;
+  }
+  .ws-workspace-state {
+    display: none;
+  }
+  .ws-ribbon-panel {
+    min-height: 66px;
+    padding: 5px 6px;
+  }
+  .cadstudio-app .ws-group {
+    padding-left: 0;
+  }
+  .cadstudio-app .wsg-title {
+    display: none;
+  }
+  .cadstudio-app .wsr-btn {
+    min-width: 108px;
+    min-height: 56px;
+    padding: 5px 8px;
+  }
+  .ws-tree,
+  .cadstudio-app .ws-side {
+    display: contents;
+  }
+  .ws-tree > :not(.wsp-history),
+  .ws-tree .wsp,
+  .cadstudio-app .ws-side .wsp,
+  .ws-inspector-empty,
+  .cadstudio-app .ws-side > .ws-panel-cap {
+    display: none;
+  }
+  #bw-context-wrap:not([hidden]),
+  .cadstudio-app.m-open-params .ws-side .wsp-params,
+  .cadstudio-app.m-open-history .ws-tree .wsp-history {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--bw-sheet-bottom, 0px);
+    z-index: 30;
+    max-height: 46%;
+    overflow-y: auto;
+    padding: 4px 10px 12px;
+    border-top: 1px solid #405b72;
+    border-radius: 9px 9px 0 0;
+    background: #172634;
+    box-shadow: 0 -10px 28px rgba(0,0,0,.42);
+  }
+  .ws-mtabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .ws-viewcube {
+    top: 8px;
+    right: 7px;
+    transform: scale(.78);
+    transform-origin: top right;
+  }
+  .ws-nav-rail {
+    top: auto;
+    right: 9px;
+    bottom: 9px;
+    flex-direction: row;
+  }
+  .ws-nav-rail button {
+    width: 44px;
+    height: 44px;
+    border-right: 1px solid #2b3d4e;
+    border-bottom: 0;
+  }
+  .ws-axis-triad {
+    left: 10px;
+    bottom: 10px;
+    transform: scale(.78);
+    transform-origin: bottom left;
+  }
+  .cadstudio-app .mode-label {
+    top: 8px;
+    left: 8px;
+    max-width: calc(100% - 105px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cadstudio-app .pick-bar {
+    top: 48px;
+    left: 8px;
+    right: 8px;
+    max-width: none;
+    transform: none;
+  }
+  .ws-command-help {
+    display: none;
+  }
+  .cadstudio-app .ws-cmd-actions {
+    margin-left: auto;
+  }
+  .ws-status-mode,
+  .ws-kernel-state {
+    display: none;
   }
 }
