@@ -1,19 +1,121 @@
-/* CAD Studio workspace: canvas-first application shell.
-   .cadstudio-app > .ws-ribbon / .ws-main (canvas + side panels) /
-   .ws-cmd (command feedback) / .ws-status (drawing state). */
+/* CAD Studio workspace: a route-level application, not a page embed. */
+body.cadstudio-route {
+  margin: 0;
+  background: #101821;
+}
+body.cadstudio-route > header.site,
+body.cadstudio-route > footer.site {
+  display: none;
+}
+body.cadstudio-route > main {
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
 .cadstudio-app {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 86px);
-  min-height: 480px;
-  border: 1px solid #16222e;
-  border-radius: 8px;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   overflow: hidden;
   background: #1c2936;
-  margin: 6px 0 18px;
+  color: #d7e1eb;
 }
-.cadstudio-docs {
-  padding-top: 8px;
+.cadstudio-app:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: #1c2936;
+}
+
+.ws-appbar {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  background: #111b26;
+  border-bottom: 1px solid #0a1119;
+  flex: 0 0 auto;
+}
+.ws-brand {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #f1f6fb;
+  text-decoration: none;
+}
+.ws-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #52769b;
+  color: #8fc1f5;
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+.ws-brand > span:last-child {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.ws-brand b {
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+.ws-brand small {
+  margin-top: 3px;
+  color: #7890a7;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ws-project {
+  justify-self: center;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+.ws-project-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e7eef5;
+}
+.ws-local {
+  color: #7890a7;
+  font-size: 10px;
+}
+.ws-app-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ws-app-actions button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #cbd8e5;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ws-app-actions button:hover,
+.ws-app-actions button[aria-pressed='true'] {
+  border-color: #3a5470;
+  background: #22303f;
+  color: #fff;
 }
 
 .ws-ribbon {
@@ -106,7 +208,7 @@
 }
 
 .ws-side {
-  flex: 0 0 216px;
+  flex: 0 0 264px;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -219,9 +321,21 @@
 }
 .ws-status .ws-status-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
-.ws-status a {
+.ws-status a,
+.ws-status button {
   color: #fff;
+}
+.ws-status button {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* context properties (side stack on desktop; bottom sheet on mobile) */
@@ -292,7 +406,8 @@
 
 @media (max-width: 760px) {
   .cadstudio-app {
-    height: calc(100vh - 66px);
+    height: 100vh;
+    height: 100dvh;
   }
   /* The panel stack collapses on phones into bottom sheets reached
      through the tab bar (Parameters / History) or by selecting a
@@ -397,61 +512,204 @@
   max-width: 80%;
 }
 
-.studio-help {
-  font-size: 12.5px;
-  color: #5b6774;
+/* First run is guidance inside the tool, over the actual modeling surface. */
+.ws-welcome {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(13, 21, 30, 0.44);
+}
+.ws-welcome[hidden] {
+  display: none;
+}
+.ws-welcome-card {
+  width: min(480px, 100%);
+  border: 1px solid #45617d;
+  border-top: 3px solid #4d9ae8;
+  border-radius: 4px;
+  background: rgba(24, 36, 49, 0.97);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+  padding: 26px 28px 22px;
+}
+.ws-welcome-kicker {
+  margin: 0 0 8px;
+  color: #8fc1f5;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.ws-welcome h1 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: #f5f8fb;
+  font-family: inherit;
+  font-size: clamp(24px, 3vw, 32px);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+.ws-welcome-lede {
+  margin: 9px 0 22px;
+  color: #b9c7d4;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ws-welcome-steps {
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+  counter-reset: start-steps;
+}
+.ws-welcome-steps li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 12px;
+  padding: 10px 0 10px 36px;
+  border-top: 1px solid #2c4054;
+  counter-increment: start-steps;
+}
+.ws-welcome-steps li:last-child {
+  border-bottom: 1px solid #2c4054;
+}
+.ws-welcome-steps li::before {
+  content: counter(start-steps, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 11px;
+  color: #6f8eac;
+  font: 700 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ws-welcome-steps b {
+  color: #e8eef5;
+  font-size: 12px;
+}
+.ws-welcome-steps span {
+  color: #8ea1b4;
+  font-size: 11px;
+}
+.ws-welcome-actions {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 6px;
+}
+.ws-welcome-actions button,
+.ws-help-link {
+  min-height: 44px;
+  border: 1px solid #3c5874;
+  border-radius: 3px;
+  background: #223345;
+  color: #dce6ef;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ws-welcome-actions button:hover,
+.ws-help-link:hover {
+  border-color: #71a6da;
+  background: #2a4055;
+}
+.ws-welcome-actions .ws-primary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 13px;
+  border-color: #1976d2;
+  background: #0b5cad;
+  color: #fff;
+  font-weight: 700;
+}
+.ws-help-link {
+  min-height: 34px;
   margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8fc1f5;
+  text-decoration: underline;
 }
 
-/* hero + landing sections */
-.cs-hero {
-  background: linear-gradient(135deg, #10263c, #1a3550 60%, #24486b);
-  color: #eef3f8;
-  border-radius: 8px;
-  padding: 18px 22px;
-  margin: 10px 0 16px;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-.cs-hero-text {
-  flex: 1;
-  min-width: 0;
-}
-.cs-hero h1 {
-  font-size: clamp(20px, 3vw, 26px);
-  line-height: 1.2;
-  margin: 0 0 6px;
-  border: 0;
+/* Help is a deliberate in-app drawer: reference stays one click away and
+   never extends the modeling page. */
+.ws-help {
+  width: min(760px, calc(100vw - 32px));
+  height: min(850px, calc(100dvh - 32px));
+  max-width: none;
+  max-height: none;
+  margin: auto 16px auto auto;
   padding: 0;
-  color: #fff;
+  border: 1px solid #45617d;
+  border-radius: 4px;
+  background: #172432;
+  color: #d7e1eb;
+  box-shadow: -16px 0 60px rgba(0, 0, 0, 0.45);
 }
-.cs-hero .cs-tag {
-  font-size: 13.5px;
-  line-height: 1.5;
+.ws-help::backdrop {
+  background: rgba(5, 10, 16, 0.66);
+}
+.ws-help-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.ws-help-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 18px;
+  border-bottom: 1px solid #2d4358;
+  background: #111b26;
+}
+.ws-help-head span {
+  color: #7f98b1;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.ws-help-head h2 {
+  margin: 2px 0 0;
+  padding: 0;
+  border: 0;
+  color: #f2f6fa;
+  font-family: inherit;
+  font-size: 18px;
+}
+.ws-help-head button {
+  width: 40px;
+  height: 40px;
+  border: 1px solid #38516a;
+  border-radius: 3px;
+  background: #1d2d3d;
+  color: #eef4fa;
+  font: 22px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.ws-help-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px 30px;
+}
+.ws-help-body section {
   margin: 0;
-  color: #c8d6e4;
+  padding: 18px 0 22px;
+  border-bottom: 1px solid #2d4358;
 }
-.cs-go {
-  flex: 0 0 auto;
-  white-space: nowrap;
+.ws-help-body section:first-child {
+  padding-top: 0;
 }
-@media (max-width: 640px) {
-  .cs-hero {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-}
-.cs-learn,
-.cs-help,
-.cs-faq {
-  margin-top: 26px;
-  max-width: 60em;
+.ws-help-body h3 {
+  margin: 0 0 12px;
+  color: #f0f5fa;
+  font-size: 14px;
 }
 .cs-steps {
   padding-left: 20px;
-  font-size: 14.5px;
+  font-size: 13px;
   line-height: 1.55;
 }
 .cs-steps li {
@@ -461,17 +719,47 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
-  font-size: 13.5px;
+  font-size: 12.5px;
   line-height: 1.5;
 }
 .cs-cols p {
   margin: 4px 0 0;
-  color: #39485a;
+  color: #aebdcb;
 }
 .cs-faq p {
-  font-size: 14px;
+  color: #aebdcb;
+  font-size: 12.5px;
   line-height: 1.55;
   margin: 10px 0;
+}
+.ws-help a {
+  color: #8fc1f5;
+}
+.ws-help code,
+.cs-shortcuts dt {
+  color: #d9e8f7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cs-shortcuts dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+}
+.cs-shortcuts dl div {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid #26394b;
+}
+.cs-shortcuts dt,
+.cs-shortcuts dd {
+  margin: 0;
+  font-size: 11.5px;
+}
+.cs-shortcuts dd {
+  color: #9caec0;
 }
 
 /* parameters panel */
@@ -757,19 +1045,87 @@
 }
 
 @media (max-width: 760px) {
-  .studio-wrap {
-    flex-direction: column;
+  .ws-appbar {
+    grid-template-columns: 1fr auto;
+    min-height: 50px;
+    gap: 6px;
+    padding: 0 6px 0 9px;
   }
-  .studio-rail {
-    flex-direction: row;
-    flex-wrap: wrap;
-    flex-basis: auto;
+  .ws-brand small,
+  .ws-project {
+    display: none;
   }
-  .studio-rail .sr-h {
+  .ws-app-actions button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 8px;
+  }
+  .ws-app-actions button span:last-child:not(:first-child) {
+    display: none;
+  }
+  .ws-welcome {
+    place-items: end stretch;
+    padding: 10px;
+  }
+  .ws-welcome-card {
     width: 100%;
-    margin: 4px 0 0;
+    max-height: calc(100dvh - 136px);
+    overflow-y: auto;
+    padding: 19px 18px 16px;
   }
-  #bw-studio {
-    height: 60vh;
+  .ws-welcome-lede {
+    margin-bottom: 14px;
+  }
+  .ws-welcome-steps {
+    margin-bottom: 14px;
+  }
+  .ws-welcome-steps li {
+    grid-template-columns: 1fr;
+    gap: 2px;
+    padding: 7px 0 7px 30px;
+  }
+  .ws-welcome-steps li::before {
+    top: 9px;
+  }
+  .ws-welcome-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ws-welcome-actions .ws-primary {
+    grid-column: 1 / -1;
+  }
+  .ws-help {
+    width: 100vw;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .ws-help-body {
+    padding: 16px 17px 28px;
+  }
+  .cs-cols,
+  .cs-shortcuts dl {
+    grid-template-columns: 1fr;
+  }
+  .ws-status > span:nth-child(2),
+  .ws-status-right a {
+    display: none;
+  }
+}
+
+.cadstudio-app button:focus-visible,
+.cadstudio-app a:focus-visible,
+.cadstudio-app input:focus-visible,
+.cadstudio-app select:focus-visible {
+  outline: 2px solid #79b8f5;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cadstudio-app *,
+  .cadstudio-app *::before,
+  .cadstudio-app *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
   }
 }

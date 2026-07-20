@@ -16,6 +16,9 @@ export interface PageOpts {
   ogType?: 'website' | 'article';
   /** JSON-LD objects to embed (e.g. BreadcrumbList, TechArticle). */
   jsonLd?: unknown[];
+  /** Optional route-level body class for application shells and other
+   *  deliberately non-document layouts. */
+  bodyClass?: string;
 }
 
 // The site shell, ported from src/layouts/Base.astro. Same markup and class
@@ -63,7 +66,7 @@ export function page(opts: PageOpts): string {
     ${css}
     ${jsonLd}
   </head>
-  <body>
+  <body${opts.bodyClass ? ` class="${esc(opts.bodyClass)}"` : ''}>
     <header class="site">
       <a class="brand" href="/" aria-label="BOMwiki, the bill-of-materials encyclopedia home">
         <span class="b-name">BOMwiki</span>

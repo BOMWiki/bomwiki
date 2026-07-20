@@ -19,6 +19,74 @@
     clearTimeout(say.t);
     if (!sticky) say.t = setTimeout(() => (el.hidden = true), 6000);
   };
+  const appEl = document.querySelector('.cadstudio-app');
+  const helpDialog = $('bw-help');
+  const SEEDED = 'bw-studio-v2-seeded';
+  const WELCOME = 'bw-studio-welcome-v1';
+  let storageAvailable = true;
+  const hasFlag = (key) => {
+    try {
+      return Boolean(localStorage.getItem(key));
+    } catch {
+      storageAvailable = false;
+      return false;
+    }
+  };
+  const setFlag = (key) => {
+    try {
+      localStorage.setItem(key, '1');
+    } catch {}
+  };
+  const hideWelcome = () => {
+    const welcome = $('bw-welcome');
+    if (welcome) welcome.hidden = true;
+  };
+  const showWelcome = () => {
+    const welcome = $('bw-welcome');
+    if (welcome) welcome.hidden = false;
+  };
+  const openHelp = () => {
+    if (!helpDialog) return;
+    if (typeof helpDialog.showModal === 'function') {
+      if (!helpDialog.open) helpDialog.showModal();
+    } else {
+      helpDialog.setAttribute('open', '');
+    }
+  };
+  const closeHelp = () => {
+    if (!helpDialog) return;
+    if (typeof helpDialog.close === 'function') helpDialog.close();
+    else helpDialog.removeAttribute('open');
+  };
+  $('bw-help-open')?.addEventListener('click', openHelp);
+  $('bw-help-status')?.addEventListener('click', openHelp);
+  $('bw-help-close')?.addEventListener('click', closeHelp);
+  $('bw-welcome-help')?.addEventListener('click', openHelp);
+  helpDialog?.addEventListener('click', (e) => {
+    if (e.target === helpDialog) closeHelp();
+  });
+
+  const fullscreenLabel = $('bw-fullscreen-label');
+  const fullscreenButton = $('bw-fullscreen');
+  const syncFullscreen = () => {
+    const on = document.fullscreenElement === appEl;
+    fullscreenButton?.setAttribute('aria-pressed', String(on));
+    if (fullscreenLabel) fullscreenLabel.textContent = on ? 'Exit full screen' : 'Full screen';
+  };
+  fullscreenButton?.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (appEl?.requestFullscreen) await appEl.requestFullscreen();
+      else say('Full screen is not available in this browser.');
+    } catch {
+      say('Full screen is not available in this browser.');
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    syncFullscreen();
+    requestAnimationFrame(() => resize());
+  });
+  syncFullscreen();
 
   // --- three viewer --------------------------------------------------------
   let THREE, OrbitControls;
@@ -57,7 +125,6 @@
 
   // On phones the site header wraps and its height varies, so the fixed
   // calc() in CSS overshoots — measure and pin the app to the viewport.
-  const appEl = document.querySelector('.cadstudio-app');
   function fitAppHeight() {
     if (!appEl) return;
     if (!window.matchMedia('(max-width: 760px)').matches) {
@@ -770,6 +837,9 @@
       // coordinator: prompt for a dirty draft, cancel editors, then commit.
       startOperation(() => {
         commit('Open project', () => normalizeDoc(d));
+        setFlag(SEEDED);
+        setFlag(WELCOME);
+        hideWelcome();
         say('Project opened.');
       });
     });
@@ -2085,6 +2155,11 @@
   $('bw-cmd-cancel')?.addEventListener('click', () => cancelCurrent());
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (helpDialog?.open) {
+        e.preventDefault();
+        closeHelp();
+        return;
+      }
       if (inField()) {
         document.activeElement.blur();
         return;
@@ -2138,6 +2213,47 @@
     }),
   );
 
+  function starterDocument() {
+    return {
+      params: [
+        { name: 'size', value: 40 },
+        { name: 'hole', value: 8 },
+      ],
+      features: [
+        { id: newId(), type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 'size', h: 'size' }], z: 0 }, h: 5 },
+        { id: newId(), type: 'cut', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 'hole/2' }], z: 5 }, h: 10, through: true },
+      ],
+    };
+  }
+  function finishWelcome() {
+    setFlag(WELCOME);
+    setFlag(SEEDED);
+    hideWelcome();
+  }
+  $('bw-welcome-start')?.addEventListener('click', () => {
+    // Starting blank is a deliberate project choice. Persist that choice so
+    // reload never replaces the user's empty canvas with the example part.
+    doc = normalizeDoc({ params: [], features: [] });
+    undoStack.length = 0;
+    redoStack.length = 0;
+    finishWelcome();
+    save();
+    renderParams();
+    renderHistory();
+    rebuild();
+    document.querySelector('[data-feat="extrude"]')?.click();
+  });
+  $('bw-welcome-sample')?.addEventListener('click', () => {
+    doc = starterDocument();
+    undoStack.length = 0;
+    redoStack.length = 0;
+    finishWelcome();
+    save();
+    renderParams();
+    rebuild();
+  });
+  $('bw-welcome-open')?.addEventListener('click', () => $('bw-open-file')?.click());
+
   // --- boot ----------------------------------------------------------------
   load();
   resize();
@@ -2163,37 +2279,30 @@
       stage.appendChild(b);
     }
   } catch {}
-  const SEEDED = 'bw-studio-v2-seeded';
-  let alreadySeeded = false;
-  try {
-    alreadySeeded = Boolean(localStorage.getItem(SEEDED));
-  } catch {}
+  const alreadySeeded = hasFlag(SEEDED);
+  const welcomeSeen = hasFlag(WELCOME);
   if (doc.features.length) {
-    try {
-      localStorage.setItem(SEEDED, '1');
-    } catch {}
+    setFlag(SEEDED);
+    setFlag(WELCOME);
+    hideWelcome();
     say('Restored your part — rebuilding…');
     rebuild();
   } else if (alreadySeeded) {
     // The user has been here and deliberately has an empty document (for
     // example after Clear + reload, or undoing everything): keep it empty.
+    hideWelcome();
     rebuild();
+  } else if (!welcomeSeen && storageAvailable) {
+    // A brand-new user gets an explicit starting decision over the real
+    // modeling canvas. No sample geometry is silently inserted.
+    rebuild();
+    showWelcome();
   } else {
-    // A worked example beats an empty screen: a parametric plate — size and
-    // hole driven by the two parameters, so editing them teaches the idea.
-    doc = {
-      params: [
-        { name: 'size', value: 40 },
-        { name: 'hole', value: 8 },
-      ],
-      features: [
-        { id: newId(), type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 'size', h: 'size' }], z: 0 }, h: 5 },
-        { id: newId(), type: 'cut', sketch: { shapes: [{ kind: 'circle', x: 0, y: 0, r: 'hole/2' }], z: 5 }, h: 10, through: true },
-      ],
-    };
-    try {
-      localStorage.setItem(SEEDED, '1');
-    } catch {}
+    // Compatibility path for users that dismissed the old landing but have
+    // not yet persisted a project. It is also the resilient fallback when
+    // browser storage is unavailable and first-run state cannot be retained.
+    doc = starterDocument();
+    setFlag(SEEDED);
     save();
     renderParams();
     rebuild();

@@ -366,7 +366,24 @@ export function cadStudioPage(): string {
         url: 'https://bomwiki.com/cad/studio',
       },
     ],
+    bodyClass: 'cadstudio-route',
     body: `<div class="cadstudio-app" id="studio">
+      <header class="ws-appbar">
+        <a class="ws-brand" href="/cad" aria-label="Back to BOMwiki 3D models">
+          <span class="ws-brand-mark" aria-hidden="true">BW</span>
+          <span><b>BOMwiki CAD</b><small>Parametric part studio</small></span>
+        </a>
+        <div class="ws-project" aria-label="Current project">
+          <span class="ws-project-name">Untitled part</span>
+          <span class="ws-local">Saved locally</span>
+        </div>
+        <div class="ws-app-actions">
+          <button type="button" id="bw-help-open"><span aria-hidden="true">?</span> Help</button>
+          <button type="button" id="bw-fullscreen" aria-pressed="false">
+            <span aria-hidden="true">⛶</span> <span id="bw-fullscreen-label">Full screen</span>
+          </button>
+        </div>
+      </header>
       <div class="ws-ribbon" role="toolbar" aria-label="CAD tools">
         <div class="ws-group" id="rib-sketch" hidden>
           <div class="wsg-tools">
@@ -431,6 +448,24 @@ export function cadStudioPage(): string {
       <div class="ws-main">
         <div id="bw-studio">
           <p id="bw-mode" class="mode-label" role="status" aria-live="polite">Ready</p>
+          <section id="bw-welcome" class="ws-welcome" aria-labelledby="bw-welcome-title" hidden>
+            <div class="ws-welcome-card">
+              <p class="ws-welcome-kicker">New part</p>
+              <h1 id="bw-welcome-title">Start with a sketch</h1>
+              <p class="ws-welcome-lede">Draw a closed profile on the base plane, then turn it into a solid.</p>
+              <ol class="ws-welcome-steps">
+                <li><b>Choose Extrude</b><span>Starts a sketch on the base plane.</span></li>
+                <li><b>Draw the profile</b><span>Place a rectangle, circle, or polygon.</span></li>
+                <li><b>Set the height</b><span>Enter a dimension and apply the feature.</span></li>
+              </ol>
+              <div class="ws-welcome-actions">
+                <button type="button" class="ws-primary" id="bw-welcome-start">Start sketch <span aria-hidden="true">→</span></button>
+                <button type="button" id="bw-welcome-sample">Open example part</button>
+                <button type="button" id="bw-welcome-open">Open a project</button>
+              </div>
+              <button type="button" class="ws-help-link" id="bw-welcome-help">Learn the controls</button>
+            </div>
+          </section>
           <div id="bw-face" class="pick-bar" hidden>
             <b id="bw-face-title"></b>
             <span class="sk-note">Click a flat face of the part, or step through them</span>
@@ -524,22 +559,27 @@ export function cadStudioPage(): string {
         <span>mm</span>
         <span>snap 1 mm · 15°</span>
         <span id="bw-status-feat">0 features</span>
-        <span class="ws-status-right"><a href="/cad">collection</a> · <a href="#studio-docs">help ↓</a></span>
+        <span class="ws-status-right"><button type="button" id="bw-help-status">Help</button><a href="/cad">Exit to 3D models</a></span>
       </div>
-    </div>
-    <div class="review cadstudio-docs" id="studio-docs">
+      <dialog id="bw-help" class="ws-help" aria-labelledby="bw-help-title">
+        <div class="ws-help-shell">
+          <header class="ws-help-head">
+            <div><span>Help</span><h2 id="bw-help-title">CAD Studio</h2></div>
+            <button type="button" id="bw-help-close" aria-label="Close Help">×</button>
+          </header>
+          <div class="ws-help-body">
       <section class="cs-learn">
-        <h2 class="si-h">Your first part in two minutes</h2>
+        <h3>Build your first part</h3>
         <ol class="cs-steps">
-          <li><b>Look at the starter part.</b> The studio opens with a 40&nbsp;mm plate with a hole through it — two features you can inspect: <i>1.&nbsp;Extrude</i> and <i>2.&nbsp;Cut</i> in the History panel.</li>
-          <li><b>Change a number.</b> Hit <i>Edit</i> on the Extrude, click the rectangle, type a new width, Apply. The part rebuilds. That's what parametric means — the model is the recipe, not the result.</li>
-          <li><b>Add your own feature.</b> Click <i>Extrude</i>, draw a rectangle with two clicks, type the height, Apply. It fuses into the part.</li>
-          <li><b>Drill it.</b> Click <i>Cut</i>, draw a circle where the hole goes, tick <i>through all</i>, Apply.</li>
-          <li><b>Ship it.</b> <i>STL</i> goes straight to a 3D printer. <i>STEP</i> opens in FreeCAD, SolidWorks, or Fusion when you graduate to bigger tools — nothing you make here is locked in.</li>
+          <li><b>Start a sketch.</b> Choose <i>Extrude</i>, then use the base plane or select a flat face.</li>
+          <li><b>Draw a closed profile.</b> Place a rectangle, circle, or polygon. Select it to type exact dimensions.</li>
+          <li><b>Make it solid.</b> Enter the height and choose <i>Apply</i>. Every later feature appears in History.</li>
+          <li><b>Cut or refine it.</b> Add holes with <i>Cut</i>; round edges with <i>Fillet</i>; hollow it with <i>Shell</i>.</li>
+          <li><b>Export it.</b> Use <i>STEP</i> for other CAD tools or <i>STL</i> for a slicer.</li>
         </ol>
       </section>
       <section class="cs-help">
-        <h2 class="si-h">Reference</h2>
+        <h3>Reference</h3>
         <div class="cs-cols">
           <div>
             <b>Sketching</b>
@@ -555,14 +595,28 @@ export function cadStudioPage(): string {
           </div>
         </div>
       </section>
+      <section class="cs-shortcuts">
+        <h3>Keyboard</h3>
+        <dl>
+          <div><dt>Esc</dt><dd>Cancel the current operation</dd></div>
+          <div><dt>Enter</dt><dd>Apply the current operation</dd></div>
+          <div><dt>Ctrl / ⌘ Z</dt><dd>Undo</dd></div>
+          <div><dt>Shift + Ctrl / ⌘ Z</dt><dd>Redo</dd></div>
+          <div><dt>F</dt><dd>Fit the part to the view</dd></div>
+          <div><dt>Delete</dt><dd>Delete the selected feature</dd></div>
+        </dl>
+      </section>
       <section class="cs-faq">
-        <h2 class="si-h">Straight answers</h2>
+        <h3>Straight answers</h3>
         <p><b>Is it really free?</b> Yes. The studio is part of the open-source BOMwiki engine (AGPL-3.0). No tiers, no seat licenses, no expiring trial.</p>
         <p><b>Where does my design go?</b> Nowhere. Modeling happens entirely on your device; nothing is uploaded unless you choose to publish a model to a BOMwiki page.</p>
         <p><b>Will it replace Fusion or SolidWorks?</b> Not yet — there are no assemblies or technical drawings, and big models will feel heavy. What it does have is real: sketching on any flat face, fillets, chamfers, shell, patterns, named parameters, and undo/redo across everything. It's honest CAD for real parts — brackets, plates, spacers, knobs, lathe profiles — and the STEP files it makes are first-class citizens anywhere.</p>
         <p><b>What runs underneath?</b> OpenCascade, a 25-year-old industrial B-rep kernel, compiled to WebAssembly — plus <a href="https://replicad.xyz" rel="noopener">replicad</a> and three.js. <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">Read the source</a>.</p>
         <p><b>Made something worth keeping?</b> <a href="/cad">Publish it to a BOMwiki page</a> — your name in the credit, your part in the encyclopedia.</p>
       </section>
+          </div>
+        </div>
+      </dialog>
     </div>`,
     extraCss: ['/static/edit.css', '/static/model.css', '/static/studio.css'],
     scripts: ['/static/studio.js'],

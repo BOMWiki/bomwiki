@@ -60,16 +60,62 @@ const browser = await puppeteer.launch({
   headless: true,
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
-const page: Page = await browser.newPage();
+const newStudioPage = async (showWelcome = false): Promise<Page> => {
+  const next = await browser.newPage();
+  if (!showWelcome) {
+    await next.evaluateOnNewDocument(() => localStorage.setItem('bw-studio-welcome-v1', '1'));
+  }
+  // Chrome 150 can stall Puppeteer's scroll-into-view handshake for controls
+  // inside a 100dvh flex/WebGL shell even when elementFromPoint proves the
+  // target is visible. Send the same real pointer click at the rendered
+  // centre; interception checks still behave exactly like a user's tap.
+  Object.defineProperty(next, 'click', {
+    configurable: true,
+    value: async (selector: string, options: { count?: number; delay?: number } = {}) => {
+      const point = await next.$eval(selector, (el) => {
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) throw new Error(`click target has no rendered area: ${el.tagName}`);
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      await next.mouse.click(point.x, point.y, { count: options.count ?? 1, delay: options.delay });
+    },
+  });
+  return next;
+};
+const waitForStudioPage = async (target: Page, options: { solid?: boolean; idle?: boolean; timeout?: number } = {}): Promise<void> => {
+  const deadline = Date.now() + (options.timeout ?? 60_000);
+  let ready = false;
+  while (!ready && Date.now() < deadline) {
+    ready = await target.evaluate(
+      ({ solid, idle }) => {
+        const studio = (window as unknown as {
+          __bwStudio?: { triCount(): number; mode(): { kind: string } };
+        }).__bwStudio;
+        return Boolean(studio && (!solid || studio.triCount() > 0) && (!idle || studio.mode().kind === 'idle'));
+      },
+      options,
+    );
+    if (!ready) await new Promise((r) => setTimeout(r, 250));
+  }
+  if (!ready) throw new Error('CAD app did not reach the requested ready state');
+};
+
+const page: Page = await newStudioPage();
 page.on('pageerror', (e) => check('no page errors', false, String(e)));
 
 const S = async <T>(fn: string): Promise<T> =>
   page.evaluate(`(() => { const s = window.__bwStudio; return (${fn})(s); })()`) as Promise<T>;
 const waitReady = async () => {
-  await page.waitForFunction(
-    `window.__bwStudio && document.querySelectorAll('.hist-item').length >= 0 && window.__bwStudio.triCount() > 0`,
-    { timeout: 60_000 },
-  );
+  let ready = false;
+  for (let i = 0; i < 180 && !ready; i++) {
+    ready = await page.evaluate(() => {
+      const studio = (window as unknown as { __bwStudio?: { triCount(): number } }).__bwStudio;
+      return Boolean(studio && document.querySelectorAll('.hist-item').length >= 0 && studio.triCount() > 0);
+    });
+    if (!ready) await new Promise((r) => setTimeout(r, 500));
+  }
+  if (!ready) throw new Error('starter part did not finish rebuilding');
 };
 
 // --- boot: starter part seeds and builds ----------------------------------
@@ -202,19 +248,19 @@ await page.click('#bw-clear');
 await new Promise((r) => setTimeout(r, 1200));
 check('clear empties the document', (await S<string>('(s) => s.docJson()')).includes('"features":[]'));
 await page.reload({ waitUntil: 'domcontentloaded' });
-await page.waitForFunction(`window.__bwStudio`, { timeout: 30_000 });
+await waitForStudioPage(page, { timeout: 30_000 });
 await new Promise((r) => setTimeout(r, 2500));
 check('reload after clear stays empty (no starter resurrection)', (await S<string>('(s) => s.docJson()')).includes('"features":[]'));
 
 // --- PR-2: mode coordinator, views, context panel, keyboard ---------------
 // Fresh page with the starter part.
-const pageB = await browser.newPage();
+const pageB = await newStudioPage();
 await pageB.evaluateOnNewDocument(() => {
   localStorage.removeItem('bw-studio-doc-v2');
   localStorage.removeItem('bw-studio-v2-seeded');
 });
 await pageB.goto(URL_, { waitUntil: 'domcontentloaded' });
-await pageB.waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 });
+await waitForStudioPage(pageB, { solid: true });
 const SB = async <T>(fn: string): Promise<T> => pageB.evaluate(`(() => (${fn})(window.__bwStudio))()`) as Promise<T>;
 
 // mode starts idle and label matches
@@ -290,7 +336,7 @@ check('375px: context panel is a visible bottom sheet', sheet.visible && sheet.w
 await pageB.close();
 
 // --- PR #100 review set: workspace, coordinator guard, cleanup, a11y ------
-const pageC = await browser.newPage();
+const pageC = await newStudioPage();
 pageC.on('pageerror', (e) => check('no page errors (workspace pass)', false, String(e)));
 await pageC.evaluateOnNewDocument(() => {
   localStorage.removeItem('bw-studio-doc-v2');
@@ -304,7 +350,7 @@ await pageC.evaluateOnNewDocument(() => {
   };
 });
 await pageC.goto(URL_, { waitUntil: 'domcontentloaded' });
-await pageC.waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 });
+await waitForStudioPage(pageC, { solid: true });
 const SC = async <T>(fn: string): Promise<T> => pageC.evaluate(`(() => (${fn})(window.__bwStudio))()`) as Promise<T>;
 const confirmCalls = () => pageC.evaluate(() => (window as unknown as { __confirmCalls: number }).__confirmCalls);
 const setConfirm = (v: boolean) =>
@@ -451,7 +497,7 @@ await pageC.click('#bw-sk-apply');
 await new Promise((r) => setTimeout(r, 500));
 const logAfter = (await SC<string[]>('(s) => s.modeLog()')) as string[];
 check('rebuild announces a visible Rebuilding mode', logAfter.slice(logBefore).includes('rebuilding'), logAfter.slice(logBefore).join('>'));
-await pageC.waitForFunction(`window.__bwStudio.mode().kind === 'idle' && window.__bwStudio.triCount() > 0`, { timeout: 30_000 });
+await waitForStudioPage(pageC, { solid: true, idle: true, timeout: 30_000 });
 check('fresh part builds clean', ((await SC<string[]>('(s) => s.errors()')) as string[]).length === 0);
 
 // (5) stale build-error cleanup: make the feature fail by deleting the
@@ -494,7 +540,7 @@ check('375px: ribbon buttons are 44px touch targets', targets.length > 5 && targ
 await pageC.close();
 
 // --- re-review set: field dirty, Clear/Open coordination, ribbon state ----
-const pageE = await browser.newPage();
+const pageE = await newStudioPage();
 pageE.on('pageerror', (e) => check('no page errors (re-review pass)', false, String(e)));
 await pageE.evaluateOnNewDocument(() => {
   localStorage.removeItem('bw-studio-doc-v2');
@@ -507,7 +553,7 @@ await pageE.evaluateOnNewDocument(() => {
   };
 });
 await pageE.goto(URL_, { waitUntil: 'domcontentloaded' });
-await pageE.waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 });
+await waitForStudioPage(pageE, { solid: true });
 const SE = async <T>(fn: string): Promise<T> => pageE.evaluate(`(() => (${fn})(window.__bwStudio))()`) as Promise<T>;
 const confirmCallsE = () => pageE.evaluate(() => (window as unknown as { __confirmCalls: number }).__confirmCalls);
 const setConfirmE = (v: boolean) =>
@@ -579,7 +625,7 @@ check('Open during clean editor: editor cancelled', (await SE<string>('(s) => s.
 check('Open during clean editor: project loaded', (await SE<string>('(s) => s.docJson()')).includes('"op1"'));
 
 // P2-5: feature buttons carry programmatic active state
-await pageE.waitForFunction(`window.__bwStudio.triCount() > 0`, { timeout: 30_000 });
+await waitForStudioPage(pageE, { solid: true, timeout: 30_000 });
 await pageE.click('[data-feat="fillet"]');
 check('fillet button pressed while active', await pageE.$eval('[data-feat="fillet"]', (el) => el.getAttribute('aria-pressed') === 'true'));
 check('other feature buttons stay unpressed', await pageE.$eval('[data-feat="extrude"]', (el) => el.getAttribute('aria-pressed') === 'false'));
@@ -645,14 +691,14 @@ check('focus stays on the row button after re-render', await pageE.evaluate(() =
 await pageE.close();
 
 // --- P1-3: mobile panels reachable through visible controls only ----------
-const pageM = await browser.newPage();
+const pageM = await newStudioPage();
 await pageM.setViewport({ width: 375, height: 700 });
 await pageM.evaluateOnNewDocument(() => {
   localStorage.removeItem('bw-studio-doc-v2');
   localStorage.removeItem('bw-studio-v2-seeded');
 });
 await pageM.goto(URL_, { waitUntil: 'domcontentloaded' });
-await pageM.waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 });
+await waitForStudioPage(pageM, { solid: true });
 const visibleIn = (sel: string) =>
   pageM.$eval(
     sel,
@@ -678,7 +724,7 @@ check('mobile: tapping the tab again closes the sheet', await pageM.$eval('.wsp-
 await pageM.close();
 
 // --- P2-6: pattern is editable from the context panel ---------------------
-const pageP = await browser.newPage();
+const pageP = await newStudioPage();
 await pageP.evaluateOnNewDocument(() => {
   localStorage.setItem('bw-studio-v2-seeded', '1');
   localStorage.setItem(
@@ -699,7 +745,7 @@ await pageP.evaluateOnNewDocument(() => {
   );
 });
 await pageP.goto(URL_, { waitUntil: 'domcontentloaded' });
-await pageP.waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 });
+await waitForStudioPage(pageP, { solid: true });
 const SP = async <T>(fn: string): Promise<T> => pageP.evaluate(`(() => (${fn})(window.__bwStudio))()`) as Promise<T>;
 await pageP.evaluate(() => (document.querySelector('.hist-item .hi-sel') as HTMLElement).click());
 check('pattern count is editable in context', Boolean(await pageP.$('#bw-context [data-cxpat="n"]')));
@@ -766,7 +812,7 @@ check('enum-named parameter does not false-match', await pageP.$eval('#bw-contex
 await pageP.close();
 
 // (10) Fit and view presets centre on a part far from the origin
-const pageD = await browser.newPage();
+const pageD = await newStudioPage();
 await pageD.evaluateOnNewDocument(() => {
   localStorage.setItem('bw-studio-v2-seeded', '1');
   localStorage.setItem(
@@ -778,7 +824,7 @@ await pageD.evaluateOnNewDocument(() => {
   );
 });
 await pageD.goto(URL_, { waitUntil: 'domcontentloaded' });
-await pageD.waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 });
+await waitForStudioPage(pageD, { solid: true });
 const SD = async <T>(fn: string): Promise<T> => pageD.evaluate(`(() => (${fn})(window.__bwStudio))()`) as Promise<T>;
 await pageD.click('[data-view="fit"]');
 await new Promise((r) => setTimeout(r, 300));
@@ -791,7 +837,7 @@ check('view presets target the part centre', Math.abs(ndcFront[0]) < 0.15 && Mat
 await pageD.close();
 
 // --- v1-scene notice: survives status messages, seen only on dismissal ----
-const page2 = await browser.newPage();
+const page2 = await newStudioPage();
 await page2.evaluateOnNewDocument(() => {
   localStorage.setItem('bw-studio-scene-v1', '[]');
   localStorage.removeItem('bw-studio-v1-notice');
@@ -799,7 +845,7 @@ await page2.evaluateOnNewDocument(() => {
   localStorage.removeItem('bw-studio-v2-seeded');
 });
 await page2.goto(URL_, { waitUntil: 'domcontentloaded' });
-await page2.waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 });
+await waitForStudioPage(page2, { solid: true });
 check('v1 notice still visible after kernel messages', Boolean(await page2.$('#bw-v1-notice')));
 check(
   'v1 seen-flag not set before dismissal',
@@ -811,7 +857,7 @@ check('old v1 key untouched', (await page2.evaluate(() => localStorage.getItem('
 await page2.close();
 
 // --- storage disabled: boot must still produce the starter part -----------
-const page3 = await browser.newPage();
+const page3 = await newStudioPage();
 await page3.evaluateOnNewDocument(() => {
   Object.defineProperty(window, 'localStorage', {
     get() {
@@ -820,12 +866,84 @@ await page3.evaluateOnNewDocument(() => {
   });
 });
 await page3.goto(URL_, { waitUntil: 'domcontentloaded' });
-const bootOk = await page3
-  .waitForFunction(`window.__bwStudio && window.__bwStudio.triCount() > 0`, { timeout: 60_000 })
+const bootOk = await waitForStudioPage(page3, { solid: true })
   .then(() => true)
   .catch(() => false);
 check('boot survives disabled localStorage (starter part builds)', bootOk);
 await page3.close();
+
+// --- application shell + first run ---------------------------------------
+// Run after the legacy interaction suite: Start sketch deliberately begins
+// a kernel load, and this fresh project must not alter any earlier fixtures.
+const welcomePage = await newStudioPage(true);
+await welcomePage.evaluateOnNewDocument(() => localStorage.clear());
+welcomePage.on('pageerror', (e) => check('first-run page has no errors', false, String(e)));
+await welcomePage.goto(URL_, { waitUntil: 'domcontentloaded' });
+let welcomeReady = false;
+for (let i = 0; i < 120 && !welcomeReady; i++) {
+  welcomeReady = await welcomePage.evaluate(() => Boolean((window as unknown as { __bwStudio?: unknown }).__bwStudio));
+  if (!welcomeReady) await new Promise((r) => setTimeout(r, 500));
+}
+if (!welcomeReady) throw new Error('first-run CAD app did not finish booting');
+const shell = await welcomePage.evaluate(() => {
+  const app = document.getElementById('studio')!.getBoundingClientRect();
+  const main = document.querySelector('main')!.getBoundingClientRect();
+  return {
+    bodyClass: document.body.classList.contains('cadstudio-route'),
+    siteHeaderHidden: getComputedStyle(document.querySelector('body > header.site')!).display === 'none',
+    siteFooterHidden: getComputedStyle(document.querySelector('body > footer.site')!).display === 'none',
+    app: [app.left, app.top, app.width, app.height],
+    main: [main.left, main.top, main.width, main.height],
+    viewport: [innerWidth, innerHeight],
+    oldDocsGone: !document.getElementById('studio-docs'),
+    welcomeVisible: !(document.getElementById('bw-welcome') as HTMLElement).hidden,
+  };
+});
+check('studio route uses a dedicated application shell', shell.bodyClass && shell.siteHeaderHidden && shell.siteFooterHidden);
+check(
+  'workspace fills the browser viewport',
+  Math.abs(shell.app[0]) < 1 &&
+    Math.abs(shell.app[1]) < 1 &&
+    Math.abs(shell.app[2] - shell.viewport[0]) < 2 &&
+    Math.abs(shell.app[3] - shell.viewport[1]) < 2 &&
+    Math.abs(shell.main[3] - shell.viewport[1]) < 2,
+  JSON.stringify(shell),
+);
+check('long documentation page is removed', shell.oldDocsGone);
+check('brand-new project shows Start with a sketch', shell.welcomeVisible);
+check('first-run screen has three concrete project choices', (await welcomePage.$$('.ws-welcome-actions button')).length === 3);
+const welcomeHelpHit = await welcomePage.$eval('#bw-welcome-help', (el) => {
+  const r = el.getBoundingClientRect();
+  return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === el;
+});
+check('first-run Help control is a reachable hit target', welcomeHelpHit);
+await welcomePage.$eval('#bw-welcome-help', (el) => (el as HTMLButtonElement).click());
+check('Help opens inside the application', await welcomePage.$eval('#bw-help', (el) => (el as HTMLDialogElement).open));
+await welcomePage.$eval('#bw-help-close', (el) => (el as HTMLButtonElement).click());
+const fullscreenRequested = await welcomePage.evaluate(async () => {
+  let called = false;
+  const app = document.getElementById('studio') as HTMLElement;
+  app.requestFullscreen = async () => {
+    called = true;
+  };
+  (document.getElementById('bw-fullscreen') as HTMLButtonElement).click();
+  await new Promise((r) => setTimeout(r, 0));
+  return called;
+});
+check(
+  'fullscreen control requests the application surface',
+  fullscreenRequested &&
+    (await welcomePage.$eval('#bw-fullscreen', (el) => el.getAttribute('aria-pressed'))) === 'false' &&
+    (await welcomePage.$eval('#bw-fullscreen-label', (el) => el.textContent)) === 'Full screen',
+);
+await welcomePage.$eval('#bw-welcome-start', (el) => (el as HTMLButtonElement).click());
+await welcomePage.waitForSelector('#bw-sketch:not([hidden])');
+check(
+  'Start sketch opens a blank Extrude sketch',
+  (await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson())).includes('"features":[]'),
+);
+await welcomePage.$eval('#bw-sk-cancel', (el) => (el as HTMLButtonElement).click());
+await welcomePage.close();
 
 await browser.close();
 server.close();
