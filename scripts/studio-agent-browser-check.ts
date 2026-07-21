@@ -331,7 +331,10 @@ async function browserChecks(browser: Browser, url: string) {
 const { server, url } = await startServer();
 let browser: Browser | null = null;
 try {
-  browser = await puppeteer.launch({ headless: true });
+  browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  });
   await browserChecks(browser, url);
 } finally {
   await browser?.close();
