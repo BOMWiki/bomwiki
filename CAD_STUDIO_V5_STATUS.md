@@ -2,13 +2,13 @@
 
 Last updated: 2026-07-21
 
-Status branch: `codex/cad-agent-operation` (stacked on `codex/cad-v5-runtime`)
+Production source: `wiki/engine@fbf5f65e220d06f3e360b63c2fafdb8875d00fd8`
 
 Specification: `CAD_STUDIO_V5_COMPLEX_MODELING_SPEC.md`
 
-Production baseline: `wiki/engine@0d1a5aef9`
+Production baseline: `wiki/engine@fbf5f65e2`
 
-Status: Slice 5A schema boundary is merged. The Slice 5A-runtime candidate and the agent foundation for its current operations pass their local acceptance gates but are not merged, deployed, or live-verified, so every V5 release gate remains open.
+Status: The Slice 5A schema boundary, multi-body runtime, and structured agent foundation for the released operations are merged, deployed, and live-verified. Every V5 release gate remains open because the final schema contract, advanced shapes, linked patterns, assemblies, inspection/interchange proof, canonical turbofan, and the remaining agent hardening gates are not complete.
 
 ## Product finding that triggered V5
 
@@ -48,9 +48,11 @@ Production already has:
 - basic sketch-on-face and edge/face picking;
 - parameters, expressions, history, undo/redo, local persistence, STEP/STL export;
 - full-screen precision workspace, ribbon, model tree, inspector, and editable templates;
-- direct sketch-to-solid Press/Pull.
+- direct sketch-to-solid Press/Pull;
+- schema-5 multi-body creation, ownership, selection, visibility, suppression, deletion, and selected-body Boolean operations;
+- structured local agent operation for the released project, parameter, feature, body, and Boolean commands through headless, MCP, and visible-session adapters.
 
-Production does not satisfy any V5 release gate yet. The schema boundary below is merged implementation progress. The multi-body behavior described afterward exists only on the current implementation branch until review, CI, merge, deployment, and live verification occur.
+Production does not satisfy any complete V5 release gate yet. The schema boundary, Slice 5A multi-body behavior, and applicable agent foundation below are deployed implementation progress; later capabilities and their release evidence remain absent.
 
 ## Slice 5A schema-boundary progress
 
@@ -69,7 +71,7 @@ Implemented and merged in Slice 5A:
 - 118 focused schema checks covering round trips, migrations, safe expressions, body/result ownership, owner-aware references, occurrence paths and overrides, duplicate-reference rejection, typed record containers, cycles, independent document/resource budgets, large and non-canonical resources, newer schemas, and unchanged input on every rejection fixture;
 - the protected `engine-studio` PR workflow now runs the V5 schema suite alongside typecheck and the production browser/kernel suite.
 
-Implemented by the Slice 5A-runtime candidate on this branch:
+Implemented by the deployed Slice 5A runtime:
 
 - schema-5 file open/save, local journal persistence, recovery, canonical undo/redo snapshots, and schema-3/schema-4 migration through the production document path;
 - a schema-5 worker protocol that evaluates, caches, meshes, reports errors for, and returns multiple named exact body results;
@@ -81,13 +83,13 @@ Implemented by the Slice 5A-runtime candidate on this branch:
 - selected-body named STEP export and selected-body STL export with an exact manifest for body/solid count, millimetre units, names, and bounds;
 - focused document, kernel, and visible-browser coverage for all ten Slice 5A-runtime acceptance steps.
 
-Deliberately not implemented by this candidate:
+Deliberately not implemented by the deployed Slice 5A runtime:
 
 - surface-producing features; current solid features reject the `surface` policy explicitly;
 - datum geometry, transforms, Loft, Sweep, advanced patterns, assemblies, mates, sectioning, inspection, structured assembly interchange, or the §40 turbofan;
-- schema-4 final-contract replacement, live verification, or closure of any V5 release gate.
+- schema-4 final-contract replacement or closure of any V5 release gate.
 
-Implemented by the stacked agent-operability candidate:
+Implemented by the deployed agent-operability foundation:
 
 - a shared typed command/query service used by converted human UI actions, direct tests, the headless CLI, MCP, and the live Studio bridge;
 - capability discovery, stable semantic inspection, detached exact previews, atomic commit, expected-revision conflict, protocol idempotency, undo/redo, semantic change sets, and structured diagnostics;
@@ -102,7 +104,7 @@ The `v5-schema` gate remains open because the temporary schema-4 adapter must be
 
 ## Next implementation action
 
-Review the Slice 5A-runtime candidate, require its full local and protected-CI suites to remain green, then merge and live-verify it separately before considering `v5-multibody` gate closure. In parallel, replace the temporary opaque schema-4 adapter once the final schema-4 format is stable. Do not begin Loft UI or assembly controls until the multi-body result has been merged and verified without unintended fusion.
+Implement the advanced V5 slices with structured command/query parity in the same change as each new capability: datums and transforms first, then Loft/Sweep and linked patterns, then assemblies/mates and section inspection. In parallel, replace the temporary opaque schema-4 adapter once the final schema-4 format is stable. The canonical turbofan must be constructed only after those generic tools pass their own parity gates; it cannot be used as a shortcut around them.
 
 The browser benchmark in §40 is now the normative V5 conformance test. Progress screenshots do not close a gate unless the underlying project also passes its structural, editability, validity, and round-trip assertions.
 

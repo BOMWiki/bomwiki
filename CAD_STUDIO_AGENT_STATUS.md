@@ -2,15 +2,15 @@
 
 Last updated: 2026-07-21
 
-Implementation branch: `codex/cad-agent-operation`
+Production source: `wiki/engine@fbf5f65e220d06f3e360b63c2fafdb8875d00fd8`
 
-Stacked dependency: `codex/cad-v5-runtime@55d28afd6`
+Merged changes: PR #113 (`5a060244e`) plus the protected-CI fix in PR #115 (`fbf5f65e2`)
 
 Specification: `CAD_STUDIO_AGENT_OPERABILITY_SPEC.md`
 
 Protocol: `bomwiki.cad.agent/v1`
 
-Status: The agent foundation required to operate the current Slice 5A feature set is implemented as a review candidate on top of the unmerged Slice 5A multi-body runtime. It covers the applicable A0–A4 command, inspection, headless, MCP, live-pairing, and multi-body contracts, but it does not claim every A0–A4 release requirement. The candidate is not merged, deployed, or live-verified. The final `v5-agent` gate remains open because exact headless kernel parity, long-job progress/cancellation, advanced V5 operations, performance evidence, and the canonical turbofan replay do not exist yet.
+Status: The agent foundation required to operate the released Slice 5A feature set is merged and deployed. It covers the applicable A0–A4 command, inspection, headless, MCP, live-pairing, and multi-body contracts, but it does not claim every A0–A4 release requirement. Protected CI passed before the production workflow published the exact reviewed engine SHA, and the live Studio asset hash, Help action, and public protocol module were verified after deployment. The final `v5-agent` gate remains open because exact headless kernel parity, long-job progress/cancellation, advanced V5 operations, performance evidence, and the canonical turbofan replay do not exist yet.
 
 ## What this candidate implements
 
@@ -56,7 +56,7 @@ The legacy profile pattern UI remains usable for existing Studio projects, but i
 
 ## Release truth
 
-The following statement is accurate for this candidate:
+The following statement is accurate for the deployed Slice 5A foundation:
 
 > BOMwiki CAD has a structured agent foundation: local agents can discover the operations currently implemented, inspect projects, preview and commit permission-scoped multi-body edits through MCP/headless tools, and pair with a visible Studio session without screen automation.
 
@@ -64,12 +64,11 @@ The following statements are **not** yet allowed:
 
 - “all CAD features are agent operable”;
 - “an agent can build the canonical turbofan”;
-- “the V5 agent gate is closed”;
-- “this is deployed to production.”
+- “the V5 agent gate is closed.”
 
 `npm run studio:agent:turbofan` and `npm run studio:agent:release-check` intentionally return a blocked status until the generic advanced capabilities exist. They must never pass through a turbofan-specific generator, imported finished geometry, private project mutation, DOM automation, or Computer Use.
 
-## Last verified local evidence
+## Last verified evidence
 
 - `npm run typecheck` — pass;
 - `npm run studio:v5:migration` — 118/118;
@@ -81,6 +80,14 @@ The following statements are **not** yet allowed:
 - `npm run studio:agent:parity` — 28/28, including real localhost pairing, visible preview approval, pause/resume/revoke, MCP-side disconnect propagation, exact multi-body preview, and revision-conflict handoff;
 - `git diff --check` — pass.
 
+Protected and live evidence:
+
+- PR #115 `studio` gate — pass, including the full 583-check engine sweep;
+- `deploy-engine` run `29834685253` — pass in 1m22s for exact SHA `fbf5f65e220d06f3e360b63c2fafdb8875d00fd8`;
+- live `/cad/studio` static asset version — `9e99d2002812`, equal to the reviewed tree;
+- live `/static/studio-agent-service.js` — HTTP 200 and protocol `bomwiki.cad.agent/v1` present;
+- live Help — `Connect local agent` present.
+
 ## Next gate
 
-Review and merge the Slice 5A runtime first, then review this stacked candidate and repeat protected CI/live pairing smoke verification. Agent Slice A5 must add command/query parity in the same PR as each datum, transform, Loft, Sweep, linked-pattern, assembly, mate, section, inspection, and interchange capability. Agent Slice A6 then constructs and verifies the canonical turbofan exclusively through those generic public tools.
+Agent Slice A5 must add command/query parity in the same PR as each datum, transform, Loft, Sweep, linked-pattern, assembly, mate, section, inspection, and interchange capability. Agent Slice A6 then constructs and verifies the canonical turbofan exclusively through those generic public tools. Do not close `v5-agent` until the exact-headless, long-job, advanced-operation, performance, artifact, and live turbofan gates in the specification pass.
