@@ -15,7 +15,19 @@
     "studio:v5:runtime:document": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts document",
     "studio:v5:runtime:kernel": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts kernel",
     "studio:v5:runtime:browser": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts browser",
-    "studio:v5:runtime": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts all"
+    "studio:v5:runtime": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts all",
+    "studio:agent:protocol": "node --experimental-strip-types scripts/studio-agent-check.ts protocol",
+    "studio:agent:queries": "node --experimental-strip-types scripts/studio-agent-check.ts queries",
+    "studio:agent:transactions": "node --experimental-strip-types scripts/studio-agent-check.ts transactions",
+    "studio:agent:headless": "node --experimental-strip-types scripts/studio-agent-headless-check.ts",
+    "studio:agent:mcp": "node --experimental-strip-types scripts/studio-agent-mcp-check.ts",
+    "studio:agent:parity": "node --experimental-strip-types scripts/studio-agent-browser-check.ts",
+    "studio:agent:security": "node --experimental-strip-types scripts/studio-agent-check.ts security",
+    "studio:agent:handoff": "node --experimental-strip-types scripts/studio-agent-check.ts handoff",
+    "studio:agent:multibody": "node --experimental-strip-types scripts/studio-agent-check.ts multibody",
+    "studio:agent:core": "node --experimental-strip-types scripts/studio-agent-check.ts all",
+    "studio:agent:turbofan": "node --experimental-strip-types scripts/studio-agent-turbofan-check.ts",
+    "studio:agent:release-check": "node --experimental-strip-types scripts/studio-agent-release-check.ts"
   },
   "dependencies": {
     "marked": "^18.0.5",

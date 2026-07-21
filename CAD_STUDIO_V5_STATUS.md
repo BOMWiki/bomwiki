@@ -2,13 +2,13 @@
 
 Last updated: 2026-07-21
 
-Status branch: `codex/cad-v5-runtime`
+Status branch: `codex/cad-agent-operation` (stacked on `codex/cad-v5-runtime`)
 
 Specification: `CAD_STUDIO_V5_COMPLEX_MODELING_SPEC.md`
 
 Production baseline: `wiki/engine@0d1a5aef9`
 
-Status: Slice 5A schema boundary is merged; the Slice 5A-runtime implementation candidate passes its local acceptance gate but is not merged, deployed, or live-verified, so every V5 release gate remains open
+Status: Slice 5A schema boundary is merged. The Slice 5A-runtime candidate and the agent foundation for its current operations pass their local acceptance gates but are not merged, deployed, or live-verified, so every V5 release gate remains open.
 
 ## Product finding that triggered V5
 
@@ -87,6 +87,17 @@ Deliberately not implemented by this candidate:
 - datum geometry, transforms, Loft, Sweep, advanced patterns, assemblies, mates, sectioning, inspection, structured assembly interchange, or the §40 turbofan;
 - schema-4 final-contract replacement, live verification, or closure of any V5 release gate.
 
+Implemented by the stacked agent-operability candidate:
+
+- a shared typed command/query service used by converted human UI actions, direct tests, the headless CLI, MCP, and the live Studio bridge;
+- capability discovery, stable semantic inspection, detached exact previews, atomic commit, expected-revision conflict, protocol idempotency, undo/redo, semantic change sets, and structured diagnostics;
+- headless project operation and an eight-tool MCP stdio adapter with path and permission confinement;
+- an expiring loopback-only live pairing flow with visible client/scope/mode approval, default per-commit approval, activity, pause/resume, revoke, and project-change invalidation;
+- direct/headless/MCP/visible-loopback parity for the released simple-feature, body, and Boolean operations;
+- truthful disabled capability reasons for datums, transforms, Loft, Sweep, linked patterns, assemblies, mates, and sectioning.
+
+The complete evidence and current limitations are recorded in `CAD_STUDIO_AGENT_STATUS.md`. This candidate does not close `v5-agent`: advanced operation parity and the generic protocol-only turbofan replay remain blocked by later V5 slices.
+
 The `v5-schema` gate remains open because the temporary schema-4 adapter must be replaced and verified against the final V4 fixtures before schema 5 becomes a production document format.
 
 ## Next implementation action
@@ -112,6 +123,7 @@ All gates are open:
 - [ ] `v5-visual`
 - [ ] `v5-turbofan`
 - [ ] `v5-generality`
+- [ ] `v5-agent`
 - [ ] `v5-live`
 
 Gate definitions and required evidence are in §36 of the V5 specification.
@@ -124,6 +136,10 @@ Gate definitions and required evidence are in §36 of the V5 specification.
 - `npm run studio:v5:runtime:kernel` — 14/14 exact OpenCascade body, cache, failure, and export checks pass
 - `npm run studio:v5:runtime:browser` — 49/49 visible ten-step acceptance, renderer/topology, transactional-control, and mobile body-tree checks pass
 - `npm run studio:check` — 277/277 production Studio checks pass
+- `npm run studio:agent:core` — 46/46 protocol, query, transaction, alias, security, handoff, and multi-body checks pass
+- `npm run studio:agent:headless` — 10/10 CLI checks pass
+- `npm run studio:agent:mcp` — 23/23 MCP lifecycle, tools, idempotent retry, permissions, filesystem, and loopback-pairing checks pass
+- `npm run studio:agent:parity` — 28/28 direct, exact visible-Studio, localhost bridge, approval, pause/revoke, MCP-side disconnect, and handoff checks pass
 - `git diff --check` — pass
 
 This evidence is local to the implementation branch. It does not claim merge, deployment, live behavior, or V5 completion.

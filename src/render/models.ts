@@ -789,7 +789,8 @@ export function cadStudioPage(): string {
           <div class="ws-help-body">
       <section class="cs-learn">
         <h3>Build your first part</h3>
-        <div class="cs-help-actions"><button type="button" id="bw-help-tour">Show the guided walkthrough</button><button type="button" id="bw-help-templates">Browse editable templates</button></div>
+        <div class="cs-help-actions"><button type="button" id="bw-help-tour">Show the guided walkthrough</button><button type="button" id="bw-help-templates">Browse editable templates</button><button type="button" id="bw-help-agent">Connect local agent</button></div>
+        <p class="cs-agent-note"><b>Local agent access:</b> an approved MCP client can inspect, preview, and commit the modeling operations this build reports as available—without screen control. Pairing stays on your device, starts in preview-required mode, and can be paused or revoked from the Agent activity control. Loft, Sweep, transforms, assemblies, mates, and section views remain unavailable and are reported as disabled.</p>
         <ol class="cs-steps">
           <li><b>Start a sketch.</b> Choose <i>Extrude</i>, then use the base plane or select a flat face.</li>
           <li><b>Draw a closed profile.</b> Place a rectangle, circle, or polygon. Select it to type exact dimensions.</li>

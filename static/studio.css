@@ -106,6 +106,113 @@ body.cadstudio-route > main {
 .ws-local[data-state="saving"] i {
   background: #f2c14e;
 }
+.ws-agent-activity {
+  display: inline-grid;
+  grid-template-columns: 7px auto;
+  grid-template-areas: 'dot name' 'dot status';
+  align-items: center;
+  column-gap: 6px;
+  min-height: 32px;
+  margin-left: 6px;
+  padding: 3px 8px;
+  border: 1px solid #31516e;
+  border-radius: 3px;
+  background: #162433;
+  color: #d9e8f5;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-agent-activity[hidden] { display: none; }
+.ws-agent-activity > span {
+  grid-area: dot;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #50d890;
+  box-shadow: 0 0 0 3px rgb(80 216 144 / 12%);
+}
+.ws-agent-activity[data-state='attention'] > span { background: #f2c14e; }
+.ws-agent-activity[data-state='error'] > span { background: #ff6b5f; }
+.ws-agent-activity b {
+  grid-area: name;
+  max-width: 150px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-agent-activity small {
+  grid-area: status;
+  max-width: 180px;
+  overflow: hidden;
+  color: #86a0b8;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-agent-pair {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid #415d78;
+  border-radius: 4px;
+  background: #16222e;
+  color: #dce8f2;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 55%);
+}
+.ws-agent-pair::backdrop { background: rgb(4 10 16 / 76%); }
+.ws-agent-pair form { padding: 24px; }
+.ws-agent-pair .ws-agent-kicker {
+  margin: 0 0 8px;
+  color: #7fbfff;
+  font: 700 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .14em;
+}
+.ws-agent-pair h2 { margin: 0 0 10px; font-size: 20px; }
+.ws-agent-pair p { color: #9eb2c5; line-height: 1.5; }
+.ws-agent-pair dl {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 20px 0;
+  padding: 14px;
+  background: #101b26;
+}
+.ws-agent-pair dt { color: #71889f; font-size: 10px; text-transform: uppercase; }
+.ws-agent-pair dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
+.ws-agent-pair form > div { display: flex; justify-content: flex-end; gap: 8px; }
+.ws-agent-pair button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid #40576c;
+  border-radius: 3px;
+  background: #1f2d3a;
+  color: #dce8f2;
+  font: inherit;
+  cursor: pointer;
+}
+.ws-agent-pair button.primary { border-color: #2784d8; background: #1669b4; color: #fff; }
+.ws-agent-pair button.ws-agent-danger { border-color: #8b4545; color: #ffb8b0; }
+.ws-agent-url {
+  display: grid;
+  gap: 7px;
+  margin: 18px 0 8px;
+  color: #9eb2c5;
+  font-size: 11px;
+}
+.ws-agent-url input {
+  min-height: 40px;
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #40576c;
+  border-radius: 3px;
+  background: #0d1822;
+  color: #e7f0f7;
+  padding: 0 10px;
+  font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ws-agent-inline-error { margin: 7px 0; color: #ffb8b0 !important; font-size: 11px; }
 .ws-app-actions {
   justify-self: end;
   display: flex;
@@ -1033,6 +1140,7 @@ body.cadstudio-route > main {
 .cs-help-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 14px; }
 .cs-help-actions button { padding: 0 12px; }
 .cs-help-actions button + button { border-color: #45617d; background: #203447; }
+.cs-agent-note { margin: -3px 0 14px; color: #91a8bc; font-size: 11px; line-height: 1.5; }
 
 /* The tour points at live controls; the soft outline travels through the app
    while the concise card stays out of the user's working area. */

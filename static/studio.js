@@ -47,6 +47,7 @@
     });
   const documentToolsReady = import('/static/studio-document.js');
   const v5RuntimeTools = await import('/static/studio-v5-runtime-document.js');
+  const agentTools = await import('/static/studio-agent-service.js');
   const prepareStoredDocument = (candidate, prepareLegacy) =>
     v5RuntimeTools.isStudioV5Project(candidate)
       ? v5RuntimeTools.decorateStudioV5Project(v5RuntimeTools.canonicalStudioV5Project(candidate))
@@ -208,6 +209,7 @@
         undoStack.length = 0;
         redoStack.length = 0;
         afterDocumentChange();
+        resetAgentForProjectChange('Recovered another project');
       }
       say('Recovered ' + (snapshot.title || 'local project') + '.');
     });
@@ -468,6 +470,14 @@
   const exportBodyIds = new Set();
   let lastBodyResults = [];
   let lastEvaluationTrace = null;
+  // Command revisions are distinct from asynchronous kernel rebuild
+  // revisions. Humans and agents share this one persistent-edit sequence.
+  let commandRevision = 0;
+  let liveAgentService = null;
+  let activeAgentConnection = null;
+  let agentCommitInProgress = false;
+  let pendingPairingWindow = null;
+  let pendingPairingOrigin = null;
 
   const deepCopy = (o) => JSON.parse(JSON.stringify(o));
   function normalizeDoc(d) {
@@ -591,7 +601,500 @@
     if (redoButton) redoButton.disabled = redoStack.length === 0;
   }
 
-  function commit(label, mutate) {
+  function ensureAgentActivityElement() {
+    let element = $('bw-agent-activity');
+    if (element) return element;
+    element = document.createElement('button');
+    element.type = 'button';
+    element.id = 'bw-agent-activity';
+    element.className = 'ws-agent-activity';
+    element.hidden = true;
+    element.innerHTML = '<span aria-hidden="true"></span><b>Agent</b><small>Disconnected</small>';
+    element.addEventListener('click', openAgentSessionDialog);
+    document.querySelector('.ws-document')?.appendChild(element);
+    return element;
+  }
+
+  function updateAgentActivity(message, actor = 'agent') {
+    const element = ensureAgentActivityElement();
+    if (!activeAgentConnection) {
+      element.hidden = true;
+      return;
+    }
+    element.hidden = false;
+    element.dataset.state = actor === 'error' ? 'error' : actor === 'human' ? 'attention' : 'connected';
+    element.querySelector('b').textContent = activeAgentConnection.clientLabel;
+    element.querySelector('small').textContent = message;
+    element.title = message + ' · click to disconnect';
+  }
+
+  function resetAgentForProjectChange(reason) {
+    commandRevision = 0;
+    if (activeAgentConnection) revokeAgentConnection(reason || 'Project changed');
+    liveAgentService = null;
+  }
+
+  async function ensureLiveAgentService() {
+    if (!v5RuntimeTools.isStudioV5Project(doc)) {
+      const migrated = v5RuntimeTools.migrateStudioDocumentToV5(doc, { projectId });
+      commit('Upgrade project for structured agent access', () => migrated, { actor: 'human' });
+    }
+    if (liveAgentService) return liveAgentService;
+    liveAgentService = new agentTools.CadCommandService({
+      project: doc,
+      revision: commandRevision,
+      kernel: {
+        validate: async (candidate) => kernelCall('validate-v5', documentRevision, { document: candidate }),
+      },
+      commitAdapter: async (command) => {
+        if (command.historyAction) {
+          if (command.expectedRevision !== commandRevision) {
+            throw new agentTools.CadAgentError('REVISION_CONFLICT', 'History command targets a stale project revision.', {
+              expectedRevision: command.expectedRevision,
+              actualRevision: commandRevision,
+            });
+          }
+          if (command.historyAction === 'undo') undo();
+          else if (command.historyAction === 'redo') redo();
+          else throw new agentTools.CadAgentError('UNKNOWN_HISTORY_ACTION', 'Unknown live history action.');
+          return { project: doc, revision: commandRevision };
+        }
+        agentCommitInProgress = true;
+        try {
+          commit(command.label, () => command.project, { actor: command.actor || 'agent', transactionId: command.transactionId });
+        } finally {
+          agentCommitInProgress = false;
+        }
+        updateAgentActivity('Committed: ' + command.label, 'agent');
+        return { project: doc, revision: commandRevision };
+      },
+    });
+    return liveAgentService;
+  }
+
+  function approvedPermissionContext(requested) {
+    const allowed = new Set([
+      'project.read',
+      'project.edit',
+      'artifact.render',
+      'artifact.export-project',
+      'artifact.export-step',
+      'artifact.export-stl',
+    ]);
+    const granted = (Array.isArray(requested?.granted) ? requested.granted : ['project.read'])
+      .filter((permission) => allowed.has(permission));
+    if (!granted.includes('project.read')) granted.unshift('project.read');
+    return {
+      granted,
+      projectIds: [projectId],
+      ...(Array.isArray(requested?.operationKinds) ? { operationKinds: requested.operationKinds.filter((kind) => typeof kind === 'string') } : {}),
+      ...(Number.isInteger(requested?.maxCommits) ? { maxCommits: requested.maxCommits } : {}),
+      ...(typeof requested?.expiresAt === 'string' ? { expiresAt: requested.expiresAt } : {}),
+    };
+  }
+
+  async function activateAgentConnection(options = {}) {
+    if (activeAgentConnection) throw new agentTools.CadAgentError('SESSION_ALREADY_CONNECTED', 'Another agent session is already connected.');
+    const service = await ensureLiveAgentService();
+    const sessionId = typeof options.sessionId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(options.sessionId)
+      ? options.sessionId
+      : 'studio-' + (crypto.randomUUID?.() || newId() + '-' + Date.now());
+    const connectionToken = crypto.randomUUID?.() || newId() + '-' + newId() + '-' + Date.now();
+    const mode = ['read-only', 'preview-required', 'scoped-auto-commit'].includes(options.mode) ? options.mode : 'preview-required';
+    const permissionContext = approvedPermissionContext(options.permissionContext);
+    if (mode === 'read-only') permissionContext.granted = permissionContext.granted.filter((permission) => permission !== 'project.edit');
+    activeAgentConnection = {
+      sessionId,
+      connectionToken,
+      clientLabel: String(options.clientLabel || 'Local CAD agent').trim().slice(0, 80) || 'Local CAD agent',
+      permissionContext,
+      mode,
+      paused: false,
+      previews: new Map(),
+      bridgeWindow: options.bridgeWindow || null,
+      bridgeOrigin: options.bridgeOrigin || null,
+      connectedAt: new Date().toISOString(),
+    };
+    service.previews.clear();
+    updateAgentActivity('Connected · revision ' + commandRevision, 'agent');
+    return {
+      protocol: agentTools.CAD_AGENT_PROTOCOL,
+      sessionId,
+      projectId,
+      revision: commandRevision,
+      connectionToken,
+      permissionContext: deepCopy(activeAgentConnection.permissionContext),
+      mode: activeAgentConnection.mode,
+      capabilities: service.capabilities(),
+    };
+  }
+
+  function requestAgentConnection(options = {}) {
+    if (activeAgentConnection) return Promise.reject(new agentTools.CadAgentError('SESSION_ALREADY_CONNECTED', 'Another agent session is already connected.'));
+    return new Promise((resolve, reject) => {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'ws-agent-pair';
+      const clientLabel = String(options.clientLabel || 'Local CAD agent').trim().slice(0, 80) || 'Local CAD agent';
+      const permissions = approvedPermissionContext(options.permissionContext).granted;
+      dialog.innerHTML =
+        '<form method="dialog"><p class="ws-agent-kicker">STRUCTURED AGENT ACCESS</p>' +
+        '<h2></h2><p>This connection uses typed CAD commands, not screen control. Every edit is previewed, revision-checked, validated, visible in History, and undoable.</p>' +
+        '<dl><dt>Project</dt><dd></dd><dt>Permissions</dt><dd></dd></dl>' +
+        '<div><button value="cancel">Deny</button><button value="approve" class="primary">Connect</button></div></form>';
+      dialog.querySelector('h2').textContent = clientLabel + ' wants to connect';
+      dialog.querySelectorAll('dd')[0].textContent = doc.title;
+      dialog.querySelectorAll('dd')[1].textContent = permissions.join(', ');
+      const requestedMode = ['read-only', 'preview-required', 'scoped-auto-commit'].includes(options.mode) ? options.mode : 'preview-required';
+      dialog.querySelector('dl').insertAdjacentHTML('beforeend', '<dt>Mode</dt><dd></dd>');
+      dialog.querySelector('dl dd:last-child').textContent = requestedMode === 'scoped-auto-commit' ? 'Scoped auto-commit' : requestedMode === 'read-only' ? 'Read only' : 'Preview approval required';
+      document.body.appendChild(dialog);
+      dialog.addEventListener('close', async () => {
+        const approved = dialog.returnValue === 'approve';
+        dialog.remove();
+        if (!approved) {
+          reject(new agentTools.CadAgentError('CONNECTION_DENIED', 'The user denied the agent connection.'));
+          return;
+        }
+        try {
+          resolve(await activateAgentConnection({ ...options, clientLabel }));
+        } catch (error) {
+          reject(error);
+        }
+      }, { once: true });
+      dialog.showModal();
+    });
+  }
+
+  function revokeAgentConnection(reason = 'Disconnected', notifyBridge = true) {
+    const previous = activeAgentConnection;
+    if (liveAgentService) liveAgentService.previews.clear();
+    activeAgentConnection = null;
+    const element = $('bw-agent-activity');
+    if (element) element.hidden = true;
+    if (notifyBridge && previous?.bridgeWindow && !previous.bridgeWindow.closed) {
+      previous.bridgeWindow.postMessage({ source: 'bomwiki-cad-studio', message: { type: 'session.revoked', reason } }, previous.bridgeOrigin);
+    }
+    say(reason + '.');
+  }
+
+  function requestAgentCommitApproval(previewId) {
+    const preview = activeAgentConnection?.previews.get(previewId);
+    return new Promise((resolve) => {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'ws-agent-pair';
+      const changeSet = preview?.changeSet || {};
+      const count = (key) => Array.isArray(changeSet[key]) ? changeSet[key].length : 0;
+      dialog.innerHTML =
+        '<form method="dialog"><p class="ws-agent-kicker">AGENT PREVIEW</p><h2>Apply this CAD change?</h2>' +
+        '<p></p><dl><dt>Creates</dt><dd></dd><dt>Updates</dt><dd></dd><dt>Deletes</dt><dd></dd><dt>Revision</dt><dd></dd></dl>' +
+        '<div><button value="reject">Reject</button><button value="approve" class="primary">Apply change</button></div></form>';
+      dialog.querySelector('p:not(.ws-agent-kicker)').textContent = preview?.label || 'The connected agent wants to commit its validated preview.';
+      const values = dialog.querySelectorAll('dd');
+      values[0].textContent = String(count('created'));
+      values[1].textContent = String(count('updated'));
+      values[2].textContent = String(count('deleted'));
+      values[3].textContent = String(commandRevision);
+      document.body.appendChild(dialog);
+      dialog.addEventListener('close', () => {
+        const approved = dialog.returnValue === 'approve';
+        dialog.remove();
+        resolve(approved);
+      }, { once: true });
+      dialog.addEventListener('cancel', (event) => {
+        event.preventDefault();
+        dialog.close('reject');
+      });
+      dialog.showModal();
+    });
+  }
+
+  async function handleLiveAgentRequest(connectionToken, envelope) {
+    if (!activeAgentConnection || connectionToken !== activeAgentConnection.connectionToken) {
+      throw new agentTools.CadAgentError('SESSION_NOT_FOUND', 'The live Studio agent session is not connected.');
+    }
+    if (activeAgentConnection.paused) throw new agentTools.CadAgentError('SESSION_PAUSED', 'The user paused this agent session.');
+    const service = await ensureLiveAgentService();
+    const request = {
+      ...deepCopy(envelope),
+      protocol: agentTools.CAD_AGENT_PROTOCOL,
+      sessionId: activeAgentConnection.sessionId,
+      projectId,
+      permissionContext: deepCopy(activeAgentConnection.permissionContext),
+    };
+    if (request.payload?.kind === 'commit' && activeAgentConnection.mode === 'read-only') {
+      throw new agentTools.CadAgentError('PERMISSION_DENIED', 'This live Studio session is read only.');
+    }
+    if (request.payload?.kind === 'commit' && activeAgentConnection.mode === 'preview-required' && envelope.expectedRevision === commandRevision && activeAgentConnection.previews.has(request.payload.previewId)) {
+      const approved = await requestAgentCommitApproval(request.payload.previewId);
+      if (!approved) throw new agentTools.CadAgentError('USER_REJECTED_PREVIEW', 'The user rejected this CAD preview.');
+    }
+    updateAgentActivity(request.payload?.kind === 'preview' ? 'Validating preview…' : 'Working…', 'agent');
+    const response = await service.request(request);
+    if (response.status === 'ok' && request.payload?.kind === 'preview') {
+      activeAgentConnection.previews.set(response.result.previewId, {
+        label: request.payload.transaction?.label,
+        changeSet: deepCopy(response.result.changeSet),
+      });
+    }
+    if (request.payload?.kind === 'commit') activeAgentConnection.previews.delete(request.payload.previewId);
+    const successMessage = request.payload?.kind === 'preview'
+      ? 'Preview ready'
+      : request.payload?.kind === 'commit'
+        ? 'Committed · revision ' + response.revision
+        : 'Revision ' + response.revision;
+    updateAgentActivity(
+      response.status === 'ok' ? successMessage : response.diagnostics?.[0]?.code || 'Request failed',
+      response.status === 'ok' ? 'agent' : 'error',
+    );
+    return response;
+  }
+
+  Object.defineProperty(window, 'bomwikiCadAgent', {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: Object.freeze({
+      protocol: agentTools.CAD_AGENT_PROTOCOL,
+      capabilities: () => agentTools.cadCapabilityManifest({ exactKernel: true }),
+      requestConnection: (options) => requestAgentConnection(options),
+      request: (connectionToken, envelope) => handleLiveAgentRequest(connectionToken, envelope),
+      disconnect: (connectionToken) => {
+        if (!activeAgentConnection || connectionToken !== activeAgentConnection.connectionToken) return false;
+        revokeAgentConnection('Agent disconnected');
+        return true;
+      },
+      status: () => activeAgentConnection
+        ? { connected: true, sessionId: activeAgentConnection.sessionId, clientLabel: activeAgentConnection.clientLabel, projectId, revision: commandRevision, mode: activeAgentConnection.mode, paused: activeAgentConnection.paused }
+        : { connected: false, projectId, revision: commandRevision },
+    }),
+  });
+
+  function openAgentSessionDialog() {
+    if (!activeAgentConnection) return openLoopbackPairDialog();
+    const dialog = document.createElement('dialog');
+    dialog.className = 'ws-agent-pair';
+    dialog.innerHTML =
+      '<form method="dialog"><p class="ws-agent-kicker">AGENT ACTIVITY</p><h2></h2><p></p>' +
+      '<dl><dt>Mode</dt><dd></dd><dt>Project</dt><dd></dd><dt>Revision</dt><dd></dd><dt>Status</dt><dd></dd></dl>' +
+      '<div><button value="close">Close</button><button value="pause"></button><button value="revoke" class="ws-agent-danger">Disconnect</button></div></form>';
+    dialog.querySelector('h2').textContent = activeAgentConnection.clientLabel;
+    dialog.querySelector('p:not(.ws-agent-kicker)').textContent = 'This client uses structured, revision-controlled CAD commands. It cannot inspect the page or control the pointer.';
+    const values = dialog.querySelectorAll('dd');
+    values[0].textContent = activeAgentConnection.mode;
+    values[1].textContent = doc.title;
+    values[2].textContent = String(commandRevision);
+    values[3].textContent = activeAgentConnection.paused ? 'Paused by you' : 'Connected';
+    dialog.querySelector('[value="pause"]').textContent = activeAgentConnection.paused ? 'Resume' : 'Pause';
+    document.body.appendChild(dialog);
+    dialog.addEventListener('close', () => {
+      const action = dialog.returnValue;
+      dialog.remove();
+      if (!activeAgentConnection) return;
+      if (action === 'pause') {
+        activeAgentConnection.paused = !activeAgentConnection.paused;
+        updateAgentActivity(activeAgentConnection.paused ? 'Paused by you' : 'Connected · revision ' + commandRevision, activeAgentConnection.paused ? 'human' : 'agent');
+      } else if (action === 'revoke') revokeAgentConnection('Disconnected by user');
+    }, { once: true });
+    dialog.showModal();
+  }
+
+  function validatedPairingUrl(raw) {
+    let url;
+    try {
+      url = new URL(String(raw || '').trim());
+    } catch {
+      throw new agentTools.CadAgentError('INVALID_PAIRING_URL', 'Paste the complete pairing URL returned by the local BOMwiki CAD MCP server.');
+    }
+    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || !url.port || url.pathname !== '/pair' || !url.hash.slice(1) || url.username || url.password) {
+      throw new agentTools.CadAgentError('INVALID_PAIRING_URL', 'Pairing URLs must use the local http://127.0.0.1:<port>/pair#<secret> bridge.');
+    }
+    return url;
+  }
+
+  function openLoopbackPairDialog() {
+    if (activeAgentConnection) return openAgentSessionDialog();
+    closeHelp();
+    const dialog = document.createElement('dialog');
+    dialog.className = 'ws-agent-pair';
+    dialog.innerHTML =
+      '<form><p class="ws-agent-kicker">LOCAL MCP CONNECTION</p><h2>Connect a CAD agent</h2>' +
+      '<p>In your agent, call <code>cad_session</code> with action <code>connect</code>. Paste the returned loopback URL here. Studio will show the client and permissions before anything is shared.</p>' +
+      '<label class="ws-agent-url">Pairing URL<input type="url" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:…/pair#…"></label>' +
+      '<p class="ws-agent-inline-error" role="alert" hidden></p>' +
+      '<div><button type="button" value="cancel">Cancel</button><button type="submit" class="primary">Open pairing</button></div></form>';
+    document.body.appendChild(dialog);
+    const input = dialog.querySelector('input');
+    const error = dialog.querySelector('.ws-agent-inline-error');
+    dialog.querySelector('[value="cancel"]').addEventListener('click', () => dialog.close());
+    dialog.querySelector('form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      try {
+        const url = validatedPairingUrl(input.value);
+        url.searchParams.set('studioOrigin', location.origin);
+        const popup = window.open(url.href, 'bomwiki-cad-agent-pair', 'popup,width=520,height=560');
+        if (!popup) throw new agentTools.CadAgentError('PAIRING_POPUP_BLOCKED', 'Allow this user-requested local pairing window, then try again.');
+        pendingPairingWindow = popup;
+        pendingPairingOrigin = url.origin;
+        dialog.close();
+        say('Local agent bridge opened — review the connection request next.');
+      } catch (reason) {
+        error.textContent = String(reason?.message || reason);
+        error.hidden = false;
+        input.focus();
+      }
+    });
+    dialog.addEventListener('close', () => dialog.remove(), { once: true });
+    dialog.showModal();
+    input.focus();
+  }
+
+  async function sha256Hex(bytes) {
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+  }
+
+  function bytesToBase64(bytes) {
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + 0x8000)));
+    }
+    return btoa(binary);
+  }
+
+  async function liveAgentArtifact(args) {
+    if (args.path) throw new agentTools.CadAgentError('LIVE_PATH_NOT_AVAILABLE', 'A browser session cannot write an arbitrary host path. Request the artifact data and let the MCP host save it within its approved output root.');
+    const format = args.format;
+    const permission = format === 'project' ? 'artifact.export-project' : format === 'step' ? 'artifact.export-step' : format === 'stl' ? 'artifact.export-stl' : 'artifact.render';
+    if (!activeAgentConnection.permissionContext.granted.includes(permission)) throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "' + permission + '" is required.');
+    let bytes;
+    let mediaType;
+    let manifest = null;
+    if (format === 'project') {
+      bytes = new TextEncoder().encode(JSON.stringify(v5RuntimeTools.canonicalStudioV5Project(doc), null, 2) + '\n');
+      mediaType = 'application/json';
+    } else if (format === 'step' || format === 'stl') {
+      const response = await kernelCall(format === 'step' ? 'export-step' : 'export-stl', documentRevision, { bodyIds: selectedExportBodyIds() });
+      if (!response.blob || response.errors?.length) throw new agentTools.CadAgentError('ARTIFACT_EXPORT_FAILED', response.errors?.[0]?.message || 'The exact CAD export failed.');
+      bytes = new Uint8Array(await response.blob.arrayBuffer());
+      mediaType = response.blob.type || (format === 'step' ? 'model/step' : 'model/stl');
+      manifest = response.manifest || null;
+    } else {
+      throw new agentTools.CadAgentError('CAPABILITY_DISABLED', 'Live render transfer is not available in this runtime.', { repairOptions: [{ kind: 'inspect-capabilities', capability: 'artifact.render', reasonCode: 'LIVE_RENDER_TRANSFER_NOT_AVAILABLE' }] });
+    }
+    if (bytes.byteLength > 1024 * 1024) throw new agentTools.CadAgentError('ARTIFACT_TOO_LARGE_FOR_LOOPBACK', 'This artifact exceeds the 1 MiB live-transfer limit. Use the normal Studio download or a headless output path.');
+    return {
+      format,
+      bytes: bytes.byteLength,
+      mediaType,
+      sha256: await sha256Hex(bytes),
+      dataBase64: bytesToBase64(bytes),
+      documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
+      ...(manifest ? { manifest } : {}),
+    };
+  }
+
+  async function handleLoopbackTool(tool, rawArgs, requestId) {
+    if (!activeAgentConnection) throw new agentTools.CadAgentError('SESSION_NOT_FOUND', 'The live Studio session is not connected.');
+    const args = deepCopy(rawArgs || {});
+    delete args.sessionId;
+    if (tool === 'cad_artifact') return liveAgentArtifact(args);
+    let payload;
+    if (tool === 'cad_inspect') payload = { kind: 'inspect', query: args.query || {} };
+    else if (tool === 'cad_query') payload = { kind: 'query', query: args.query || {} };
+    else if (tool === 'cad_preview') payload = { kind: 'preview', transaction: args.transaction };
+    else if (tool === 'cad_commit') payload = { kind: 'commit', previewId: args.previewId };
+    else if (tool === 'cad_history') payload = { kind: 'history', ...args };
+    else throw new agentTools.CadAgentError('TOOL_NOT_FOUND', 'Unsupported live Studio tool "' + tool + '".');
+    const envelope = agentTools.createCadAgentRequest({
+      requestId,
+      sessionId: activeAgentConnection.sessionId,
+      projectId,
+      expectedRevision: Number.isInteger(args.expectedRevision) ? args.expectedRevision : undefined,
+      permissionContext: activeAgentConnection.permissionContext,
+      payload,
+    });
+    const response = await handleLiveAgentRequest(activeAgentConnection.connectionToken, envelope);
+    if (response.status !== 'ok') {
+      const diagnostic = response.diagnostics?.[0] || {};
+      throw new agentTools.CadAgentError(diagnostic.code || 'CAD_TOOL_FAILED', diagnostic.message || 'The live Studio request failed.', diagnostic);
+    }
+    return tool === 'cad_inspect' || tool === 'cad_query'
+      ? { revision: response.revision, result: response.result }
+      : response.result;
+  }
+
+  function postToPairingWindow(message) {
+    const target = activeAgentConnection?.bridgeWindow || pendingPairingWindow;
+    const origin = activeAgentConnection?.bridgeOrigin || pendingPairingOrigin;
+    if (target && !target.closed && origin) target.postMessage({ source: 'bomwiki-cad-studio', message }, origin);
+  }
+
+  window.addEventListener('message', async (event) => {
+    if (event.data?.source !== 'bomwiki-cad-loopback' || !event.data.message) return;
+    const expectedWindow = activeAgentConnection?.bridgeWindow || pendingPairingWindow;
+    const expectedOrigin = activeAgentConnection?.bridgeOrigin || pendingPairingOrigin;
+    if (!expectedWindow || event.source !== expectedWindow || event.origin !== expectedOrigin) return;
+    const message = event.data.message;
+    if (message.type === 'bridge.close') {
+      pendingPairingWindow = null;
+      pendingPairingOrigin = null;
+      if (activeAgentConnection) revokeAgentConnection(String(message.reason || 'Local agent disconnected'), false);
+      else say(String(message.reason || 'Local agent disconnected') + '.');
+      return;
+    }
+    if (message.type === 'pairing.request') {
+      if (message.protocol !== agentTools.CAD_AGENT_PROTOCOL || typeof message.sessionId !== 'string') {
+        postToPairingWindow({ type: 'pairing.denied', message: 'Unsupported CAD agent protocol.' });
+        return;
+      }
+      try {
+        const connection = await requestAgentConnection({
+          sessionId: message.sessionId,
+          clientLabel: message.clientLabel,
+          permissionContext: message.permissionContext,
+          mode: message.mode,
+          bridgeWindow: event.source,
+          bridgeOrigin: event.origin,
+        });
+        pendingPairingWindow = null;
+        pendingPairingOrigin = null;
+        postToPairingWindow({
+          type: 'pairing.approved',
+          projectId: connection.projectId,
+          revision: connection.revision,
+          permissionContext: connection.permissionContext,
+          mode: connection.mode,
+          capabilities: connection.capabilities,
+        });
+      } catch (reason) {
+        postToPairingWindow({ type: 'pairing.denied', message: String(reason?.message || reason) });
+      }
+      return;
+    }
+    if (message.type === 'tool.request' && typeof message.id === 'string' && typeof message.tool === 'string') {
+      try {
+        const result = await handleLoopbackTool(message.tool, message.args, message.id);
+        postToPairingWindow({ type: 'tool.response', id: message.id, ok: true, result });
+      } catch (reason) {
+        postToPairingWindow({
+          type: 'tool.response',
+          id: message.id,
+          ok: false,
+          error: { code: reason?.code || 'CAD_TOOL_FAILED', message: String(reason?.message || reason), ...(reason?.details ? { details: reason.details } : {}) },
+        });
+      }
+    }
+  });
+
+  $('bw-help-agent')?.addEventListener('click', openLoopbackPairDialog);
+
+  function synchronizeAgentAfterHostChange(label, actor = 'human', transactionId = null) {
+    if (!liveAgentService || agentCommitInProgress || !v5RuntimeTools.isStudioV5Project(doc)) return;
+    liveAgentService.synchronize(doc, commandRevision, { label, actor, ...(transactionId ? { transactionId } : {}) });
+    updateAgentActivity(actor === 'human' ? 'Project changed by you' : label, actor);
+  }
+
+  function commit(label, mutate, metadata = {}) {
     // Run the mutation (and normalization) BEFORE touching the stacks: a
     // throwing mutation must leave undo history exactly as it was.
     const snap = JSON.stringify(doc);
@@ -608,7 +1111,71 @@
     undoStack.push({ label, snap });
     redoStack.length = 0;
     trimHistoryStacks();
+    commandRevision++;
     afterDocumentChange(label);
+    synchronizeAgentAfterHostChange(label, metadata.actor || 'human', metadata.transactionId || null);
+  }
+
+  function commitHumanOperations(label, operations) {
+    const base = v5RuntimeTools.isStudioV5Project(doc)
+      ? doc
+      : v5RuntimeTools.migrateStudioDocumentToV5(doc, { projectId });
+    const transactionId = 'human-' + (crypto.randomUUID?.() || newId() + '-' + Date.now());
+    const applied = agentTools.applyCadTransaction(base, {
+      transactionId,
+      label,
+      expectedRevision: commandRevision,
+      atomic: true,
+      operations,
+      metadata: { actor: 'human', clientLabel: 'Studio UI' },
+    });
+    commit(label, () => applied.project, { actor: 'human', transactionId });
+    return applied;
+  }
+
+  function featureOperationForDraft(draft, wasNew) {
+    if (!wasNew) {
+      const patch = {};
+      for (const key of ['name', 'h', 'through', 'r', 't', 'edges', 'faces', 'sketch', 'pattern', 'resultPolicy', 'inputRefs']) {
+        if (draft[key] !== undefined) patch[key] = deepCopy(draft[key]);
+      }
+      if (draft.pattern === undefined) patch.pattern = null;
+      return { kind: 'feature.update', input: { featureId: draft.id, patch } };
+    }
+    const input = {
+      id: draft.id,
+      name: draft.name || OP_LABEL[draft.type],
+      inputRefs: deepCopy(draft.inputRefs || []),
+    };
+    if (draft.resultPolicy !== undefined) input.resultPolicy = deepCopy(draft.resultPolicy);
+    if (draft.sketch) input.sketch = deepCopy(draft.sketch);
+    if (draft.h !== undefined) input.height = draft.h;
+    if (draft.through !== undefined) input.through = draft.through;
+    if (draft.r !== undefined) input.radius = draft.r;
+    if (draft.t !== undefined) input.thickness = draft.t;
+    if (draft.edges) input.edges = deepCopy(draft.edges);
+    if (draft.faces) input.faces = deepCopy(draft.faces);
+    if (draft.resultPolicy?.bodyName) input.bodyName = draft.resultPolicy.bodyName;
+    return { kind: 'feature.' + draft.type, input };
+  }
+
+  function commitFeatureDraft(label, draft, wasNew) {
+    if (draft.pattern) {
+      commit(label, () => {
+        if (v5RuntimeTools.isStudioV5Project(doc)) {
+          return v5RuntimeTools.configureStudioV5Feature(doc, draft, {
+            resultPolicy: draft.resultPolicy,
+            bodyName: draft.resultPolicy?.bodyName,
+          });
+        }
+        const index = doc.features.findIndex((feature) => feature.id === draft.id);
+        if (index >= 0) doc.features[index] = draft;
+        else doc.features.push(draft);
+      });
+      return;
+    }
+    const operations = [featureOperationForDraft(draft, wasNew)];
+    return commitHumanOperations(label, operations);
   }
 
   // Shared post-change pipeline: prune dead selection, persist, re-render,
@@ -645,6 +1212,8 @@
     redoStack.push({ label: entry.label, snap: JSON.stringify(doc) });
     trimHistoryStacks();
     replaceDocument(entry.snap);
+    commandRevision++;
+    synchronizeAgentAfterHostChange('Undo ' + entry.label, 'human');
     say('Undid: ' + entry.label);
   }
   function redo() {
@@ -654,6 +1223,8 @@
     undoStack.push({ label: entry.label, snap: JSON.stringify(doc) });
     trimHistoryStacks();
     replaceDocument(entry.snap);
+    commandRevision++;
+    synchronizeAgentAfterHostChange('Redo ' + entry.label, 'human');
     say('Redid: ' + entry.label);
   }
 
@@ -1025,7 +1596,13 @@
     const activeBodyId = part?.metadata?.activeBodyId;
     const activeMesh = bodyMeshes.get(activeBodyId);
     const selectedMesh = bodyMeshes.get(selectedBodyId);
-    solidMesh = (activeMesh?.visible && activeMesh) || (selectedMesh?.visible && selectedMesh) || [...bodyMeshes.values()].find((mesh) => mesh.visible) || null;
+    // A legacy-to-V5 typed command changes the document synchronously while
+    // its first multi-body worker reply is still in flight. Keep the valid
+    // legacy display/picking mesh during that brief hand-off; an empty body
+    // response still clears it in setBodyMeshData() before reaching here.
+    if (bodyMeshes.size) {
+      solidMesh = (activeMesh?.visible && activeMesh) || (selectedMesh?.visible && selectedMesh) || [...bodyMeshes.values()].find((mesh) => mesh.visible) || null;
+    }
     const aggregate = [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
     for (const mesh of bodyMeshes.values()) {
       if (!mesh.visible) continue;
@@ -1186,20 +1763,6 @@
     renderContext();
   }
 
-  function deleteFeatureFromDocument(featureId) {
-    if (!v5RuntimeTools.isStudioV5Project(doc)) {
-      doc.features = doc.features.filter((feature) => feature.id !== featureId);
-      return;
-    }
-    const part = v5RuntimeTools.studioV5RootPart(doc);
-    const createdBody = part.bodies.find((body) => body.createdByFeatureId === featureId);
-    if (createdBody) return v5RuntimeTools.deleteStudioV5Body(doc, createdBody.id);
-    const candidate = v5RuntimeTools.canonicalStudioV5Project(doc);
-    const candidatePart = v5RuntimeTools.studioV5RootPart(candidate);
-    candidatePart.features = candidatePart.features.filter((feature) => feature.id !== featureId);
-    return v5RuntimeTools.prepareStudioV5RuntimeProject(candidate);
-  }
-
   $('bw-bodies')?.addEventListener('change', (event) => {
     const checkbox = event.target.closest('[data-body-export]');
     if (!checkbox) return;
@@ -1229,19 +1792,19 @@
       return;
     }
     if (action === 'activate') {
-      commit('Activate ' + body.name, () => v5RuntimeTools.updateStudioV5Body(doc, body.id, { active: true }));
+      commitHumanOperations('Activate ' + body.name, [{ kind: 'body.activate', input: { bodyId: body.id } }]);
       return;
     }
     if (action === 'visibility') {
-      commit((body.visible ? 'Hide ' : 'Show ') + body.name, () => v5RuntimeTools.updateStudioV5Body(doc, body.id, { visible: !body.visible }));
+      commitHumanOperations((body.visible ? 'Hide ' : 'Show ') + body.name, [{ kind: 'body.setVisibility', input: { bodyId: body.id, visible: !body.visible } }]);
       return;
     }
     if (action === 'suppress') {
-      commit((body.suppressed ? 'Restore ' : 'Suppress ') + body.name, () => v5RuntimeTools.updateStudioV5Body(doc, body.id, { suppressed: !body.suppressed }));
+      commitHumanOperations((body.suppressed ? 'Restore ' : 'Suppress ') + body.name, [{ kind: 'body.suppress', input: { bodyId: body.id, suppressed: !body.suppressed } }]);
       return;
     }
     if (action === 'delete') {
-      commit('Delete body ' + body.name, () => v5RuntimeTools.deleteStudioV5Body(doc, body.id));
+      commitHumanOperations('Delete body ' + body.name, [{ kind: 'body.delete', input: { bodyId: body.id } }]);
     }
   });
 
@@ -1306,7 +1869,7 @@
     if (delId) {
       startOperation(() => {
         const gone = doc.features.find((f) => f.id === delId);
-        commit('Delete ' + (gone ? OP_LABEL[gone.type].toLowerCase() : 'feature'), () => deleteFeatureFromDocument(delId));
+        commitHumanOperations('Delete ' + (gone ? OP_LABEL[gone.type].toLowerCase() : 'feature'), [{ kind: 'feature.delete', input: { featureId: delId } }]);
       });
     }
     if (editId) {
@@ -1344,9 +1907,10 @@
           inp.value = doc.params[i].name;
           return;
         }
-        commit('Rename parameter', () => {
-          doc.params[i].name = name;
-        });
+        commitHumanOperations('Rename parameter', [{
+          kind: 'parameter.update',
+          input: { ...(doc.params[i].id ? { parameterId: doc.params[i].id } : { parameterName: doc.params[i].name }), name },
+        }]);
       }),
     );
     wrap.querySelectorAll('[data-pval]').forEach((inp) =>
@@ -1358,29 +1922,29 @@
           inp.value = doc.params[i].value;
           return;
         }
-        commit('Set ' + doc.params[i].name + ' = ' + v, () => {
-          doc.params[i].value = v;
-        });
+        commitHumanOperations('Set ' + doc.params[i].name + ' = ' + v, [{
+          kind: 'parameter.update',
+          input: { ...(doc.params[i].id ? { parameterId: doc.params[i].id } : { parameterName: doc.params[i].name }), value: v },
+        }]);
       }),
     );
     wrap.querySelectorAll('[data-pdel]').forEach((btn) =>
       btn.addEventListener('click', () => {
-        commit('Delete parameter', () => {
-          doc.params.splice(Number(btn.dataset.pdel), 1);
-        });
+        const parameter = doc.params[Number(btn.dataset.pdel)];
+        commitHumanOperations('Delete parameter', [{
+          kind: 'parameter.delete',
+          input: parameter.id ? { parameterId: parameter.id } : { parameterName: parameter.name },
+        }]);
       }),
     );
   }
   $('bw-param-add').addEventListener('click', () => {
     let i = 1;
     while ((doc.params || []).some((p) => p.name === 'p' + i)) i++;
-    commit('Add parameter', () => {
-      doc.params.push({
-        ...(v5RuntimeTools.isStudioV5Project(doc) ? { id: 'parameter-' + newId() } : {}),
-        name: 'p' + i,
-        value: 10,
-      });
-    });
+    commitHumanOperations('Add parameter', [{
+      kind: 'parameter.create',
+      input: { id: 'parameter-' + newId(), name: 'p' + i, value: 10 },
+    }]);
   });
 
   // --- persistence ---------------------------------------------------------
@@ -1467,6 +2031,7 @@
         undoStack.length = 0;
         redoStack.length = 0;
         afterDocumentChange();
+        resetAgentForProjectChange('Opened another project');
         setFlag(SEEDED);
         setFlag(WELCOME);
         hideWelcome();
@@ -1725,20 +2290,7 @@
           // still-open editor mode.
           const wasNew = isNew;
           deferredCommit = () =>
-            commit((wasNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
-              if (v5RuntimeTools.isStudioV5Project(doc) || draft.resultPolicy) {
-                const base = v5RuntimeTools.isStudioV5Project(doc)
-                  ? doc
-                  : v5RuntimeTools.migrateStudioDocumentToV5(doc, { projectId });
-                return v5RuntimeTools.configureStudioV5Feature(base, draft, {
-                  resultPolicy: draft.resultPolicy,
-                  bodyName: draft.resultPolicy?.bodyName,
-                });
-              }
-              const i = doc.features.findIndex((x) => x.id === draft.id);
-              if (i >= 0) doc.features[i] = draft;
-              else doc.features.push(draft);
-            });
+            commitFeatureDraft((wasNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), draft, wasNew);
         }
       }
       wrap.hidden = true;
@@ -2362,11 +2914,7 @@
         } else {
           const wasNew = isNew;
           run = () =>
-            commit((wasNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
-              const i = doc.features.findIndex((x) => x.id === draft.id);
-              if (i >= 0) doc.features[i] = draft;
-              else doc.features.push(draft);
-            });
+            commitFeatureDraft((wasNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), draft, wasNew);
         }
         for (const line of edgeLines) line.userData.picked = false;
         bar.hidden = true;
@@ -2484,6 +3032,16 @@
     undoLabels: () => undoStack.map((e) => e.label),
     docJson: () => JSON.stringify(doc),
     canonicalHash: () => v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+    commandRevision: () => commandRevision,
+    agentConnection: () => activeAgentConnection ? {
+      sessionId: activeAgentConnection.sessionId,
+      connectionToken: activeAgentConnection.connectionToken,
+      clientLabel: activeAgentConnection.clientLabel,
+      permissionContext: deepCopy(activeAgentConnection.permissionContext),
+    } : null,
+    connectAgentForTest: (options) => activateAgentConnection({ ...options, mode: options?.mode || 'scoped-auto-commit' }),
+    agentRequestForTest: (connectionToken, envelope) => handleLiveAgentRequest(connectionToken, envelope),
+    disconnectAgentForTest: (connectionToken) => window.bomwikiCadAgent.disconnect(connectionToken),
     bodyResults: () => deepCopy(lastBodyResults),
     evaluationTrace: () => deepCopy(lastEvaluationTrace),
     bodyIds: () => v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5RootPart(doc).bodies.map((body) => body.id) : [],
@@ -2651,11 +3209,7 @@
         } else {
           const wasNew = isNew;
           deferredCommit = () =>
-            commit((wasNew ? 'Add ' : 'Edit ') + 'shell', () => {
-              const i = doc.features.findIndex((x) => x.id === draft.id);
-              if (i >= 0) doc.features[i] = draft;
-              else doc.features.push(draft);
-            });
+            commitFeatureDraft((wasNew ? 'Add ' : 'Edit ') + 'shell', draft, wasNew);
         }
       }
       for (const p of picked.values()) dropHighlight(p.mesh);
@@ -3274,6 +3828,7 @@
     redoStack.splice(0, redoStack.length, ...deepCopy(previous.redoStack));
     selectedFeatureId = null;
     afterDocumentChange('Restored previous part');
+    resetAgentForProjectChange('Restored previous project');
     requestAnimationFrame(() => renderer.domElement.focus());
     showTransitionToast('Previous part restored', '“' + openedTitle + '” remains available in Recover.');
   }
@@ -3294,6 +3849,7 @@
     finishWelcome();
     closeTemplateLibrary(true);
     afterDocumentChange('Started from ' + template.name);
+    resetAgentForProjectChange('Opened a template');
     requestAnimationFrame(() => renderer.domElement.focus());
     showTransitionToast(
       'Opened “' + template.name + '”',
@@ -3467,14 +4023,19 @@
     const sourceRevision = documentRevision;
     const sourceHash = v5RuntimeTools.studioV5CanonicalHash(doc);
     let candidate;
+    const featureId = 'boolean-' + newId();
     try {
-      candidate = v5RuntimeTools.createStudioV5BooleanFeature(doc, {
-        id: 'boolean-' + newId(),
-        operation,
-        targetBodyId,
-        toolBodyId,
-        keepTools: true,
-      });
+      candidate = agentTools.applyCadTransaction(doc, {
+        transactionId: 'human-boolean-' + featureId,
+        label: 'Preview body Boolean',
+        expectedRevision: commandRevision,
+        atomic: true,
+        operations: [{
+          kind: operation === 'add' ? 'boolean.union' : 'boolean.' + operation,
+          input: { id: featureId, targetBodyId, toolBodyId, keepTools: true },
+        }],
+        metadata: { actor: 'human', clientLabel: 'Studio UI' },
+      }).project;
     } catch (error) {
       say(String(error?.message || error));
       return false;
@@ -3498,7 +4059,10 @@
     const target = part.bodies.find((body) => body.id === targetBodyId);
     const tool = part.bodies.find((body) => body.id === toolBodyId);
     const label = (operation === 'add' ? 'Union ' : operation === 'intersect' ? 'Intersect ' : 'Subtract ') + tool.name + (operation === 'subtract' ? ' from ' : ' with ') + target.name;
-    commit(label, () => candidate);
+    commitHumanOperations(label, [{
+      kind: operation === 'add' ? 'boolean.union' : 'boolean.' + operation,
+      input: { id: featureId, targetBodyId, toolBodyId, keepTools: true },
+    }]);
     selectBody(targetBodyId);
     return true;
   }
@@ -3544,7 +4108,7 @@
       panel.querySelector('[data-body-name]')?.addEventListener('change', (event) => {
         const nextName = event.target.value.trim();
         try {
-          commit('Rename body', () => v5RuntimeTools.updateStudioV5Body(doc, selectedBody.id, { name: nextName }));
+          commitHumanOperations('Rename body', [{ kind: 'body.rename', input: { bodyId: selectedBody.id, name: nextName } }]);
         } catch (error) {
           event.target.value = selectedBody.name;
           say(String(error?.message || error));
@@ -3552,14 +4116,14 @@
       });
       panel.querySelectorAll('[data-body-context]').forEach((button) => button.addEventListener('click', () => {
         const action = button.dataset.bodyContext;
-        if (action === 'active') commit('Activate ' + selectedBody.name, () => v5RuntimeTools.updateStudioV5Body(doc, selectedBody.id, { active: true }));
-        else if (action === 'visibility') commit((selectedBody.visible ? 'Hide ' : 'Show ') + selectedBody.name, () => v5RuntimeTools.updateStudioV5Body(doc, selectedBody.id, { visible: !selectedBody.visible }));
-        else if (action === 'suppress') commit((selectedBody.suppressed ? 'Restore ' : 'Suppress ') + selectedBody.name, () => v5RuntimeTools.updateStudioV5Body(doc, selectedBody.id, { suppressed: !selectedBody.suppressed }));
+        if (action === 'active') commitHumanOperations('Activate ' + selectedBody.name, [{ kind: 'body.activate', input: { bodyId: selectedBody.id } }]);
+        else if (action === 'visibility') commitHumanOperations((selectedBody.visible ? 'Hide ' : 'Show ') + selectedBody.name, [{ kind: 'body.setVisibility', input: { bodyId: selectedBody.id, visible: !selectedBody.visible } }]);
+        else if (action === 'suppress') commitHumanOperations((selectedBody.suppressed ? 'Restore ' : 'Suppress ') + selectedBody.name, [{ kind: 'body.suppress', input: { bodyId: selectedBody.id, suppressed: !selectedBody.suppressed } }]);
         else if (action === 'isolate') {
           isolatedBodyId = isolatedBodyId === selectedBody.id ? null : selectedBody.id;
           renderBodies();
           renderContext();
-        } else if (action === 'delete') commit('Delete body ' + selectedBody.name, () => v5RuntimeTools.deleteStudioV5Body(doc, selectedBody.id));
+        } else if (action === 'delete') commitHumanOperations('Delete body ' + selectedBody.name, [{ kind: 'body.delete', input: { bodyId: selectedBody.id } }]);
         else if (active && active.id !== selectedBody.id && (action === 'subtract' || action === 'intersect' || action === 'add')) {
           attemptBodyBoolean(action, active.id, selectedBody.id);
         }
@@ -3656,10 +4220,7 @@
         const value = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
         const draft = deepCopy(f);
         draft[key] = value;
-        commit('Edit ' + OP_LABEL[f.type].toLowerCase(), () => {
-          const i = doc.features.findIndex((x) => x.id === draft.id);
-          if (i >= 0) doc.features[i] = draft;
-        });
+        commitFeatureDraft('Edit ' + OP_LABEL[f.type].toLowerCase(), draft, false);
       }),
     );
     panel.querySelectorAll('[data-cxpat]').forEach((inp) =>
@@ -3692,13 +4253,14 @@
         // Apply onto the CURRENT feature at commit time (not a deepCopy of
         // the render-time f) so a quick tab between pattern fields never
         // reverts a sibling field that committed a microtask earlier.
+        const pattern = deepCopy(doc.features.find((x) => x.id === f.id)?.pattern);
+        if (!pattern) return;
+        if (key === 'n') pattern.n = value;
+        else if (key === 'a') pattern[pattern.kind === 'circular' ? 'cx' : 'dx'] = value;
+        else pattern[pattern.kind === 'circular' ? 'cy' : 'dy'] = value;
         commit('Edit ' + OP_LABEL[f.type].toLowerCase() + ' pattern', () => {
-          const cur = doc.features.find((x) => x.id === f.id);
-          if (!cur || !cur.pattern) return;
-          const circ = cur.pattern.kind === 'circular';
-          if (key === 'n') cur.pattern.n = value;
-          else if (key === 'a') cur.pattern[circ ? 'cx' : 'dx'] = value;
-          else cur.pattern[circ ? 'cy' : 'dy'] = value;
+          const current = doc.features.find((feature) => feature.id === f.id);
+          if (current) current.pattern = pattern;
         });
       }),
     );
@@ -3706,16 +4268,13 @@
       const draft = deepCopy(f);
       draft.through = e.target.checked;
       if (!draft.through && !(draft.h > 0) && typeof draft.h !== 'string') draft.h = 10;
-      commit('Edit ' + OP_LABEL[f.type].toLowerCase(), () => {
-        const i = doc.features.findIndex((x) => x.id === draft.id);
-        if (i >= 0) doc.features[i] = draft;
-      });
+      commitFeatureDraft('Edit ' + OP_LABEL[f.type].toLowerCase(), draft, false);
     });
     panel.querySelector('[data-cxedit]')?.addEventListener('click', () => {
       startOperation(() => openEditorFor(f));
     });
     panel.querySelector('[data-cxdel]').addEventListener('click', () => {
-      commit('Delete ' + OP_LABEL[f.type].toLowerCase(), () => deleteFeatureFromDocument(f.id));
+      commitHumanOperations('Delete ' + OP_LABEL[f.type].toLowerCase(), [{ kind: 'feature.delete', input: { featureId: f.id } }]);
     });
   }
 
@@ -3777,7 +4336,7 @@
     else if ((e.key === 'Delete' || e.key === 'Backspace') && mode.kind === 'idle' && selectedFeatureId) {
       const f = doc.features.find((x) => x.id === selectedFeatureId);
       if (f) {
-        commit('Delete ' + OP_LABEL[f.type].toLowerCase(), () => deleteFeatureFromDocument(f.id));
+        commitHumanOperations('Delete ' + OP_LABEL[f.type].toLowerCase(), [{ kind: 'feature.delete', input: { featureId: f.id } }]);
         selectFeature(null);
       }
     } else if (e.key === 'f' && mode.kind === 'idle') setView('fit');
@@ -3860,6 +4419,7 @@
     doc = normalizeDoc({ title: 'Untitled part', units: 'mm', params: [], features: [] });
     undoStack.length = 0;
     redoStack.length = 0;
+    resetAgentForProjectChange('Started a blank project');
     finishWelcome();
     save();
     renderParams();

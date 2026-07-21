@@ -661,6 +661,10 @@ await pageC.click('[data-feat="fillet"]');
 await pageC.click('#bw-draft-apply');
 check('dirty draft: Apply and continue commits then switches', (await SC<string>('(s) => s.mode().kind')) === 'picking-edges' && (await SC<number>('(s) => s.undoDepth()')) === undoBeforeApply + 1);
 await pageC.keyboard.press('Escape');
+await pageC.waitForFunction(() => {
+  const studio = (window as any).__bwStudio;
+  return studio.mode().kind === 'idle' && studio.appliedRevision() === studio.documentRevision();
+});
 
 // (11) per-type context properties: cut exposes through-all + shape stats
 await pageC.evaluate(() => (document.querySelectorAll('.hist-item')[1] as HTMLElement).click());
