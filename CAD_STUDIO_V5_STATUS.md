@@ -2,17 +2,17 @@
 
 Last updated: 2026-07-21
 
-Branch: `codex/cad-v5-slice-5a-schema`
+Status branch: `codex/cad-v5-runtime`
 
 Specification: `CAD_STUDIO_V5_COMPLEX_MODELING_SPEC.md`
 
-Production baseline: `wiki/engine@2d52f4cd2`
+Production baseline: `wiki/engine@0d1a5aef9`
 
-Status: Slice 5A schema boundary implemented, review-hardened, and verified; not wired into the production Studio runtime
+Status: Slice 5A schema boundary is merged; the Slice 5A-runtime implementation candidate passes its local acceptance gate but is not merged, deployed, or live-verified, so every V5 release gate remains open
 
 ## Product finding that triggered V5
 
-The production Studio was used to build a turbofan-like model from the editable Round spacer template. The result could produce an outer ring, a circular pattern of flat extrusions, and a revolved spinner, but it remained a single crude ducted fan rather than a credible engine assembly.
+The production Studio was used twice to build a turbofan-like model from the editable Round spacer template. The result could produce an outer ring, a circular pattern of flat extrusions, and a revolved spinner, but it remained a single crude ducted fan rather than a credible engine assembly. The second attempt confirmed that more rings and a higher blade count only decorate the same limitation; they do not create axial stages, shaped blades, independent bodies, or inspectable engine structure.
 
 That attempt established the missing capability boundary:
 
@@ -23,6 +23,7 @@ That attempt established the missing capability boundary:
 - no real assembly hierarchy or mates;
 - no non-destructive section/cutaway view;
 - no interference, clearance, mass, or structure-preserving export proof.
+- no objective browser benchmark that rejects a ring-with-spokes result before release.
 
 V5 addresses those generic CAD gaps. It must not solve the benchmark with a turbofan-only generator or opaque template geometry.
 
@@ -49,11 +50,11 @@ Production already has:
 - full-screen precision workspace, ribbon, model tree, inspector, and editable templates;
 - direct sketch-to-solid Press/Pull.
 
-Production does not satisfy any V5 release gate yet. The detached schema boundary below is implementation progress, not a claim that production reads or rebuilds schema-5 projects.
+Production does not satisfy any V5 release gate yet. The schema boundary below is merged implementation progress. The multi-body behavior described afterward exists only on the current implementation branch until review, CI, merge, deployment, and live verification occur.
 
 ## Slice 5A schema-boundary progress
 
-Implemented on this branch:
+Implemented and merged in Slice 5A:
 
 - schema-5 TypeScript types for projects, document references, parameters, materials, datums, sketches, part features, bodies, parts, assemblies, occurrences, mates, occurrence patterns, exploded views, sections, and resources;
 - a detached browser-native validation boundary with explicit size, count, depth, generated-occurrence, decoded-resource, and MIME limits;
@@ -68,18 +69,31 @@ Implemented on this branch:
 - 118 focused schema checks covering round trips, migrations, safe expressions, body/result ownership, owner-aware references, occurrence paths and overrides, duplicate-reference rejection, typed record containers, cycles, independent document/resource budgets, large and non-canonical resources, newer schemas, and unchanged input on every rejection fixture;
 - the protected `engine-studio` PR workflow now runs the V5 schema suite alongside typecheck and the production browser/kernel suite.
 
-Deliberately not implemented here:
+Implemented by the Slice 5A-runtime candidate on this branch:
 
-- production file-open/save wiring;
-- schema-5 worker protocol or OpenCascade rebuild support;
-- multi-body result evaluation and rendering;
-- new UI commands, body tree, Loft, Sweep, transforms, assemblies, inspection, or interchange changes.
+- schema-5 file open/save, local journal persistence, recovery, canonical undo/redo snapshots, and schema-3/schema-4 migration through the production document path;
+- a schema-5 worker protocol that evaluates, caches, meshes, reports errors for, and returns multiple named exact body results;
+- exact `new-body`, `add`, `subtract`, and `intersect` policies for current solid feature types, plus explicit refusal of unsupported surface results;
+- stable body IDs, feature ownership, explicit active-body behavior, per-body visibility/suppression, last-valid recovery, and affected-chain incremental rebuild traces;
+- per-body rendering, canvas/tree selection and highlighting, owner-scoped face/edge metadata, and body-aware error state;
+- body-tree select, activate, rename, show/hide, isolate, suppress/restore, export-select, and dependency-aware delete controls without a broader UI redesign;
+- exact preflight for explicit body Boolean edits, including stale-validation refusal before document or undo-stack mutation;
+- selected-body named STEP export and selected-body STL export with an exact manifest for body/solid count, millimetre units, names, and bounds;
+- focused document, kernel, and visible-browser coverage for all ten Slice 5A-runtime acceptance steps.
+
+Deliberately not implemented by this candidate:
+
+- surface-producing features; current solid features reject the `surface` policy explicitly;
+- datum geometry, transforms, Loft, Sweep, advanced patterns, assemblies, mates, sectioning, inspection, structured assembly interchange, or the §40 turbofan;
+- schema-4 final-contract replacement, live verification, or closure of any V5 release gate.
 
 The `v5-schema` gate remains open because the temporary schema-4 adapter must be replaced and verified against the final V4 fixtures before schema 5 becomes a production document format.
 
 ## Next implementation action
 
-When schema 4 is stable, replace the opaque adapter with the final deterministic schema-4-to-5 migration and run every canonical V4 fixture through the schema-5 round-trip suite. Then begin Slice 5A's worker/result protocol for explicit bodies without changing the current production document loader prematurely.
+Review the Slice 5A-runtime candidate, require its full local and protected-CI suites to remain green, then merge and live-verify it separately before considering `v5-multibody` gate closure. In parallel, replace the temporary opaque schema-4 adapter once the final schema-4 format is stable. Do not begin Loft UI or assembly controls until the multi-body result has been merged and verified without unintended fusion.
+
+The browser benchmark in §40 is now the normative V5 conformance test. Progress screenshots do not close a gate unless the underlying project also passes its structural, editability, validity, and round-trip assertions.
 
 ## Release gates
 
@@ -102,11 +116,14 @@ All gates are open:
 
 Gate definitions and required evidence are in §36 of the V5 specification.
 
-## Verification for this implementation branch
+## Last verified implementation evidence
 
 - `npm run typecheck` — pass
 - `npm run studio:v5:migration` — 118/118 schema-5 checks pass
+- `npm run studio:v5:runtime:document` — 18/18 canonical document, dependency, and transaction checks pass
+- `npm run studio:v5:runtime:kernel` — 14/14 exact OpenCascade body, cache, failure, and export checks pass
+- `npm run studio:v5:runtime:browser` — 49/49 visible ten-step acceptance, renderer/topology, transactional-control, and mobile body-tree checks pass
 - `npm run studio:check` — 277/277 production Studio checks pass
 - `git diff --check` — pass
 
-No production runtime wiring, deployment configuration, or live state changed in this slice.
+This evidence is local to the implementation branch. It does not claim merge, deployment, live behavior, or V5 completion.

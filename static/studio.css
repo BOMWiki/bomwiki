@@ -1407,6 +1407,79 @@ body.cadstudio-route > main {
   color: #d7e1eb;
   cursor: pointer;
 }
+
+/* Schema-5 body rows reuse the existing model-tree density and palette. */
+.ws-bodies-panel { flex: 0 1 auto; max-height: 42%; overflow-y: auto; border-bottom: 1px solid var(--v3-line-soft); }
+.body-tree {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.body-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid #334d65;
+  border-radius: 4px;
+  background: #182633;
+}
+.body-row.is-selected { border-color: #4c9aff; box-shadow: inset 0 0 0 1px #4c9aff; }
+.body-row.is-active .body-select::before { content: '\25B8'; margin-right: 4px; color: #7fc0fa; }
+.body-row.is-suppressed { border-style: dashed; opacity: .68; }
+.body-row.is-failed { border-color: #e16a5b; background: #35252a; }
+.body-select {
+  min-width: 0;
+  padding: 2px 3px;
+  border: 0;
+  background: transparent;
+  color: #e5edf4;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.body-select small { display: block; margin-top: 2px; color: #8298aa; font-size: 8.5px; font-weight: 500; }
+.body-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; align-items: start; gap: 2px; }
+.body-actions button,
+.body-actions label {
+  display: grid;
+  min-width: 25px;
+  min-height: 25px;
+  place-items: center;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid #3a5470;
+  border-radius: 3px;
+  background: #22303f;
+  color: #d7e1eb;
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+.body-actions input { width: 13px; height: 13px; margin: 0; accent-color: #4c9aff; }
+#bw-sk-result-row { display: inline-flex; align-items: center; gap: 8px; }
+#bw-sk-result-row[hidden] { display: none; }
+#bw-sk-result-row input,
+#bw-sk-result-row select { min-height: 28px; border: 1px solid #3a5470; border-radius: 3px; background: #1a2634; color: #e8f0f8; font: inherit; font-size: 11px; }
+#bw-sk-body-name { width: 105px; padding: 0 6px; }
+#bw-sk-target { max-width: 130px; }
+.ctx-body-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 8px; }
+.ctx-body-actions button { min-height: 31px; border: 1px solid #3a5470; border-radius: 3px; background: #223447; color: #dce7f1; font: inherit; font-size: 10px; cursor: pointer; }
+.ctx-body-actions button.is-danger { border-color: #7e4a48; color: #ffbbb4; }
+.ctx-body-name { display: grid; gap: 4px; color: #8fa5b9; font-size: 9px; }
+.ctx-body-name input { min-width: 0; min-height: 32px; padding: 0 7px; border: 1px solid #3a5470; border-radius: 3px; background: #172633; color: #eef5fa; font: inherit; }
+@media (max-width: 760px) {
+  .ws-bodies-panel { max-height: none; overflow: visible; }
+  .body-actions { flex-wrap: wrap; }
+  .body-actions button,
+  .body-actions label { min-width: 44px; min-height: 44px; }
+}
 .sr-file {
   font-size: 13.5px;
   text-align: left;

@@ -85,7 +85,9 @@ export async function openStudioJournal() {
           projectId: record.projectId,
           title: record.title,
           label: snapshot.label,
-          featureCount: record.document?.features?.length || 0,
+          featureCount: record.document?.schemaVersion === 5
+            ? (record.document?.partDefinitions || []).reduce((total, part) => total + (part.features?.length || 0), 0)
+            : record.document?.features?.length || 0,
           document: clone(record.document),
           updatedAt: record.updatedAt,
         });

@@ -606,6 +606,13 @@ export function cadStudioPage(): string {
             </button>
           </details>
           <div class="wsp wsp-grow wsp-history">
+            <div class="ws-bodies-panel">
+              <div class="wsp-head"><span><b>Bodies</b><small id="bw-active-body-label">No active body</small></span><button type="button" id="bw-body-new" title="Create a body with Extrude">＋</button></div>
+              <div class="wsp-body">
+                <ol id="bw-bodies" class="body-tree" aria-label="Bodies"></ol>
+                <p id="bw-bodies-empty" class="sk-note">The first solid feature creates a body.</p>
+              </div>
+            </div>
             <div class="wsp-head"><b>Feature history</b><span class="ws-tree-rule"></span></div>
             <div class="wsp-body">
               <ol id="bw-history" class="hist"></ol>
@@ -697,6 +704,16 @@ export function cadStudioPage(): string {
                     <label><span id="bw-sk-pat-lb">ΔY</span> <input type="text" inputmode="decimal" id="bw-sk-pat-b" value="0" /></label>
                   </span>
                 </span>
+                <span id="bw-sk-result-row" hidden>
+                  <label>Result <select id="bw-sk-result">
+                    <option value="new-body">new body</option>
+                    <option value="add">add</option>
+                    <option value="subtract">subtract</option>
+                    <option value="intersect">intersect</option>
+                  </select></label>
+                  <label id="bw-sk-body-name-row">Body <input type="text" id="bw-sk-body-name" value="Body 1" maxlength="200" /></label>
+                  <label id="bw-sk-target-row" hidden>Target <select id="bw-sk-target"></select></label>
+                </span>
               </span>
               <span class="sk-actions">
                 <button type="button" class="sr-accent" id="bw-sk-apply">✓ Apply</button>
@@ -728,8 +745,8 @@ export function cadStudioPage(): string {
           <div class="ws-panel-cap"><span>INSPECTOR</span><small>Selection properties</small></div>
           <div class="ws-inspector-empty" id="bw-inspector-empty">
             ${studioIcon('select', 'ws-inspector-empty-icon')}
-            <b>No feature selected</b>
-            <p>Choose a feature in the model tree to inspect dimensions, parameters, and rebuild state.</p>
+            <b>No feature or body selected</b>
+            <p>Choose a body or feature in the model tree to inspect ownership, dimensions, and rebuild state.</p>
           </div>
           <div class="wsp" id="bw-context-wrap" hidden>
             <div class="wsp-head"><b id="bw-inspector-kind">Feature properties</b><span class="ws-selection-live">LIVE</span></div>

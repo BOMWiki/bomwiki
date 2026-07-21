@@ -1,8 +1,8 @@
 # BOMwiki CAD Studio V5 — complex mechanical modeling specification
 
-Status: proposed implementation contract
+Status: normative implementation and release contract
 
-Product baseline: CAD Studio production at `wiki/engine@2d52f4cd2`
+Product baseline: CAD Studio production at `wiki/engine@0d1a5aef9`
 
 Prerequisite contract: `CAD_STUDIO_V4_SPEC.md`
 
@@ -1853,3 +1853,376 @@ The following decisions are part of this contract and should not be reopened ins
 10. Ambiguous topology references fail for repair; they never bind to the nearest similar face or edge.
 11. No release claim is earned by a toolbar icon, DOM-only test, opaque template, imported finished mesh, or one fused decorative body.
 12. V5 is a modeling and assembly release, not a simulation, certification, CAM, drawing, PLM, or cloud-collaboration release.
+
+## 40. Turbofan conformance benchmark
+
+This section converts the failed browser build into an executable release contract. It is normative where it is more specific than §§33–39.
+
+### 40.1 Failure being corrected
+
+The rejected model is a short annular casing containing radial flat plates and a central cone. It reads as a ducted household fan because:
+
+- every visible feature is concentrated near one axial plane;
+- the blades are constant-thickness plates rather than tapered and twisted aerodynamic forms;
+- the casing, hub, blades, spinner, and decorative rings do not expose a credible component structure;
+- no bypass passage, core passage, compressor, combustor, turbine, shaft, or nozzle can be inspected;
+- repetition is visual duplication rather than an editable source-linked design relationship;
+- the canvas cannot prove how the solids are positioned, related, sectioned, or exported.
+
+Adding more spokes, rings, fillets, colors, or revolved profiles does not correct this failure. The release proof must show longitudinal mechanical structure and editable dependencies.
+
+### 40.2 Coordinate and station convention
+
+The canonical fixture uses millimetres and a right-handed coordinate system:
+
+- engine axis: `+X`, inlet to exhaust;
+- vertical: `+Z`;
+- lateral: `+Y`;
+- radial distance: `sqrt(Y² + Z²)`;
+- all rotor and stator axes reference one named `Engine axis` datum unless an intentionally offset accessory is being tested;
+- every major axial row references a named datum plane or assembly mate distance, never an unexplained sketch-coordinate offset.
+
+The reference envelope is intentionally desktop-browser scale rather than flight-engine scale:
+
+| Station | X range or plane | Required content |
+| --- | ---: | --- |
+| `S00 Inlet` | `0–45` | rounded inlet lip and nacelle lead-in |
+| `S10 Fan` | `55` | spinner, fan disk, and large front-fan row |
+| `S20 Fan exit` | `82` | outlet guide-vane row and bypass/core splitter |
+| `S30 LPC-1` | `120` | low-pressure compressor rotor row |
+| `S31 LPC stator-1` | `137` | stator row |
+| `S40 HPC-1` | `165` | high-pressure compressor rotor row |
+| `S41 HPC stator-1` | `181` | stator row |
+| `S50 Combustor` | `210–278` | outer casing, inner liner, and annular flow passage |
+| `S60 HPT` | `300` | high-pressure turbine rotor row |
+| `S61 HPT stator` | `316` | turbine stator row |
+| `S70 LPT` | `342` | low-pressure turbine rotor row |
+| `S80 Nozzle` | `370–430` | core cone, bypass exit, and tapered exhaust nozzle |
+
+Required envelope parameters:
+
+```text
+engineLength = 430
+nacelleOuterDiameter = 190
+fanTipDiameter = 160
+fanHubDiameter = 52
+coreOuterDiameter = 88
+coreShaftDiameter = 18
+nacelleWall = 3
+fanBladeCount = 12
+```
+
+These values are golden-fixture defaults, not hard-coded kernel assumptions. The model must remain valid through the edits in §40.12.
+
+### 40.3 Required structural result
+
+The finished project must contain, at minimum:
+
+- one root assembly;
+- 15 named reusable part definitions;
+- 24 named solid bodies;
+- 100 solved component occurrences, including linked pattern occurrences;
+- one fan row, two compressor rotor rows, two compressor stator rows, two turbine rotor rows, and one turbine stator row;
+- distinct nacelle, inlet lip, bypass splitter, outer core casing, combustor casing, combustor liner, core shaft, low-pressure shaft, spinner, rotor disks, stator supports, and exhaust cone/nozzle solids;
+- at least 20 explicit mates, including concentric and axial distance relationships;
+- one saved half-section view and one saved exploded view;
+- at least four appearance assignments used to distinguish stationary structure, rotating structure, hot-section structure, and cut faces.
+
+The tree must make these items discoverable without selecting through the canvas. Every major part and stage can be selected, hidden, isolated, suppressed, renamed, measured, and located from the tree.
+
+### 40.4 Capability contracts for the ten observed gaps
+
+#### 40.4.1 Offset and angled construction planes
+
+The Part workspace provides `Plane` with these modes:
+
+- offset from plane or planar face;
+- angle about a selected axis or straight edge;
+- through three points;
+- normal to a curve at a selected point;
+- mid-plane between two parallel references.
+
+The plane editor exposes name, source references, signed offset, angle, flip-normal, and live exact preview. Apply creates one history feature. Cancel is byte-identical. Editing a source or value rebuilds every dependent sketch and reports missing or ambiguous references without silently remapping them.
+
+Benchmark proof: create root, mid, and tip blade planes at three radial stations; rotate the mid and tip planes by independent twist angles; change tip angle by `+5°`; all dependent lofts rebuild.
+
+#### 40.4.2 Independent bodies positioned along an axis
+
+A Part contains multiple named bodies with one explicit active body. Solid-producing features require a result policy: `new body`, `add`, `subtract`, `intersect`, or `surface`. `New body` is the default when the input does not intersect the active body; the application never silently fuses unrelated solids.
+
+Body placement is represented by a parametric Transform feature or by assembly occurrence placement. Raw B-rep coordinates are derived state, not hidden document placement.
+
+Benchmark proof: fan disk, spinner, shaft, casing, liner, and nozzle remain separately selectable after rebuild, save/reopen, undo/redo, and STEP export.
+
+#### 40.4.3 Move, rotate, align, and transform
+
+`Transform` supports:
+
+- translation in world, datum, body-local, or component-local coordinates;
+- rotation about a selected datum axis, cylindrical face axis, straight edge, or local triad axis;
+- point-to-point, axis-to-axis, plane-to-plane, and coordinate-system alignment;
+- copy, linked copy, and move-original modes;
+- numeric fields plus a three-axis manipulator;
+- exact preview, Apply, Cancel, and one-step undo/redo.
+
+The inspector always shows the numeric transform and reference frame. Manipulator dragging never bakes an unexplained matrix.
+
+Benchmark proof: move `S40 HPC-1` by editing its axial distance from `165` to `173`; the stage, its patterned blades, and its mates move together while unrelated stages remain fixed.
+
+#### 40.4.4 Loft and Sweep
+
+`Loft` accepts two or more ordered closed or open profiles, optional guide curves, vertex/parameter mapping, solid/surface result, start/end continuity, and closed/periodic options. The preview shows section order, seam, mapping, and self-intersection diagnostics.
+
+`Sweep` accepts a profile, one connected path, optional guide/rail, orientation mode, scale law, and twist law. Required orientation modes are path-normal, fixed direction, selected reference, and controlled twist.
+
+Both features preserve their source references and expose them in the tree and inspector. A failed exact build keeps the last valid result visible and the draft editable.
+
+Benchmark proof: the nacelle is a multi-section Loft or revolved/swept equivalent with a smooth inlet and tapered exit; the bypass splitter or duct uses Sweep/Loft; the resulting solids pass exact validity checks.
+
+#### 40.4.5 Twisted blade profiles
+
+The fan blade source is not a rectangle or a single extruded polygon. It must use:
+
+- at least three closed spline profiles: root, mid, and tip;
+- distinct radial stations;
+- root-to-tip chord reduction of at least `20%`;
+- profile thickness between `6%` and `18%` of local chord;
+- root-to-tip stagger/twist change of at least `15°`;
+- a valid solid Loft with no self-intersection;
+- an editable root treatment connecting the blade to its disk or root platform.
+
+The profile data can be sketched, pasted as coordinates, or imported as a bounded profile resource, but it becomes normal editable sketch/profile data. A finished imported blade solid does not satisfy this gate.
+
+Compressor and turbine rows may use simplified airfoil profiles, but at least one compressor blade definition and one turbine blade definition must also use three-section tapered/twisted Lofts.
+
+#### 40.4.6 True editable patterns
+
+Feature, body, and component patterns store:
+
+- source reference;
+- axis/path/direction reference;
+- count and angular/linear extent;
+- equal or table-driven spacing;
+- orientation policy;
+- skipped occurrence set;
+- stable derived occurrence identities.
+
+Generated instances remain linked to one source definition. They are not serialized as unrelated geometry copies. Editing the source blade, blade count, or pattern axis updates the row in one rebuild and preserves unaffected selection/visibility state.
+
+Benchmark proof: fan count changes `12 → 14`; every blade gains the edited tip twist; the project does not acquire 14 independent blade feature histories.
+
+#### 40.4.7 Selected-body Boolean operations
+
+The Part workspace provides Union, Subtract, Intersect, Split, and Keep Tools. Every Boolean editor identifies target bodies, tool bodies, result policy, and whether tools are retained. Preview distinguishes target, tool, added material, and removed material.
+
+Disjoint, empty, invalid, or non-manifold results are reported before commit. Failure changes neither the canonical document nor undo/redo stacks and leaves the last valid result visible.
+
+Benchmark proof: cut annular passages from the nacelle/core casing, retain the construction tools where requested, and unite blade-root geometry only with its intended rotor body. No Boolean may fuse stationary casing to rotating hardware.
+
+#### 40.4.8 Assemblies, components, and concentric mates
+
+A reusable part definition can appear through multiple lightweight occurrences. Assemblies can contain part occurrences and nested subassemblies. Editing a part updates all linked occurrences; `Make independent` is explicit and undoable.
+
+Required mate types for this benchmark are Fixed, Concentric, Coincident, Distance, and Angle. Each mate identifies both occurrence paths and both geometric/datum references. The solver reports remaining degrees of freedom, conflicts, missing references, and the minimal conflict set.
+
+Benchmark proof: rotor modules are concentric with `Engine axis`; axial station is controlled by Distance mates; nacelle/core structures are fixed or coincident; one source stage can be replaced without moving unrelated components.
+
+#### 40.4.9 Section and cutaway views
+
+Section and cutaway are non-destructive display operations. They never add Cut features or alter export geometry.
+
+The user can create a section from a datum plane or interactive plane, flip it, show one side/both sides, include/exclude selected components, assign cap color/hatching, and save the view. Section caps are derived from exact solids where available. The tree remains fully selectable while sectioned.
+
+Benchmark proof: a longitudinal half-section along the `XZ` plane simultaneously reveals bypass duct, core passage, compressor rows, combustor, turbine rows, both shafts, and nozzle. Turning the section off restores the unchanged assembly, and STEP export remains uncut.
+
+#### 40.4.10 Axial model tree, spacing, and visibility
+
+The root assembly tree supports stage groups with a stored station parameter:
+
+```ts
+type AxialStageGroup = {
+  id: string;
+  name: string;
+  stationExpression: string;
+  occurrenceIds: string[];
+  visible: boolean;
+  suppressed: boolean;
+};
+```
+
+Stage groups are organizational/parametric references, not a turbofan-only geometry feature. The same grouping supports gearbox shafts, pump stages, and robot-joint modules.
+
+The tree provides Hide, Show, Isolate, Suppress, Unsuppress, Rename, Expand all, Collapse all, and Filter. The inspector exposes the solved axial coordinate and controlling mate/transform. Hidden and suppressed are distinct states and survive save/reopen.
+
+Benchmark proof: isolate the combustor, suppress and restore `S31 LPC stator-1`, change one stage-spacing parameter, and recover the complete assembly without visibility or selection drift.
+
+### 40.5 Public-UI construction sequence
+
+The golden fixture must be reproducible through these public commands; a test helper may accelerate clicks but may not inject undocumented project objects.
+
+1. Create a V5 project and a root assembly.
+2. Create a `Master layout` part containing `Engine axis` and all named station planes.
+3. Build `Nacelle` from longitudinal profiles with Loft/Revolve plus Shell/Thicken.
+4. Build `Bypass splitter` and `Core casing` as separate bodies or parts.
+5. Build `Fan blade` from root/mid/tip profiles on controlled datum planes and Loft them into a valid tapered, twisted solid.
+6. Build `Fan disk` and `Spinner` with selectable-axis Revolve.
+7. Create a `Fan rotor` subassembly; mate disk and spinner; circular-pattern the linked blade occurrence.
+8. Build reusable compressor rotor and stator blade definitions with at least one three-section Loft each.
+9. Insert and pattern compressor rows at `S30`, `S31`, `S40`, and `S41` using concentric and distance mates.
+10. Build outer combustor casing and inner liner as distinct thin solids and position them at `S50`.
+11. Build reusable turbine rotor/stator blade definitions and insert patterned rows at `S60`, `S61`, and `S70`.
+12. Build low- and high-pressure shafts as distinct revolved parts and mate them concentrically.
+13. Build exhaust cone and tapered core/bypass nozzle at `S80`.
+14. Assign appearances by functional group.
+15. Run solid-health and interference checks; fix all unintended collisions.
+16. Save front isometric, longitudinal half-section, rear isometric, and exploded views.
+17. Save/reopen the native project and export structured STEP.
+
+At every step, the tree and inspector must expose the active part, body, feature, references, values, and failure state.
+
+### 40.6 Required row geometry
+
+The canonical fixture uses these minimum row counts:
+
+| Row | Instances | Shape requirement |
+| --- | ---: | --- |
+| fan | 12 | three-section Loft, tapered, root-to-tip twist at least `15°` |
+| fan exit guide vanes | 14 | curved or lofted vane, not radial rectangular spokes |
+| LPC rotor | 16 | linked blade occurrences |
+| LPC stator | 18 | linked vane occurrences |
+| HPC rotor | 18 | linked blade occurrences |
+| HPC stator | 20 | linked vane occurrences |
+| HPT rotor | 14 | linked three-section hot-section blade occurrences |
+| HPT stator | 16 | linked vane occurrences |
+| LPT rotor | 18 | linked blade occurrences |
+
+The exact counts remain parameters. Fixture performance limits in §27 still apply.
+
+### 40.7 Passage and sectional-legibility rules
+
+In the saved longitudinal half-section, a reviewer must be able to trace two uninterrupted simplified flow paths:
+
+- **bypass path:** inlet → fan annulus → bypass duct around the core → bypass exit;
+- **core path:** fan/core inlet → compressor rows → annular combustor passage → turbine rows → core nozzle.
+
+The fixture fails if the section shows only repeated solid disks, if casing material blocks either path, if rotating and stationary rows occupy the same station, or if the shaft/nozzle terminates arbitrarily inside a closed solid.
+
+### 40.8 No-cheat rules
+
+The conformance project fails if any of these are true:
+
+- a finished turbofan mesh or opaque finished B-rep is imported;
+- a hidden fixture-only command creates geometry users cannot create with public features;
+- all visible engine geometry evaluates into one fused body;
+- blades are flat rectangles, single-section extrusions, or baked unrelated copies;
+- pattern instances lose their source relationship;
+- axial placement exists only as hard-coded vertex coordinates;
+- section screenshots are produced with destructive Cut features or a separate pre-cut model;
+- major internal stages cannot be selected independently;
+- a visual screenshot passes while solid validity, body ownership, mate solve, save/reopen, or export assertions fail;
+- the model only looks correct from one saved camera.
+
+### 40.9 Automated structural assertions
+
+The checked-in `turbofan-v5.bomcad` fixture and construction scenario must assert:
+
+```text
+schemaVersion == 5
+partDefinitions >= 15
+namedSolidBodies >= 24
+solvedOccurrences >= 100
+linkedPatternDefinitions >= 8
+fanBladeSections >= 3
+fanBladeRootTipTwistDelta >= 15deg
+fanBladeChordReduction >= 20percent
+axialRotorRows >= 5
+axialStatorRows >= 3
+concentricMates >= 8
+distanceMates >= 8
+invalidSolids == 0
+unintendedInterferences == 0
+savedHalfSections >= 1
+savedExplodedViews >= 1
+```
+
+Assertions inspect canonical document structure and exact kernel results. Counting scene meshes or DOM nodes is not acceptable evidence.
+
+### 40.10 Browser interaction scenario
+
+The release browser suite must use visible public controls to:
+
+1. open the canonical fixture;
+2. Fit, orbit, zoom in, orbit, zoom out, and select the fan blade source;
+3. isolate the fan rotor and restore all components;
+4. open the blade source and edit tip twist;
+5. change fan occurrence count;
+6. change one compressor-stage distance mate;
+7. suppress and restore one stator group;
+8. activate longitudinal half-section and select internal stages;
+9. run interference and solid-health checks;
+10. undo and redo the stage edit;
+11. save, reopen, and compare canonical structural hashes;
+12. export STEP and validate product hierarchy, solid count, names, transforms, and units.
+
+The test records exact command/rebuild states. It fails on a native browser alert, an unexplained disabled control, lost focus, stale canvas geometry, or a silent partial rebuild.
+
+### 40.11 Visual acceptance set
+
+Human review requires four exact desktop captures at `1600 × 1000`:
+
+1. front three-quarter isometric showing a smooth inlet, shaped fan blades, hub, and spinner;
+2. longitudinal half-section showing bypass/core paths and every required axial stage;
+3. rear three-quarter isometric showing nozzle, rear structure, and depth;
+4. axial exploded view showing distinct modules and shafts.
+
+The reviewer answers yes to all of these:
+
+- Does it read immediately as a small turbofan demonstrator rather than a household fan?
+- Do the blades visibly taper and twist?
+- Does the engine have credible axial length and multiple internal stages?
+- Can stationary, rotating, casing, shaft, combustor, and nozzle structures be distinguished?
+- Does sectioning explain how the assembly is organized?
+- Does the exploded view correspond to the same solved model?
+
+One negative answer keeps `v5-visual` and `v5-turbofan` open.
+
+### 40.12 Parametric edit acceptance
+
+The same saved project must survive, one at a time and in sequence:
+
+- `fanTipDiameter: 160 → 176`;
+- `fanBladeCount: 12 → 14`;
+- `fanTipTwist: current + 5°`;
+- `nacelleWall: 3 → 4`;
+- `S40 HPC-1: 165 → 173`;
+- suppress/restore `S31 LPC stator-1`;
+- replace one reusable bearing placeholder with another compatible component.
+
+For every edit:
+
+- the visible Rebuilding state appears;
+- unrelated bodies retain identity and placement;
+- dependent patterns and mates update;
+- no intended solid becomes invalid;
+- the last valid model remains interactive until the new result is ready;
+- Undo restores the exact preceding document and solved result;
+- Redo reproduces the edit;
+- save/reopen reproduces the final state.
+
+### 40.13 Release decision
+
+The schema-5 foundation alone does not satisfy this benchmark. Toolbar controls, static templates, screenshots, or individual kernel demos do not satisfy it either.
+
+V5 may close `v5-turbofan` only when one production-candidate build passes §§40.3–40.12 from the public Studio UI and uploads:
+
+- the editable native project;
+- its construction-command log;
+- structural and exact-geometry assertion manifest;
+- browser interaction trace;
+- STEP round-trip report;
+- performance results from §27;
+- the four human-approved visual captures.
+
+Until that evidence exists, the truthful status is:
+
+> V5 has a complex-modeling schema foundation, but CAD Studio cannot yet author and verify a credible editable turbofan assembly.

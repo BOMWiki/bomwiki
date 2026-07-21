@@ -11,7 +11,11 @@
     "serve": "node --experimental-strip-types src/server.ts",
     "typecheck": "tsc --noEmit",
     "studio:check": "node --experimental-strip-types scripts/studio-check.ts",
-    "studio:v5:migration": "node --experimental-strip-types scripts/studio-v5-schema-check.ts"
+    "studio:v5:migration": "node --experimental-strip-types scripts/studio-v5-schema-check.ts",
+    "studio:v5:runtime:document": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts document",
+    "studio:v5:runtime:kernel": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts kernel",
+    "studio:v5:runtime:browser": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts browser",
+    "studio:v5:runtime": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts all"
   },
   "dependencies": {
     "marked": "^18.0.5",

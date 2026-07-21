@@ -1,10 +1,8 @@
 import { prepareStudioDocument } from './studio-document.js';
 
-// Detached schema-5 project boundary. The production Studio still consumes the
-// schema-3 part document while V4 finishes schema 4; this module deliberately
-// does not replace that live boundary yet. It gives Slice 5A a versioned,
-// testable multi-part/multi-body/assembly envelope without speculative UI or
-// kernel behavior.
+// Canonical schema-5 project boundary. Slice 5A-runtime now uses this boundary
+// for production multi-body part documents; later slices will consume the same
+// envelope for assembly and advanced-modeling behavior.
 
 export const STUDIO_V5_SCHEMA_VERSION = 5;
 
@@ -539,6 +537,7 @@ function validatePart(part, path, counters, projectIds, materialIds, projectPara
   }
 
   const bodyById = new Map(part.bodies.map((body) => [body.id, body]));
+  const bodyDependencies = new Map(part.bodies.map((body) => [body.id, new Set()]));
   for (const [index, feature] of featureEntries.entries()) {
     const policy = feature.resultPolicy;
     let affectedBodyIds;
@@ -573,7 +572,38 @@ function validatePart(part, path, counters, projectIds, materialIds, projectPara
         fail('INVALID_BODY_OWNERSHIP', path + ' body "' + body.id + '" contains feature "' + feature.id + '" that does not target it.');
       }
     }
+    if (feature.type === 'boolean') {
+      if (policy.kind !== 'add' && policy.kind !== 'subtract' && policy.kind !== 'intersect') {
+        fail('INVALID_FEATURE', path + '.features[' + index + '] Boolean result policy must be add, subtract, or intersect.');
+      }
+      if (feature.operation !== policy.kind) {
+        fail('INVALID_FEATURE', path + '.features[' + index + '].operation must match its Boolean result policy.');
+      }
+      const toolBodyIds = requireArray(feature.toolBodyIds, path + '.features[' + index + '].toolBodyIds', STUDIO_V5_PROJECT_LIMITS.featuresPerPart);
+      if (!toolBodyIds.length) fail('INVALID_FEATURE', path + '.features[' + index + '] Boolean must reference at least one tool body.');
+      const seenTools = new Set();
+      toolBodyIds.forEach((toolBodyId, toolIndex) => {
+        const id = requireId(toolBodyId, path + '.features[' + index + '].toolBodyIds[' + toolIndex + ']');
+        if (!bodyIds.has(id)) fail('MISSING_REFERENCE', path + '.features[' + index + '].toolBodyIds[' + toolIndex + '] does not resolve in this part.');
+        if (seenTools.has(id)) fail('DUPLICATE_REFERENCE', path + '.features[' + index + '] repeats tool body "' + id + '".');
+        if (policy.targetBodyIds.includes(id)) fail('INVALID_FEATURE', path + '.features[' + index + '] cannot use a target body as its own Boolean tool.');
+        seenTools.add(id);
+        for (const targetBodyId of policy.targetBodyIds) bodyDependencies.get(targetBodyId).add(id);
+      });
+    }
   }
+
+  const visitingBodies = new Set();
+  const visitedBodies = new Set();
+  function visitBody(bodyId, chain) {
+    if (visitingBodies.has(bodyId)) fail('CYCLIC_BODY_DEPENDENCY', path + ' contains a body dependency cycle: ' + [...chain, bodyId].join(' -> ') + '.');
+    if (visitedBodies.has(bodyId)) return;
+    visitingBodies.add(bodyId);
+    for (const dependencyId of bodyDependencies.get(bodyId) || []) visitBody(dependencyId, [...chain, bodyId]);
+    visitingBodies.delete(bodyId);
+    visitedBodies.add(bodyId);
+  }
+  for (const bodyId of bodyIds) visitBody(bodyId, []);
 
   for (const [index, feature] of featureEntries.entries()) {
     const policy = feature.resultPolicy;

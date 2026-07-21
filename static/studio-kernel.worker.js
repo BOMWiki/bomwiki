@@ -8,6 +8,7 @@
 let rc = null;
 let kernelReady = null;
 let currentShape = null;
+let currentBodyCache = new Map();
 let currentRevision = -1;
 
 function loadKernel() {
@@ -104,7 +105,29 @@ function evalExpr(input, params) {
 }
 
 function evaluator(document) {
-  const params = Object.fromEntries((document.params || []).map((param) => [param.name, param.value]));
+  const entries = document.schemaVersion === 5
+    ? [
+        ...(document.parameters || []),
+        ...((document.partDefinitions || []).find((part) => part.id === document.rootDocument?.partId)?.parameters || []),
+      ]
+    : document.params || [];
+  const rawParams = Object.fromEntries(entries.map((param) => [param.name, param.value]));
+  const resolvedParams = {};
+  const resolving = new Set();
+  const params = new Proxy(resolvedParams, {
+    has: (_target, name) => typeof name === 'string' && name in rawParams,
+    get: (_target, name) => {
+      if (typeof name !== 'string') return undefined;
+      if (name in resolvedParams) return resolvedParams[name];
+      if (!(name in rawParams)) return undefined;
+      if (resolving.has(name)) throw new Error('cyclic parameter "' + name + '"');
+      resolving.add(name);
+      const value = evalExpr(rawParams[name], params);
+      resolving.delete(name);
+      resolvedParams[name] = value;
+      return value;
+    },
+  });
   const strict = (value) => evalExpr(value, params);
   const safe = (value, fallback) => {
     try {
@@ -259,7 +282,7 @@ function friendlyError(feature, error) {
   return message;
 }
 
-async function buildDocument(document) {
+async function buildLegacyDocument(document) {
   await loadKernel();
   const { strict: N, safe: NS } = evaluator(document);
   const errors = [];
@@ -304,6 +327,280 @@ async function buildDocument(document) {
   return { shape: accumulated, errors };
 }
 
+function v5RootPart(document) {
+  if (document.rootDocument?.kind !== 'part') throw new Error('Slice 5A can evaluate schema-5 part documents only.');
+  const part = (document.partDefinitions || []).find((entry) => entry.id === document.rootDocument.partId);
+  if (!part) throw new Error('The schema-5 root part is missing.');
+  return part;
+}
+
+function stableSource(value) {
+  if (value == null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stableSource).join(',') + ']';
+  return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stableSource(value[key])).join(',') + '}';
+}
+
+function stableHash(value) {
+  const source = stableSource(value);
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < source.length; index++) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function solidCount(shape) {
+  let count = 0;
+  for (const solid of rc.iterTopo(shape.wrapped, 'solid')) {
+    count++;
+    try { solid.delete?.(); } catch {}
+  }
+  return count;
+}
+
+function shapeVolume(shape) {
+  const properties = rc.measureShapeVolumeProperties(shape);
+  try {
+    return properties.volume;
+  } finally {
+    try { properties.delete(); } catch {}
+  }
+}
+
+function bodyGeometry(shape) {
+  const solids = solidCount(shape);
+  const volume = shapeVolume(shape);
+  const bounds = shape.boundingBox?.bounds ?? null;
+  return {
+    solidCount: solids,
+    volume,
+    bounds,
+    valid: solids === 1 && Number.isFinite(volume) && volume > 1e-8,
+  };
+}
+
+function boundsOverlap(left, right, tolerance = 1e-7) {
+  const a = left?.boundingBox?.bounds;
+  const b = right?.boundingBox?.bounds;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== 2 || b.length !== 2) return true;
+  return [0, 1, 2].every((axis) => a[0][axis] <= b[1][axis] + tolerance && b[0][axis] <= a[1][axis] + tolerance);
+}
+
+function safeDelete(shape) {
+  try { shape?.delete(); } catch {}
+}
+
+function applyBodyModifier(feature, shape, N) {
+  if (feature.type === 'fillet' || feature.type === 'chamfer') {
+    let hits = 0;
+    const radius = Math.max(0.1, N(feature.r));
+    const next = shape[feature.type]((edge) => {
+      const selected = feature.edges.some((signature) => edgeMatches(signature, edge));
+      if (selected) hits++;
+      return selected ? radius : 0;
+    });
+    if (!hits) {
+      safeDelete(next);
+      throw new Error('the picked edges no longer exist — edit or delete this feature');
+    }
+    return next;
+  }
+  if (feature.type === 'shell') {
+    let hits = 0;
+    const next = shape.shell(-Math.max(0.2, Math.abs(N(feature.t))), (finder) =>
+      finder.when(({ element }) => {
+        const selected = feature.faces.some((signature) => faceMatches(signature, element));
+        if (selected) hits++;
+        return selected;
+      }),
+    );
+    if (!hits) {
+      safeDelete(next);
+      throw new Error('the picked faces no longer exist — edit or delete this feature');
+    }
+    return next;
+  }
+  return null;
+}
+
+async function buildV5Document(document, options = {}) {
+  await loadKernel();
+  const part = v5RootPart(document);
+  const { strict: N, safe: NS } = evaluator(document);
+  const featureById = new Map(part.features.map((feature) => [feature.id, feature]));
+  const bodyById = new Map(part.bodies.map((body) => [body.id, body]));
+  const cache = options.cache || new Map();
+  const previousCache = options.previousCache || new Map();
+  const evaluating = new Set();
+  const signatures = new Map();
+  const signing = new Set();
+  const results = new Map();
+  const errors = [];
+  const evaluatedBodyIds = [];
+  const reusedBodyIds = [];
+  const evaluatedFeatureIds = [];
+  const reusedFeatureIds = [];
+  const parameterState = [document.parameters || [], part.parameters || []];
+
+  function signatureFor(bodyId) {
+    if (signatures.has(bodyId)) return signatures.get(bodyId);
+    if (signing.has(bodyId)) throw new Error('cyclic body dependency at "' + bodyId + '"');
+    signing.add(bodyId);
+    const body = bodyById.get(bodyId);
+    if (!body) throw new Error('missing body "' + bodyId + '"');
+    const features = body.featureIds.map((featureId) => featureById.get(featureId)).filter(Boolean);
+    const toolSignatures = [];
+    for (const feature of features) {
+      if (feature.suppressed) continue;
+      for (const toolBodyId of feature.toolBodyIds || []) toolSignatures.push([toolBodyId, signatureFor(toolBodyId)]);
+    }
+    const signature = stableHash({ parameterState, kind: body.kind, features, toolSignatures });
+    signatures.set(bodyId, signature);
+    signing.delete(bodyId);
+    return signature;
+  }
+
+  function evaluateBody(bodyId) {
+    if (results.has(bodyId)) return results.get(bodyId);
+    if (evaluating.has(bodyId)) throw new Error('cyclic body dependency at "' + bodyId + '"');
+    evaluating.add(bodyId);
+    const body = bodyById.get(bodyId);
+    if (!body) throw new Error('missing body "' + bodyId + '"');
+    const signature = signatureFor(bodyId);
+    const cached = cache.get(bodyId);
+    if (cached?.signature === signature && cached.shape) {
+      const result = { ...cached, body, reused: true, lastValid: false };
+      results.set(bodyId, result);
+      reusedBodyIds.push(bodyId);
+      reusedFeatureIds.push(...body.featureIds);
+      evaluating.delete(bodyId);
+      return result;
+    }
+
+    let shape = null;
+    let failure = null;
+    let currentFeature = null;
+    try {
+      for (const featureId of body.featureIds) {
+        const feature = featureById.get(featureId);
+        if (!feature || feature.suppressed) continue;
+        currentFeature = feature;
+        evaluatedFeatureIds.push(feature.id);
+        const policy = feature.resultPolicy;
+        if (policy.kind === 'surface') throw new Error('surface results are not supported by this solid feature yet');
+        if (policy.kind === 'new-body') {
+          if (feature.type === 'boolean') throw new Error('a Boolean cannot create a body in Slice 5A');
+          const next = featureSolid(feature, 0, null, N, NS);
+          if (!next) throw new Error('the feature produced no solid');
+          safeDelete(shape);
+          shape = next;
+        } else if (feature.type === 'boolean') {
+          if (!shape) throw new Error('the Boolean target has no valid solid');
+          let next = shape;
+          const before = bodyGeometry(shape);
+          for (const toolBodyId of feature.toolBodyIds || []) {
+            const tool = evaluateBody(toolBodyId);
+            if (!tool.shape || tool.error) throw new Error('tool body "' + toolBodyId + '" has no valid solid');
+            const operation = feature.operation || policy.kind;
+            if ((operation === 'subtract' || operation === 'intersect') && !boundsOverlap(next, tool.shape)) {
+              throw new Error('the selected tool does not intersect the target body');
+            }
+            const operated = operation === 'add'
+              ? next.fuse(tool.shape)
+              : operation === 'intersect'
+                ? next.intersect(tool.shape)
+                : next.cut(tool.shape);
+            if (next !== shape) safeDelete(next);
+            next = operated;
+          }
+          const after = bodyGeometry(next);
+          if (!after.valid) {
+            if (next !== shape) safeDelete(next);
+            throw new Error('the Boolean did not produce exactly one valid solid');
+          }
+          if (policy.kind === 'subtract' && before.volume - after.volume <= Math.max(1e-7, before.volume * 1e-9)) {
+            if (next !== shape) safeDelete(next);
+            throw new Error('the selected tool does not intersect the target body');
+          }
+          if (policy.kind === 'intersect' && after.volume >= before.volume - Math.max(1e-7, before.volume * 1e-9)) {
+            if (next !== shape) safeDelete(next);
+            throw new Error('the intersection did not isolate shared material');
+          }
+          if (next !== shape) safeDelete(shape);
+          shape = next;
+        } else {
+          if (!shape) throw new Error('target body has no solid before ' + feature.name);
+          const modified = applyBodyModifier(feature, shape, N);
+          if (modified) {
+            safeDelete(shape);
+            shape = modified;
+            continue;
+          }
+          const tool = featureSolid(feature, topOf(shape), shape, N, NS);
+          let next;
+          if (policy.kind === 'add') next = shape.fuse(tool);
+          else if (policy.kind === 'intersect') next = shape.intersect(tool);
+          else next = shape.cut(tool);
+          safeDelete(tool);
+          const before = bodyGeometry(shape);
+          const after = bodyGeometry(next);
+          if (!after.valid) {
+            safeDelete(next);
+            throw new Error('the ' + policy.kind + ' result is not exactly one valid solid');
+          }
+          if (policy.kind === 'add' && after.solidCount !== 1) {
+            safeDelete(next);
+            throw new Error('disconnected additive geometry must use New body');
+          }
+          if (policy.kind === 'subtract' && before.volume - after.volume <= Math.max(1e-7, before.volume * 1e-9)) {
+            safeDelete(next);
+            throw new Error('the subtract feature does not intersect its target body');
+          }
+          safeDelete(shape);
+          shape = next;
+        }
+        const geometry = bodyGeometry(shape);
+        if (!geometry.valid) throw new Error('feature result is not exactly one valid solid');
+      }
+      if (!shape) throw new Error('body history produced no solid');
+    } catch (error) {
+      failure = {
+        bodyId,
+        featureId: currentFeature?.id || body.createdByFeatureId,
+        featureType: currentFeature?.type || 'body',
+        message: String(error?.message || error),
+      };
+      errors.push(failure);
+    }
+
+    if (failure) {
+      safeDelete(shape);
+      const previous = previousCache.get(bodyId);
+      const result = previous?.shape
+        ? { ...previous, body, error: failure, reused: false, lastValid: true }
+        : { signature, shape: null, geometry: null, body, error: failure, reused: false, lastValid: false };
+      results.set(bodyId, result);
+      evaluating.delete(bodyId);
+      return result;
+    }
+
+    const entry = { signature, shape, geometry: bodyGeometry(shape), body, error: null, reused: false, lastValid: false };
+    results.set(bodyId, entry);
+    evaluatedBodyIds.push(bodyId);
+    evaluating.delete(bodyId);
+    return entry;
+  }
+
+  for (const body of part.bodies) evaluateBody(body.id);
+  return {
+    part,
+    results,
+    errors,
+    trace: { evaluatedBodyIds, reusedBodyIds, evaluatedFeatureIds, reusedFeatureIds },
+  };
+}
+
 function serializeShape(shape) {
   if (!shape) return { mesh: null, transfer: [] };
   const mesh = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
@@ -346,14 +643,15 @@ function serializeShape(shape) {
 }
 
 async function rebuild(request) {
-  const { shape, errors } = await buildDocument(request.document);
+  if (request.document?.schemaVersion === 5) return rebuildV5(request);
+  const { shape, errors } = await buildLegacyDocument(request.document);
   const previous = currentShape;
   currentShape = shape;
+  for (const entry of currentBodyCache.values()) safeDelete(entry.shape);
+  currentBodyCache = new Map();
   currentRevision = request.revision;
   const { mesh, transfer } = serializeShape(shape);
-  try {
-    if (previous && previous !== shape) previous.delete();
-  } catch {}
+  if (previous && previous !== shape) safeDelete(previous);
   if (request.delayMs) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, Math.max(0, request.delayMs))));
   self.postMessage(
     {
@@ -368,8 +666,83 @@ async function rebuild(request) {
   );
 }
 
+async function rebuildV5(request) {
+  const previousCache = currentBodyCache;
+  const built = await buildV5Document(request.document, { cache: previousCache, previousCache });
+  const nextCache = new Map();
+  const bodies = [];
+  const transfer = [];
+  for (const body of built.part.bodies) {
+    const result = built.results.get(body.id);
+    if (result?.shape && !result.error) nextCache.set(body.id, result);
+    else if (result?.shape && result.lastValid) nextCache.set(body.id, previousCache.get(body.id));
+    const serialized = !body.suppressed && result?.shape ? serializeShape(result.shape) : { mesh: null, transfer: [] };
+    transfer.push(...serialized.transfer);
+    bodies.push({
+      bodyId: body.id,
+      bodyName: body.name,
+      kind: body.kind,
+      visible: body.visible,
+      suppressed: body.suppressed,
+      mesh: serialized.mesh,
+      geometry: result?.geometry || null,
+      error: result?.error || null,
+      lastValid: Boolean(result?.lastValid),
+    });
+  }
+  for (const [bodyId, entry] of previousCache) {
+    if (nextCache.get(bodyId)?.shape !== entry.shape) safeDelete(entry.shape);
+  }
+  safeDelete(currentShape);
+  currentShape = null;
+  currentBodyCache = nextCache;
+  currentRevision = request.revision;
+  if (request.delayMs) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, Math.max(0, request.delayMs))));
+  self.postMessage({
+    kind: 'rebuild-result',
+    requestId: request.requestId,
+    projectId: request.projectId,
+    revision: request.revision,
+    bodies,
+    errors: built.errors,
+    evaluation: built.trace,
+  }, transfer);
+}
+
+async function validateV5(request) {
+  const built = await buildV5Document(request.document, { cache: new Map(), previousCache: new Map() });
+  const bodies = built.part.bodies.map((body) => {
+    const result = built.results.get(body.id);
+    return {
+      bodyId: body.id,
+      bodyName: body.name,
+      suppressed: body.suppressed,
+      geometry: result?.geometry || null,
+      error: result?.error || null,
+    };
+  });
+  const disposed = new Set();
+  for (const result of built.results.values()) {
+    if (result.shape && !disposed.has(result.shape)) {
+      disposed.add(result.shape);
+      safeDelete(result.shape);
+    }
+  }
+  if (request.delayMs) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, Math.max(0, request.delayMs))));
+  self.postMessage({
+    kind: 'validation-result',
+    requestId: request.requestId,
+    projectId: request.projectId,
+    revision: request.revision,
+    bodies,
+    errors: built.errors,
+    evaluation: built.trace,
+  });
+}
+
 async function exportDocument(request) {
-  const { shape, errors } = await buildDocument(request.document);
+  if (request.document?.schemaVersion === 5) return exportV5Document(request);
+  const { shape, errors } = await buildLegacyDocument(request.document);
   if (!shape || errors.length) {
     try {
       shape?.delete();
@@ -400,11 +773,71 @@ async function exportDocument(request) {
   });
 }
 
+async function exportV5Document(request) {
+  const built = await buildV5Document(request.document, { cache: new Map(), previousCache: new Map() });
+  const requestedIds = Array.isArray(request.bodyIds) && request.bodyIds.length
+    ? new Set(request.bodyIds)
+    : new Set(built.part.bodies.filter((body) => body.visible && !body.suppressed).map((body) => body.id));
+  const selected = built.part.bodies
+    .filter((body) => requestedIds.has(body.id) && !body.suppressed)
+    .map((body) => ({ body, result: built.results.get(body.id) }));
+  const errors = [
+    ...built.errors.filter((error) => requestedIds.has(error.bodyId)),
+    ...[...requestedIds]
+      .filter((bodyId) => !built.part.bodies.some((body) => body.id === bodyId))
+      .map((bodyId) => ({ bodyId, featureType: 'export', message: 'selected body does not exist' })),
+  ];
+  if (!selected.length) errors.push({ featureType: 'export', message: 'select at least one unsuppressed body' });
+  if (selected.some(({ result }) => !result?.shape || !result.geometry?.valid)) {
+    errors.push({ featureType: 'export', message: 'one or more selected bodies have no valid exact solid' });
+  }
+  let blob = null;
+  if (!errors.length) {
+    if (request.kind === 'export-step') {
+      blob = rc.exportSTEP(
+        selected.map(({ body, result }) => ({ shape: result.shape, name: body.name, color: '#a7b8c9' })),
+        { unit: 'MM', modelUnit: 'MM' },
+      );
+    } else {
+      const compound = rc.compoundShapes(selected.map(({ result }) => result.shape.clone()));
+      try {
+        blob = compound.blobSTL({ tolerance: 0.03, angularTolerance: 0.3, binary: true });
+      } finally {
+        safeDelete(compound);
+      }
+    }
+  }
+  const manifest = {
+    schemaVersion: 5,
+    units: 'mm',
+    bodyCount: selected.length,
+    solidCount: selected.reduce((total, entry) => total + (entry.result?.geometry?.solidCount || 0), 0),
+    names: selected.map(({ body }) => body.name),
+    placements: selected.map(({ body, result }) => ({ bodyId: body.id, bounds: result?.geometry?.bounds || null })),
+  };
+  const disposed = new Set();
+  for (const result of built.results.values()) {
+    if (result.shape && !disposed.has(result.shape)) {
+      disposed.add(result.shape);
+      safeDelete(result.shape);
+    }
+  }
+  self.postMessage({
+    kind: 'export-result',
+    requestId: request.requestId,
+    projectId: request.projectId,
+    revision: request.revision,
+    errors,
+    blob,
+    manifest,
+  });
+}
+
 function releaseShape(request) {
-  try {
-    currentShape?.delete();
-  } catch {}
+  safeDelete(currentShape);
   currentShape = null;
+  for (const entry of currentBodyCache.values()) safeDelete(entry.shape);
+  currentBodyCache = new Map();
   currentRevision = request.revision;
   self.postMessage({
     kind: 'release-result',
@@ -419,6 +852,8 @@ self.addEventListener('message', (event) => {
   if (!request || typeof request !== 'object') return;
   const run = request.kind === 'rebuild'
     ? rebuild(request)
+    : request.kind === 'validate-v5'
+      ? validateV5(request)
     : request.kind === 'export-step' || request.kind === 'export-stl'
       ? exportDocument(request)
       : request.kind === 'release'

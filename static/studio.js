@@ -46,6 +46,11 @@
       return null;
     });
   const documentToolsReady = import('/static/studio-document.js');
+  const v5RuntimeTools = await import('/static/studio-v5-runtime-document.js');
+  const prepareStoredDocument = (candidate, prepareLegacy) =>
+    v5RuntimeTools.isStudioV5Project(candidate)
+      ? v5RuntimeTools.decorateStudioV5Project(v5RuntimeTools.canonicalStudioV5Project(candidate))
+      : prepareLegacy(candidate);
   const hasFlag = (key) => {
     try {
       return Boolean(localStorage.getItem(key));
@@ -171,7 +176,7 @@
     let targetProject = null;
     try {
       const { prepareStudioDocument } = await documentToolsReady;
-      recovered = prepareStudioDocument(snapshot.document);
+      recovered = prepareStoredDocument(snapshot.document, prepareStudioDocument);
     } catch (error) {
       return say('Could not recover project: ' + String(error?.message || error));
     }
@@ -180,7 +185,7 @@
         const journal = await journalReady;
         const stored = journal ? await journal.loadProject(snapshot.projectId) : null;
         const { prepareStudioDocument } = await documentToolsReady;
-        targetProject = stored ? hydrateProjectRecord(stored, prepareStudioDocument) : null;
+        targetProject = stored ? hydrateProjectRecord(stored, (candidate) => prepareStoredDocument(candidate, prepareStudioDocument)) : null;
       } catch (error) {
         setStorageState('unavailable', String(error?.message || error));
         return say('Could not read that project journal. Modeling and export still work.');
@@ -409,7 +414,7 @@
     return kernelReady;
   }
 
-  async function kernelCall(kind, revision) {
+  async function kernelCall(kind, revision, options = {}) {
     const worker = await loadKernel();
     const requestId = ++kernelRequestSeq;
     const request = {
@@ -417,8 +422,9 @@
       projectId,
       revision,
       kind,
-      document: deepCopy(doc),
+      document: deepCopy(options.document || doc),
     };
+    if (Array.isArray(options.bodyIds)) request.bodyIds = [...options.bodyIds];
     if (nextKernelReplyDelay) {
       request.delayMs = nextKernelReplyDelay;
       nextKernelReplyDelay = 0;
@@ -456,9 +462,16 @@
   // Rebuild errors are derived state, never stored in the document (they
   // would leak into undo snapshots and project files).
   const buildErrors = new Map(); // feature id -> message
+  const bodyBuildErrors = new Map(); // body id -> message
+  let selectedBodyId = null;
+  let isolatedBodyId = null;
+  const exportBodyIds = new Set();
+  let lastBodyResults = [];
+  let lastEvaluationTrace = null;
 
   const deepCopy = (o) => JSON.parse(JSON.stringify(o));
   function normalizeDoc(d) {
+    if (v5RuntimeTools.isStudioV5Project(d)) return v5RuntimeTools.prepareStudioV5RuntimeProject(d);
     const out = d && typeof d === 'object' ? d : {};
     if (!Array.isArray(out.features)) out.features = [];
     if (!Array.isArray(out.params)) out.params = [];
@@ -582,18 +595,19 @@
     // Run the mutation (and normalization) BEFORE touching the stacks: a
     // throwing mutation must leave undo history exactly as it was.
     const snap = JSON.stringify(doc);
+    const previous = doc;
     let replacement;
     try {
+      doc = normalizeDoc(JSON.parse(snap));
       replacement = mutate();
-      if (replacement) replacement = normalizeDoc(replacement);
+      doc = normalizeDoc(replacement || doc);
     } catch (err) {
-      doc = normalizeDoc(JSON.parse(snap)); // paranoia: undo partial mutation
+      doc = previous;
       throw err;
     }
     undoStack.push({ label, snap });
     redoStack.length = 0;
     trimHistoryStacks();
-    if (replacement) doc = replacement;
     afterDocumentChange(label);
   }
 
@@ -601,6 +615,16 @@
   // rebuild. Used by commit() and replaceDocument().
   function afterDocumentChange(recoveryLabel = null) {
     if (selectedFeatureId && !doc.features.some((f) => f.id === selectedFeatureId)) selectedFeatureId = null;
+    if (v5RuntimeTools.isStudioV5Project(doc)) {
+      const bodyIds = new Set(v5RuntimeTools.studioV5RootPart(doc).bodies.map((body) => body.id));
+      if (selectedBodyId && !bodyIds.has(selectedBodyId)) selectedBodyId = null;
+      if (isolatedBodyId && !bodyIds.has(isolatedBodyId)) isolatedBodyId = null;
+      for (const bodyId of [...exportBodyIds]) if (!bodyIds.has(bodyId)) exportBodyIds.delete(bodyId);
+    } else {
+      selectedBodyId = null;
+      isolatedBodyId = null;
+      exportBodyIds.clear();
+    }
     save(recoveryLabel);
     renderParams();
     renderHistory();
@@ -849,7 +873,7 @@
     return Math.random().toString(36).slice(2, 8);
   }
 
-  const OP_LABEL = { extrude: 'Extrude', cut: 'Cut', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell' };
+  const OP_LABEL = { extrude: 'Extrude', cut: 'Cut', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell', boolean: 'Boolean' };
 
   async function rebuild() {
     const revision = ++documentRevision;
@@ -885,18 +909,38 @@
     if (appliedRevisionLog.length > 200) appliedRevisionLog.shift();
     kernelRestarting = false;
     buildErrors.clear();
-    for (const error of response.errors || []) buildErrors.set(error.featureId, error.message);
+    bodyBuildErrors.clear();
+    for (const error of response.errors || []) {
+      if (error.featureId) buildErrors.set(error.featureId, error.message);
+      if (error.bodyId) bodyBuildErrors.set(error.bodyId, error.message);
+    }
     try {
-      setMeshData(response.mesh);
+      if (Array.isArray(response.bodies)) {
+        lastBodyResults = response.bodies.map((body) => ({
+          bodyId: body.bodyId,
+          bodyName: body.bodyName,
+          visible: body.visible,
+          suppressed: body.suppressed,
+          geometry: body.geometry,
+          error: body.error,
+          lastValid: body.lastValid,
+        }));
+        lastEvaluationTrace = response.evaluation || null;
+        setBodyMeshData(response.bodies);
+      } else {
+        lastBodyResults = [];
+        lastEvaluationTrace = null;
+        setMeshData(response.mesh);
+      }
     } catch {
       say('Display meshing failed.', false);
     }
     renderHistory();
     const failed = (response.errors || [])[0];
     const errEl = $('bw-cmd-err');
-    if (errEl) errEl.textContent = failed ? OP_LABEL[failed.featureType] + ' failed: ' + failed.message : '';
+    if (errEl) errEl.textContent = failed ? (OP_LABEL[failed.featureType] || 'Body') + ' failed: ' + failed.message : '';
     if (mode.kind === 'idle' || mode.kind === 'rebuilding') setMode({ kind: 'idle' });
-    if (failed) say(OP_LABEL[failed.featureType] + ' failed: ' + failed.message);
+    if (failed) say((OP_LABEL[failed.featureType] || 'Body') + ' failed: ' + failed.message);
   }
 
   // Topology metadata is extracted in the worker. The UI stores signatures
@@ -915,6 +959,7 @@
   let solidMesh = null; // the shaded mesh, for face raycasts
   let faceRanges = []; // [{t0, t1, faceId}] triangle ranges per B-rep face
   let faceByHash = new Map(); // faceId -> serializable planar-face metadata
+  let bodyMeshes = new Map(); // body id -> independently selectable shaded mesh
 
   function setMeshData(mesh) {
     // A document rebuild can finish while a new Press / Pull draft is already
@@ -929,6 +974,7 @@
     }
     edgeLines = [];
     solidMesh = null;
+    bodyMeshes = new Map();
     faceRanges = [];
     faceByHash = new Map();
     meshBounds = mesh?.bounds ?? null;
@@ -960,21 +1006,263 @@
     for (const preview of draftPreviews) partGroup.add(preview);
   }
 
+  function boundsPair(bounds) {
+    if (Array.isArray(bounds) && bounds.length === 2) return bounds;
+    if (Array.isArray(bounds) && bounds.length === 6) return [bounds.slice(0, 3), bounds.slice(3, 6)];
+    return null;
+  }
+
+  function syncBodyMeshState() {
+    const part = v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5RootPart(doc) : null;
+    for (const [bodyId, mesh] of bodyMeshes) {
+      const body = part?.bodies.find((entry) => entry.id === bodyId);
+      const shown = Boolean(body && body.visible && !body.suppressed && (!isolatedBodyId || isolatedBodyId === bodyId));
+      mesh.visible = shown;
+      mesh.material.color.setHex(bodyId === selectedBodyId ? 0x67b7f0 : bodyBuildErrors.has(bodyId) ? 0xc47168 : 0xa7b8c9);
+      mesh.material.emissive?.setHex(bodyId === selectedBodyId ? 0x102f46 : 0x000000);
+      for (const line of edgeLines) if (line.userData.bodyId === bodyId) line.visible = shown;
+    }
+    const activeBodyId = part?.metadata?.activeBodyId;
+    const activeMesh = bodyMeshes.get(activeBodyId);
+    const selectedMesh = bodyMeshes.get(selectedBodyId);
+    solidMesh = (activeMesh?.visible && activeMesh) || (selectedMesh?.visible && selectedMesh) || [...bodyMeshes.values()].find((mesh) => mesh.visible) || null;
+    const aggregate = [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
+    for (const mesh of bodyMeshes.values()) {
+      if (!mesh.visible) continue;
+      const pair = boundsPair(mesh.userData.bounds);
+      if (!pair) continue;
+      for (let axis = 0; axis < 3; axis++) {
+        aggregate[0][axis] = Math.min(aggregate[0][axis], pair[0][axis]);
+        aggregate[1][axis] = Math.max(aggregate[1][axis], pair[1][axis]);
+      }
+    }
+    meshBounds = Number.isFinite(aggregate[0][0]) ? aggregate : null;
+  }
+
+  function setBodyMeshData(bodies) {
+    const draftPreviews = partGroup.children.filter((child) => child.userData?.pressPullPreview);
+    for (const child of [...partGroup.children]) {
+      partGroup.remove(child);
+      if (draftPreviews.includes(child)) continue;
+      child.geometry?.dispose();
+      if (child.material && child.material !== MAT && child.material !== EDGE_MAT) child.material.dispose?.();
+    }
+    edgeLines = [];
+    solidMesh = null;
+    bodyMeshes = new Map();
+    faceRanges = [];
+    faceByHash = new Map();
+    for (const bodyResult of bodies) {
+      const mesh = bodyResult.mesh;
+      if (!mesh) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
+      if (mesh.normals) geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+      geometry.setIndex(new THREE.BufferAttribute(mesh.triangles, 1));
+      if (!mesh.normals) geometry.computeVertexNormals();
+      const material = MAT.clone();
+      const shaded = new THREE.Mesh(geometry, material);
+      shaded.userData.bodyId = bodyResult.bodyId;
+      shaded.userData.bounds = mesh.bounds;
+      partGroup.add(shaded);
+      bodyMeshes.set(bodyResult.bodyId, shaded);
+      for (const group of mesh.faceGroups || []) {
+        faceRanges.push({ t0: group.start / 3, t1: (group.start + group.count) / 3, faceId: group.faceId, bodyId: bodyResult.bodyId, mesh: shaded });
+      }
+      for (const face of mesh.planarFaces || []) {
+        faceByHash.set(bodyResult.bodyId + ':' + face.faceId, { ...face, bodyId: bodyResult.bodyId });
+      }
+      for (const edge of mesh.edges || []) {
+        const lineGeometry = new THREE.BufferGeometry();
+        lineGeometry.setAttribute('position', new THREE.BufferAttribute(edge.points, 3));
+        const line = new THREE.Line(lineGeometry, EDGE_MAT.clone());
+        line.userData.sig = edge.sig;
+        line.userData.bodyId = bodyResult.bodyId;
+        partGroup.add(line);
+        edgeLines.push(line);
+      }
+    }
+    for (const preview of draftPreviews) partGroup.add(preview);
+    syncBodyMeshState();
+  }
+
+  const faceForRange = (range) => range && faceByHash.get(range.bodyId ? range.bodyId + ':' + range.faceId : range.faceId);
+  const rangeForHit = (hit) => hit && faceRanges.find((range) =>
+    (!range.mesh || range.mesh === hit.object) && hit.faceIndex >= range.t0 && hit.faceIndex < range.t1,
+  );
+
+  // --- body + history tree -------------------------------------------------
+  function renderBodies() {
+    const list = $('bw-bodies');
+    const empty = $('bw-bodies-empty');
+    const activeLabel = $('bw-active-body-label');
+    if (!list) return;
+    list.replaceChildren();
+    if (!v5RuntimeTools.isStudioV5Project(doc)) {
+      if (empty) {
+        empty.hidden = false;
+        empty.textContent = doc.features.length
+          ? 'Legacy single body · use + to create another body.'
+          : 'The first solid feature creates a body.';
+      }
+      if (activeLabel) activeLabel.textContent = 'Legacy single body';
+      return;
+    }
+    const part = v5RuntimeTools.studioV5RootPart(doc);
+    const activeBodyId = part.metadata?.activeBodyId;
+    const activeBody = part.bodies.find((body) => body.id === activeBodyId);
+    if (activeLabel) activeLabel.textContent = activeBody ? 'Active: ' + activeBody.name : 'No active body';
+    if (empty) {
+      empty.hidden = part.bodies.length > 0;
+      empty.textContent = 'The first solid feature creates a body.';
+    }
+    for (const body of part.bodies) {
+      const result = lastBodyResults.find((entry) => entry.bodyId === body.id);
+      const item = document.createElement('li');
+      item.className = 'body-row' +
+        (body.id === selectedBodyId ? ' is-selected' : '') +
+        (body.id === activeBodyId ? ' is-active' : '') +
+        (body.suppressed ? ' is-suppressed' : '') +
+        (bodyBuildErrors.has(body.id) ? ' is-failed' : '');
+      item.dataset.bodyId = body.id;
+
+      const select = document.createElement('button');
+      select.type = 'button';
+      select.className = 'body-select';
+      select.dataset.bodyAction = 'select';
+      select.setAttribute('aria-pressed', String(body.id === selectedBodyId));
+      select.textContent = body.name;
+      const detail = document.createElement('small');
+      detail.textContent = body.suppressed
+        ? 'SUPPRESSED'
+        : bodyBuildErrors.has(body.id)
+          ? 'FAILED · last valid shown'
+          : result?.geometry
+            ? result.geometry.solidCount + ' exact solid · ' + Math.round(result.geometry.volume * 100) / 100 + ' mm³'
+            : body.kind;
+      select.appendChild(detail);
+
+      const actions = document.createElement('span');
+      actions.className = 'body-actions';
+      const action = (code, label, title) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.bodyAction = code;
+        button.textContent = label;
+        button.title = title;
+        button.setAttribute('aria-label', title + ' ' + body.name);
+        actions.appendChild(button);
+      };
+      action('activate', 'A', body.id === activeBodyId ? 'Active body' : 'Activate body');
+      action('visibility', body.visible ? 'V' : 'H', body.visible ? 'Hide body' : 'Show body');
+      action('isolate', isolatedBodyId === body.id ? 'ALL' : 'I', isolatedBodyId === body.id ? 'Restore all bodies' : 'Isolate body');
+      action('rename', 'N', 'Rename body');
+      action('suppress', body.suppressed ? 'R' : 'S', body.suppressed ? 'Restore body' : 'Suppress body');
+      const exportLabel = document.createElement('label');
+      exportLabel.title = 'Include ' + body.name + ' in selected-body export';
+      const exportBox = document.createElement('input');
+      exportBox.type = 'checkbox';
+      exportBox.dataset.bodyExport = body.id;
+      exportBox.checked = exportBodyIds.has(body.id);
+      exportBox.setAttribute('aria-label', 'Select ' + body.name + ' for export');
+      exportLabel.appendChild(exportBox);
+      actions.appendChild(exportLabel);
+      action('delete', '×', 'Delete body and dependent features');
+      item.append(select, actions);
+      list.appendChild(item);
+    }
+    syncBodyMeshState();
+  }
+
+  function selectBody(bodyId) {
+    selectedBodyId = bodyId;
+    selectedFeatureId = null;
+    if (bodyId) {
+      sideEl?.classList.remove('m-open-params', 'm-open-history', 'm-open-project');
+      syncMtabs?.();
+    }
+    renderBodies();
+    renderHistory();
+    renderContext();
+  }
+
+  function deleteFeatureFromDocument(featureId) {
+    if (!v5RuntimeTools.isStudioV5Project(doc)) {
+      doc.features = doc.features.filter((feature) => feature.id !== featureId);
+      return;
+    }
+    const part = v5RuntimeTools.studioV5RootPart(doc);
+    const createdBody = part.bodies.find((body) => body.createdByFeatureId === featureId);
+    if (createdBody) return v5RuntimeTools.deleteStudioV5Body(doc, createdBody.id);
+    const candidate = v5RuntimeTools.canonicalStudioV5Project(doc);
+    const candidatePart = v5RuntimeTools.studioV5RootPart(candidate);
+    candidatePart.features = candidatePart.features.filter((feature) => feature.id !== featureId);
+    return v5RuntimeTools.prepareStudioV5RuntimeProject(candidate);
+  }
+
+  $('bw-bodies')?.addEventListener('change', (event) => {
+    const checkbox = event.target.closest('[data-body-export]');
+    if (!checkbox) return;
+    if (checkbox.checked) exportBodyIds.add(checkbox.dataset.bodyExport);
+    else exportBodyIds.delete(checkbox.dataset.bodyExport);
+  });
+
+  $('bw-bodies')?.addEventListener('click', (event) => {
+    const row = event.target.closest('[data-body-id]');
+    const control = event.target.closest('[data-body-action]');
+    if (!row || !control || !v5RuntimeTools.isStudioV5Project(doc)) return;
+    const bodyId = row.dataset.bodyId;
+    const part = v5RuntimeTools.studioV5RootPart(doc);
+    const body = part.bodies.find((entry) => entry.id === bodyId);
+    if (!body) return;
+    const action = control.dataset.bodyAction;
+    if (action === 'select') return selectBody(body.id === selectedBodyId ? null : body.id);
+    if (action === 'isolate') {
+      isolatedBodyId = isolatedBodyId === body.id ? null : body.id;
+      renderBodies();
+      say(isolatedBodyId ? 'Isolated ' + body.name + '.' : 'All visible bodies restored.');
+      return;
+    }
+    if (action === 'rename') {
+      selectBody(body.id);
+      requestAnimationFrame(() => $('bw-context')?.querySelector('[data-body-name]')?.focus());
+      return;
+    }
+    if (action === 'activate') {
+      commit('Activate ' + body.name, () => v5RuntimeTools.updateStudioV5Body(doc, body.id, { active: true }));
+      return;
+    }
+    if (action === 'visibility') {
+      commit((body.visible ? 'Hide ' : 'Show ') + body.name, () => v5RuntimeTools.updateStudioV5Body(doc, body.id, { visible: !body.visible }));
+      return;
+    }
+    if (action === 'suppress') {
+      commit((body.suppressed ? 'Restore ' : 'Suppress ') + body.name, () => v5RuntimeTools.updateStudioV5Body(doc, body.id, { suppressed: !body.suppressed }));
+      return;
+    }
+    if (action === 'delete') {
+      commit('Delete body ' + body.name, () => v5RuntimeTools.deleteStudioV5Body(doc, body.id));
+    }
+  });
+
   // --- history panel -------------------------------------------------------
   function renderHistory() {
     const list = $('bw-history');
     list.innerHTML = '';
+    renderBodies();
     if ($('bw-project-name')) $('bw-project-name').textContent = doc.title;
     if ($('bw-tab-project-name')) $('bw-tab-project-name').textContent = doc.title;
     if ($('bw-tree-project-name')) $('bw-tree-project-name').textContent = doc.title;
-    const featureMark = { extrude: 'EX', cut: 'CU', revolve: 'RV', fillet: 'FL', chamfer: 'CH', shell: 'SH' };
+    const featureMark = { extrude: 'EX', cut: 'CU', revolve: 'RV', fillet: 'FL', chamfer: 'CH', shell: 'SH', boolean: 'BO' };
     doc.features.forEach((f, i) => {
       const li = document.createElement('li');
       li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '') + (f.id === selectedFeatureId ? ' sel' : '');
       li.dataset.sel = f.id;
       li.dataset.feature = f.type;
       const dims =
-        f.type === 'fillet' || f.type === 'chamfer'
+        f.type === 'boolean'
+          ? (f.operation || f.resultPolicy?.kind || 'boolean') + ' · ' + (f.toolBodyIds?.length || 0) + ' tool body'
+          : f.type === 'fillet' || f.type === 'chamfer'
           ? 'r ' + f.r + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
           : f.type === 'shell'
             ? f.t + ' mm walls · ' + f.faces.length + ' opening' + (f.faces.length === 1 ? '' : 's')
@@ -987,7 +1275,7 @@
         '<span class="hi-n">' + (i + 1) + '. ' + OP_LABEL[f.type] + '</span>' +
         '<span class="hi-d">' + dims + (buildErrors.has(f.id) ? ' · FAILED' : '') + '</span>' +
         '</button>' +
-        '<span class="hi-a"><button data-edit="' + f.id + '">Edit</button><button data-del="' + f.id + '">×</button></span>';
+        '<span class="hi-a">' + (f.type === 'boolean' ? '' : '<button data-edit="' + f.id + '">Edit</button>') + '<button data-del="' + f.id + '">×</button></span>';
       list.appendChild(li);
     });
     $('bw-hist-empty').hidden = doc.features.length > 0;
@@ -1018,9 +1306,7 @@
     if (delId) {
       startOperation(() => {
         const gone = doc.features.find((f) => f.id === delId);
-        commit('Delete ' + (gone ? OP_LABEL[gone.type].toLowerCase() : 'feature'), () => {
-          doc.features = doc.features.filter((f) => f.id !== delId);
-        });
+        commit('Delete ' + (gone ? OP_LABEL[gone.type].toLowerCase() : 'feature'), () => deleteFeatureFromDocument(delId));
       });
     }
     if (editId) {
@@ -1089,7 +1375,11 @@
     let i = 1;
     while ((doc.params || []).some((p) => p.name === 'p' + i)) i++;
     commit('Add parameter', () => {
-      doc.params.push({ name: 'p' + i, value: 10 });
+      doc.params.push({
+        ...(v5RuntimeTools.isStudioV5Project(doc) ? { id: 'parameter-' + newId() } : {}),
+        name: 'p' + i,
+        value: 10,
+      });
     });
   });
 
@@ -1127,8 +1417,8 @@
     if (journal) {
       try {
         const active = await journal.loadActive();
-        if (active?.document && Array.isArray(active.document.features)) {
-          const restored = hydrateProjectRecord(active, prepareStudioDocument);
+        if (active?.document && (active.document.schemaVersion === 5 || Array.isArray(active.document.features))) {
+          const restored = hydrateProjectRecord(active, (candidate) => prepareStoredDocument(candidate, prepareStudioDocument));
           projectId = restored.projectId;
           doc = restored.document;
           undoStack.splice(0, undoStack.length, ...restored.undoStack);
@@ -1142,7 +1432,7 @@
     }
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (d && Array.isArray(d.features)) doc = normalizeDoc(prepareStudioDocument(d));
+      if (d && (d.schemaVersion === 5 || Array.isArray(d.features))) doc = normalizeDoc(prepareStoredDocument(d, prepareStudioDocument));
       else doc = normalizeDoc(doc);
     } catch {}
     // Import the compatibility localStorage document into the durable journal.
@@ -1152,7 +1442,7 @@
     const blob = new Blob([JSON.stringify(doc, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'part.bomcad.json';
+    a.download = v5RuntimeTools.isStudioV5Project(doc) ? 'project.bomcad.json' : 'part.bomcad.json';
     a.click();
     URL.revokeObjectURL(a.href);
   });
@@ -1164,8 +1454,7 @@
     file.text().then(async (t) => {
       let d;
       try {
-        const { parseStudioProject } = await documentToolsReady;
-        d = parseStudioProject(t);
+        d = v5RuntimeTools.parseOrMigrateStudioV5RuntimeProject(t);
       } catch (error) {
         return say('Could not open project: ' + String(error?.message || error));
       }
@@ -1173,7 +1462,7 @@
       // coordinator: prompt for a dirty draft, cancel editors, then switch
       // projects atomically without merging their command journals.
       startOperation(() => {
-        projectId = makeProjectId();
+        projectId = d.projectId || makeProjectId();
         doc = normalizeDoc(d);
         undoStack.length = 0;
         redoStack.length = 0;
@@ -1187,11 +1476,20 @@
   });
 
   // --- export --------------------------------------------------------------
+  function selectedExportBodyIds() {
+    if (!v5RuntimeTools.isStudioV5Project(doc)) return [];
+    if (exportBodyIds.size) return [...exportBodyIds];
+    if (selectedBodyId) return [selectedBodyId];
+    const part = v5RuntimeTools.studioV5RootPart(doc);
+    return part.bodies.filter((body) => body.visible && !body.suppressed).map((body) => body.id);
+  }
   async function exportBlob(kind) {
     if (!doc.features.length) return say('Add a feature first.');
     let response;
     try {
-      response = await kernelCall(kind === 'step' ? 'export-step' : 'export-stl', documentRevision);
+      response = await kernelCall(kind === 'step' ? 'export-step' : 'export-stl', documentRevision, {
+        bodyIds: selectedExportBodyIds(),
+      });
     } catch (error) {
       return say('Export failed: ' + String(error?.message || error));
     }
@@ -1200,10 +1498,13 @@
     }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(response.blob);
-    a.download = kind === 'step' ? 'part.step' : 'part.stl';
+    const count = response.manifest?.bodyCount || 1;
+    a.download = kind === 'step' ? (count === 1 ? 'selected-body.step' : 'selected-bodies.step') : (count === 1 ? 'selected-body.stl' : 'selected-bodies.stl');
     a.click();
     URL.revokeObjectURL(a.href);
-    say(kind === 'step' ? 'STEP exported — opens in FreeCAD and every real CAD package.' : 'STL exported — ready to print.');
+    say(kind === 'step'
+      ? 'STEP exported with ' + count + ' named bod' + (count === 1 ? 'y' : 'ies') + ' in millimetres.'
+      : 'STL exported with ' + count + ' selected bod' + (count === 1 ? 'y' : 'ies') + ' (STL does not preserve names or units).');
   }
   $('bw-export-stl').addEventListener('click', () => exportBlob('stl'));
   $('bw-export-step').addEventListener('click', () => exportBlob('step'));
@@ -1246,6 +1547,9 @@
         $('bw-sk-pat-n').value,
         $('bw-sk-pat-a').value,
         $('bw-sk-pat-b').value,
+        $('bw-sk-result')?.value,
+        $('bw-sk-body-name')?.value,
+        $('bw-sk-target')?.value,
       ]);
     function open(f, opts) {
       // Transactional edit: work on a deep copy so Cancel discards
@@ -1274,6 +1578,27 @@
       $('bw-sk-pat-a').value = f.pattern?.kind === 'circular' ? (f.pattern?.cx ?? 0) : (f.pattern?.dx ?? 10);
       $('bw-sk-pat-b').value = f.pattern?.kind === 'circular' ? (f.pattern?.cy ?? 0) : (f.pattern?.dy ?? 0);
       syncPatternFields();
+      const resultRow = $('bw-sk-result-row');
+      const isV5 = v5RuntimeTools.isStudioV5Project(doc);
+      const part = isV5 ? v5RuntimeTools.studioV5RootPart(doc) : null;
+      const policy = f.resultPolicy || null;
+      resultRow.hidden = !(isV5 || policy);
+      if (!resultRow.hidden) {
+        const activeBodyId = part?.metadata?.activeBodyId;
+        $('bw-sk-result').value = policy?.kind || (activeBodyId ? (f.type === 'cut' ? 'subtract' : 'add') : 'new-body');
+        const created = part?.bodies.find((body) => body.createdByFeatureId === f.id);
+        $('bw-sk-body-name').value = created?.name || policy?.bodyName || 'Body ' + ((part?.bodies.length || 0) + 1);
+        const target = $('bw-sk-target');
+        target.replaceChildren();
+        for (const body of part?.bodies || []) {
+          const option = document.createElement('option');
+          option.value = body.id;
+          option.textContent = body.name;
+          target.appendChild(option);
+        }
+        target.value = policy?.targetBodyIds?.[0] || activeBodyId || target.options[0]?.value || '';
+        syncResultFields();
+      }
       $('bw-sk-hint').textContent =
         f.type === 'revolve'
           ? 'Lathe profile: x is radius from the axis (keep shapes at x ≥ 0), y is height. It spins around the left edge.'
@@ -1319,6 +1644,12 @@
       $('bw-sk-pat-lb').textContent = kind === 'circular' ? 'centre Y' : 'ΔY';
     }
     $('bw-sk-pat').addEventListener('change', syncPatternFields);
+    function syncResultFields() {
+      const kind = $('bw-sk-result').value;
+      $('bw-sk-body-name-row').hidden = kind !== 'new-body';
+      $('bw-sk-target-row').hidden = kind === 'new-body';
+    }
+    $('bw-sk-result')?.addEventListener('change', syncResultFields);
 
     // Read a dimension field: keeps plain numbers as numbers, keeps valid
     // expressions as strings, throws (with the field name) otherwise.
@@ -1354,6 +1685,21 @@
         } catch (err) {
           return say(String(err?.message || err));
         }
+        if (!$('bw-sk-result-row').hidden) {
+          const resultKind = $('bw-sk-result').value;
+          if (resultKind === 'new-body') {
+            const bodyName = $('bw-sk-body-name').value.trim();
+            if (!bodyName) return say('Name the new body before applying.');
+            feature.resultPolicy = { kind: 'new-body', bodyName };
+            feature.createdBodyId ||= 'body-' + feature.id;
+          } else {
+            const targetBodyId = $('bw-sk-target').value;
+            if (!targetBodyId) return say('Choose a target body.');
+            feature.resultPolicy = resultKind === 'add'
+              ? { kind: 'add', targetBodyIds: [targetBodyId] }
+              : { kind: resultKind, targetBodyIds: [targetBodyId], keepTools: false };
+          }
+        }
         if (!feature.sketch.shapes.length) return say('Draw at least one shape.');
         // A face sketch drawn outside the face makes detached geometry —
         // warn (non-blocking) so a floating boss isn't a mystery.
@@ -1380,6 +1726,15 @@
           const wasNew = isNew;
           deferredCommit = () =>
             commit((wasNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), () => {
+              if (v5RuntimeTools.isStudioV5Project(doc) || draft.resultPolicy) {
+                const base = v5RuntimeTools.isStudioV5Project(doc)
+                  ? doc
+                  : v5RuntimeTools.migrateStudioDocumentToV5(doc, { projectId });
+                return v5RuntimeTools.configureStudioV5Feature(base, draft, {
+                  resultPolicy: draft.resultPolicy,
+                  bodyName: draft.resultPolicy?.bodyName,
+                });
+              }
               const i = doc.features.findIndex((x) => x.id === draft.id);
               if (i >= 0) doc.features[i] = draft;
               else doc.features.push(draft);
@@ -2116,15 +2471,47 @@
     },
     recovery: async () => (await journalReady)?.listRecovery() || [],
     journalState: async () => (await journalReady)?.loadActive() || null,
-    exportForTest: async (kind) => {
-      const response = await kernelCall(kind === 'step' ? 'export-step' : 'export-stl', documentRevision);
-      return { size: response.blob?.size || 0, type: response.blob?.type || '', errors: response.errors || [] };
+    exportForTest: async (kind, bodyIds = selectedExportBodyIds()) => {
+      const response = await kernelCall(kind === 'step' ? 'export-step' : 'export-stl', documentRevision, { bodyIds });
+      return {
+        size: response.blob?.size || 0,
+        type: response.blob?.type || '',
+        errors: response.errors || [],
+        manifest: response.manifest || null,
+        text: kind === 'step' && response.blob ? await response.blob.text() : '',
+      };
     },
     undoLabels: () => undoStack.map((e) => e.label),
     docJson: () => JSON.stringify(doc),
+    canonicalHash: () => v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+    bodyResults: () => deepCopy(lastBodyResults),
+    evaluationTrace: () => deepCopy(lastEvaluationTrace),
+    bodyIds: () => v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5RootPart(doc).bodies.map((body) => body.id) : [],
+    activeBodyId: () => v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5RootPart(doc).metadata?.activeBodyId || null : null,
+    selectedBodyId: () => selectedBodyId,
+    visibleBodyIds: () => [...bodyMeshes].filter(([, mesh]) => mesh.visible).map(([bodyId]) => bodyId),
+    selectBodyForTest: (bodyId) => selectBody(bodyId),
+    attemptBodyBooleanForTest: (operation, targetBodyId, toolBodyId) => attemptBodyBoolean(operation, targetBodyId, toolBodyId),
+    ndcOfBodyCenter: (bodyId) => {
+      const mesh = bodyMeshes.get(bodyId);
+      if (!mesh) return null;
+      mesh.geometry.computeBoundingSphere();
+      mesh.updateWorldMatrix(true, false);
+      camera.updateMatrixWorld();
+      camera.updateProjectionMatrix();
+      const center = mesh.localToWorld(mesh.geometry.boundingSphere.center.clone()).project(camera);
+      return [center.x, center.y];
+    },
+    topologyBodyIds: () => ({
+      edges: [...new Set(edgeLines.map((line) => line.userData.bodyId).filter(Boolean))],
+      faces: [...new Set([...faceByHash.values()].map((face) => face.bodyId).filter(Boolean))],
+    }),
     triCount: () => {
-      const g = solidMesh?.geometry;
-      return g ? (g.getIndex() ? g.getIndex().count / 3 : g.getAttribute('position').count / 3) : 0;
+      const meshes = bodyMeshes.size ? [...bodyMeshes.values()] : solidMesh ? [solidMesh] : [];
+      return meshes.reduce((total, mesh) => {
+        const geometry = mesh.geometry;
+        return total + (geometry.getIndex() ? geometry.getIndex().count / 3 : geometry.getAttribute('position').count / 3);
+      }, 0);
     },
     pressPullPreviewTriangles: () => sketch.previewTriangles(),
     pickAt: (fx, fy) => {
@@ -2168,9 +2555,10 @@
   // shared GPU buffers — disposing shared attributes would strip the main
   // mesh). Used by the face picker and the shell picker.
   function buildFaceHighlight(range, color, opacity) {
-    if (!solidMesh) return null;
-    const posAttr = solidMesh.geometry.getAttribute('position');
-    const idx = solidMesh.geometry.getIndex().array;
+    const sourceMesh = range?.mesh || solidMesh;
+    if (!sourceMesh) return null;
+    const posAttr = sourceMesh.geometry.getAttribute('position');
+    const idx = sourceMesh.geometry.getIndex().array;
     const arr = new Float32Array((range.t1 - range.t0) * 9);
     let o = 0;
     for (let t = range.t0 * 3; t < range.t1 * 3; t++) {
@@ -2216,7 +2604,7 @@
     let deferredCommit = null;
     const picked = new Map(); // faceId -> {sig, mesh}
 
-    const planarRanges = () => faceRanges.filter((r) => faceByHash.has(r.faceId));
+    const planarRanges = () => faceRanges.filter((range) => (!range.mesh || range.mesh === solidMesh) && faceForRange(range));
 
     function open(f) {
       if (!solidMesh || !faceByHash.size) return say('Build something first — Shell hollows an existing part.');
@@ -2236,7 +2624,7 @@
       // shape, so this often finds nothing — thickness-only edits still work.
       picked.clear();
       for (const r of planarRanges()) {
-        const face = faceByHash.get(r.faceId);
+        const face = faceForRange(r);
         if (f.faces?.some((sig) => faceMatches(sig, face))) {
           picked.set(r.faceId, { sig: faceSig(face), mesh: buildFaceHighlight(r, 0x2e8b57, 0.55) });
         }
@@ -2299,7 +2687,7 @@
         dropHighlight(had.mesh);
         picked.delete(range.faceId);
       } else {
-        const face = faceByHash.get(range.faceId);
+        const face = faceForRange(range);
         picked.set(range.faceId, { sig: faceSig(face), mesh: buildFaceHighlight(range, 0x2e8b57, 0.55) });
       }
       syncCount();
@@ -2334,8 +2722,8 @@
       );
       const hit = ray.intersectObject(solidMesh, false)[0];
       if (!hit) return;
-      const range = faceRanges.find((r) => hit.faceIndex >= r.t0 && hit.faceIndex < r.t1);
-      if (!range || !faceByHash.has(range.faceId)) return say('That surface is curved — pick a flat face.');
+      const range = rangeForHit(hit);
+      if (!faceForRange(range)) return say('That surface is curved — pick a flat face.');
       toggleRange(range);
     });
 
@@ -2391,7 +2779,7 @@
     // Step-through selection: precision clicks are hard on phones, and flat
     // faces can hide behind each other. Next face highlights each planar
     // face in turn; Use this face takes it.
-    const planarRanges = () => faceRanges.filter((r) => faceByHash.has(r.faceId));
+    const planarRanges = () => faceRanges.filter((range) => (!range.mesh || range.mesh === solidMesh) && faceForRange(range));
     function clearHighlight() {
       dropHighlight(highlight);
       highlight = null;
@@ -2409,7 +2797,7 @@
     });
     $('bw-face-use').addEventListener('click', () => {
       const list = planarRanges();
-      const face = cycleIdx >= 0 && list[cycleIdx] && faceByHash.get(list[cycleIdx].faceId);
+      const face = cycleIdx >= 0 && list[cycleIdx] && faceForRange(list[cycleIdx]);
       if (!face) return;
       chooseFace(face);
     });
@@ -2440,8 +2828,8 @@
       );
       const hit = ray.intersectObject(solidMesh, false)[0];
       if (!hit) return;
-      const range = faceRanges.find((r) => hit.faceIndex >= r.t0 && hit.faceIndex < r.t1);
-      const face = range && faceByHash.get(range.faceId);
+      const range = rangeForHit(hit);
+      const face = faceForRange(range);
       if (!face) return say('That surface is curved — pick a flat face.');
       chooseFace(face);
     });
@@ -2455,6 +2843,19 @@
   // the real part bounds — partGroup rotates -90° about X, so a CAD-space
   // bounding-sphere centre (x,y,z) sits at world (x, z, -y).
   function partView() {
+    const aggregate = bodyMeshes.size && boundsPair(meshBounds);
+    if (aggregate) {
+      const center = [0, 1, 2].map((axis) => (aggregate[0][axis] + aggregate[1][axis]) / 2);
+      const radius = Math.hypot(
+        aggregate[1][0] - aggregate[0][0],
+        aggregate[1][1] - aggregate[0][1],
+        aggregate[1][2] - aggregate[0][2],
+      ) / 2;
+      return {
+        c: new THREE.Vector3(center[0], center[2], -center[1]),
+        r: Math.max(10, radius * 2.1),
+      };
+    }
     if (!solidMesh) return { c: new THREE.Vector3(0, 5, 0), r: 60 };
     solidMesh.geometry.computeBoundingSphere();
     const bs = solidMesh.geometry.boundingSphere;
@@ -2519,6 +2920,26 @@
   $('bw-undo')?.addEventListener('click', undo);
   $('bw-redo')?.addEventListener('click', redo);
 
+  let bodyPickDown = null;
+  renderer.domElement.addEventListener('pointerdown', (event) => {
+    if (mode.kind === 'idle' && bodyMeshes.size) bodyPickDown = [event.clientX, event.clientY];
+  });
+  renderer.domElement.addEventListener('pointerup', (event) => {
+    if (!bodyPickDown || mode.kind !== 'idle' || Math.hypot(event.clientX - bodyPickDown[0], event.clientY - bodyPickDown[1]) > 5) {
+      bodyPickDown = null;
+      return;
+    }
+    bodyPickDown = null;
+    const rect = renderer.domElement.getBoundingClientRect();
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    ), camera);
+    const hit = ray.intersectObjects([...bodyMeshes.values()].filter((mesh) => mesh.visible), false)[0];
+    if (hit?.object?.userData?.bodyId) selectBody(hit.object.userData.bodyId);
+  });
+
   // Double-click a flat face in idle: align the view to its normal.
   renderer.domElement.addEventListener('dblclick', (e) => {
     if (mode.kind !== 'idle' || !solidMesh) return;
@@ -2531,8 +2952,8 @@
     );
     const hit = ray.intersectObject(solidMesh, false)[0];
     if (!hit) return;
-    const range = faceRanges.find((rr) => hit.faceIndex >= rr.t0 && hit.faceIndex < rr.t1);
-    const face = range && faceByHash.get(range.faceId);
+    const range = rangeForHit(hit);
+    const face = faceForRange(range);
     if (!face) return;
     const n = face.sig.n;
     // CAD Z-up normal -> three Y-up direction
@@ -2643,7 +3064,17 @@
   $('bw-clear-cancel')?.addEventListener('click', closeClearDecision);
   $('bw-clear-confirm')?.addEventListener('click', () => {
     closeDecision(clearDecision);
-    commit('Clear part', () => ({ ...doc, features: [], params: [] }));
+    commit('Clear part', () => {
+      if (!v5RuntimeTools.isStudioV5Project(doc)) return { ...doc, features: [], params: [] };
+      const candidate = v5RuntimeTools.canonicalStudioV5Project(doc);
+      const part = v5RuntimeTools.studioV5RootPart(candidate);
+      candidate.parameters = [];
+      part.features = [];
+      part.featureOrder = [];
+      part.bodies = [];
+      part.metadata = { ...(part.metadata || {}), activeBodyId: null };
+      return v5RuntimeTools.prepareStudioV5RuntimeProject(candidate);
+    });
     requestAnimationFrame(focusActiveWorkspace);
   });
   clearDecision?.addEventListener('cancel', (event) => {
@@ -3021,13 +3452,57 @@
   let selectedFeatureId = null;
   function selectFeature(id) {
     selectedFeatureId = id;
+    if (id) selectedBodyId = null;
     if (id) {
       sideEl.classList.remove('m-open-params', 'm-open-history', 'm-open-project');
       syncMtabs();
     }
     renderHistory();
+    renderBodies();
     renderContext();
   }
+
+  async function attemptBodyBoolean(operation, targetBodyId, toolBodyId) {
+    if (!v5RuntimeTools.isStudioV5Project(doc)) return false;
+    const sourceRevision = documentRevision;
+    const sourceHash = v5RuntimeTools.studioV5CanonicalHash(doc);
+    let candidate;
+    try {
+      candidate = v5RuntimeTools.createStudioV5BooleanFeature(doc, {
+        id: 'boolean-' + newId(),
+        operation,
+        targetBodyId,
+        toolBodyId,
+        keepTools: true,
+      });
+    } catch (error) {
+      say(String(error?.message || error));
+      return false;
+    }
+    let response;
+    try {
+      response = await kernelCall('validate-v5', documentRevision, { document: candidate });
+    } catch (error) {
+      say('Boolean preview failed: ' + String(error?.message || error));
+      return false;
+    }
+    if (documentRevision !== sourceRevision || !v5RuntimeTools.isStudioV5Project(doc) || v5RuntimeTools.studioV5CanonicalHash(doc) !== sourceHash) {
+      say('The project changed while the Boolean was being checked — run it again on the current bodies.');
+      return false;
+    }
+    if (response.errors?.length) {
+      say('Boolean not applied: ' + response.errors[0].message);
+      return false;
+    }
+    const part = v5RuntimeTools.studioV5RootPart(candidate);
+    const target = part.bodies.find((body) => body.id === targetBodyId);
+    const tool = part.bodies.find((body) => body.id === toolBodyId);
+    const label = (operation === 'add' ? 'Union ' : operation === 'intersect' ? 'Intersect ' : 'Subtract ') + tool.name + (operation === 'subtract' ? ' from ' : ' with ') + target.name;
+    commit(label, () => candidate);
+    selectBody(targetBodyId);
+    return true;
+  }
+
   function renderContext() {
     const wrap = $('bw-context-wrap');
     const panel = $('bw-context');
@@ -3035,6 +3510,62 @@
     const kind = $('bw-inspector-kind');
     if (!panel) return;
     const holder = wrap || panel;
+    const selectedBody = v5RuntimeTools.isStudioV5Project(doc)
+      ? v5RuntimeTools.studioV5RootPart(doc).bodies.find((body) => body.id === selectedBodyId)
+      : null;
+    if (mode.kind === 'idle' && selectedBody) {
+      const part = v5RuntimeTools.studioV5RootPart(doc);
+      const active = v5RuntimeTools.studioV5ActiveBody(doc);
+      const result = lastBodyResults.find((entry) => entry.bodyId === selectedBody.id);
+      if (empty) empty.hidden = true;
+      if (kind) kind.textContent = 'Body properties';
+      const escAttr = (value) => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+      panel.innerHTML =
+        '<p class="ctx-t">' + escAttr(selectedBody.name) + '</p>' +
+        '<p class="ctx-sub">' + (bodyBuildErrors.has(selectedBody.id) ? 'FAILED · last valid body remains visible' : selectedBody.kind + ' body') + '</p>' +
+        '<label class="ctx-body-name">Name <input type="text" data-body-name value="' + escAttr(selectedBody.name) + '" maxlength="200" /></label>' +
+        '<p class="ctx-stat">ID: ' + escAttr(selectedBody.id) + '</p>' +
+        '<p class="ctx-stat">Created by: ' + escAttr(selectedBody.createdByFeatureId) + '</p>' +
+        '<p class="ctx-stat">Owned features: ' + selectedBody.featureIds.length + '</p>' +
+        '<p class="ctx-stat">Exact solids: ' + (result?.geometry?.solidCount ?? 'not built') + '</p>' +
+        '<p class="ctx-stat">State: ' + (selectedBody.suppressed ? 'suppressed' : selectedBody.visible ? 'visible' : 'hidden') + (selectedBody.id === active?.id ? ' · active' : '') + '</p>' +
+        (bodyBuildErrors.has(selectedBody.id) ? '<p class="err-msg">' + escAttr(bodyBuildErrors.get(selectedBody.id)) + '</p>' : '') +
+        '<div class="ctx-body-actions">' +
+          '<button type="button" data-body-context="active">Make active</button>' +
+          '<button type="button" data-body-context="visibility">' + (selectedBody.visible ? 'Hide' : 'Show') + '</button>' +
+          '<button type="button" data-body-context="isolate">' + (isolatedBodyId === selectedBody.id ? 'Show all' : 'Isolate') + '</button>' +
+          '<button type="button" data-body-context="suppress">' + (selectedBody.suppressed ? 'Restore' : 'Suppress') + '</button>' +
+          (active && active.id !== selectedBody.id
+            ? '<button type="button" data-body-context="subtract">Subtract from active</button><button type="button" data-body-context="intersect">Intersect with active</button><button type="button" data-body-context="add">Union with active</button>'
+            : '') +
+          '<button type="button" class="is-danger" data-body-context="delete">Delete body</button>' +
+        '</div>';
+      holder.hidden = false;
+      panel.querySelector('[data-body-name]')?.addEventListener('change', (event) => {
+        const nextName = event.target.value.trim();
+        try {
+          commit('Rename body', () => v5RuntimeTools.updateStudioV5Body(doc, selectedBody.id, { name: nextName }));
+        } catch (error) {
+          event.target.value = selectedBody.name;
+          say(String(error?.message || error));
+        }
+      });
+      panel.querySelectorAll('[data-body-context]').forEach((button) => button.addEventListener('click', () => {
+        const action = button.dataset.bodyContext;
+        if (action === 'active') commit('Activate ' + selectedBody.name, () => v5RuntimeTools.updateStudioV5Body(doc, selectedBody.id, { active: true }));
+        else if (action === 'visibility') commit((selectedBody.visible ? 'Hide ' : 'Show ') + selectedBody.name, () => v5RuntimeTools.updateStudioV5Body(doc, selectedBody.id, { visible: !selectedBody.visible }));
+        else if (action === 'suppress') commit((selectedBody.suppressed ? 'Restore ' : 'Suppress ') + selectedBody.name, () => v5RuntimeTools.updateStudioV5Body(doc, selectedBody.id, { suppressed: !selectedBody.suppressed }));
+        else if (action === 'isolate') {
+          isolatedBodyId = isolatedBodyId === selectedBody.id ? null : selectedBody.id;
+          renderBodies();
+          renderContext();
+        } else if (action === 'delete') commit('Delete body ' + selectedBody.name, () => v5RuntimeTools.deleteStudioV5Body(doc, selectedBody.id));
+        else if (active && active.id !== selectedBody.id && (action === 'subtract' || action === 'intersect' || action === 'add')) {
+          attemptBodyBoolean(action, active.id, selectedBody.id);
+        }
+      }));
+      return;
+    }
     const f = doc.features.find((x) => x.id === selectedFeatureId);
     if (mode.kind !== 'idle' || !f) {
       holder.hidden = true;
@@ -3101,7 +3632,7 @@
       '<p class="ctx-t">' + OP_LABEL[f.type] + '</p>' +
       '<p class="ctx-sub">' + (err ? 'FAILED: ' + escAttr(err) : 'feature ' + (doc.features.indexOf(f) + 1) + ' of ' + doc.features.length) + '</p>' +
       fields +
-      '<div class="ctx-actions"><button type="button" data-cxedit="1">Edit</button><button type="button" data-cxdel="1">Delete</button></div>';
+      '<div class="ctx-actions">' + (f.type === 'boolean' ? '' : '<button type="button" data-cxedit="1">Edit</button>') + '<button type="button" data-cxdel="1">Delete</button></div>';
     holder.hidden = false;
     panel.querySelectorAll('[data-cx]').forEach((inp) =>
       inp.addEventListener('change', () => {
@@ -3180,13 +3711,11 @@
         if (i >= 0) doc.features[i] = draft;
       });
     });
-    panel.querySelector('[data-cxedit]').addEventListener('click', () => {
+    panel.querySelector('[data-cxedit]')?.addEventListener('click', () => {
       startOperation(() => openEditorFor(f));
     });
     panel.querySelector('[data-cxdel]').addEventListener('click', () => {
-      commit('Delete ' + OP_LABEL[f.type].toLowerCase(), () => {
-        doc.features = doc.features.filter((x) => x.id !== f.id);
-      });
+      commit('Delete ' + OP_LABEL[f.type].toLowerCase(), () => deleteFeatureFromDocument(f.id));
     });
   }
 
@@ -3248,9 +3777,7 @@
     else if ((e.key === 'Delete' || e.key === 'Backspace') && mode.kind === 'idle' && selectedFeatureId) {
       const f = doc.features.find((x) => x.id === selectedFeatureId);
       if (f) {
-        commit('Delete ' + OP_LABEL[f.type].toLowerCase(), () => {
-          doc.features = doc.features.filter((x) => x.id !== f.id);
-        });
+        commit('Delete ' + OP_LABEL[f.type].toLowerCase(), () => deleteFeatureFromDocument(f.id));
         selectFeature(null);
       }
     } else if (e.key === 'f' && mode.kind === 'idle') setView('fit');
@@ -3269,12 +3796,18 @@
       startOperation(() => {
         loadKernel(); // start the download while the user sketches
         const t = b.dataset.feat;
+        const activeBody = v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5ActiveBody(doc) : null;
+        const resultPolicy = activeBody
+          ? t === 'cut'
+            ? { kind: 'subtract', targetBodyIds: [activeBody.id], keepTools: false }
+            : { kind: 'add', targetBodyIds: [activeBody.id] }
+          : null;
         if (t === 'fillet' || t === 'chamfer') {
-          picker.open({ id: newId(), type: t, r: 2, edges: [] });
+          picker.open({ id: newId(), type: t, r: 2, edges: [], ...(resultPolicy ? { resultPolicy } : {}) });
         } else if (t === 'shell') {
-          shellPick.open({ id: newId(), type: t, t: 2, faces: [] });
+          shellPick.open({ id: newId(), type: t, t: 2, faces: [], ...(resultPolicy ? { resultPolicy } : {}) });
         } else {
-          const draft = { id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut' };
+          const draft = { id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut', ...(resultPolicy ? { resultPolicy } : {}) };
           // With a part on screen, extrude and cut can target any flat face;
           // the base plane stays one click away.
           if ((t === 'extrude' || t === 'cut') && solidMesh && faceByHash.size) facePick.open(draft);
@@ -3283,6 +3816,23 @@
       });
     }),
   );
+
+  $('bw-body-new')?.addEventListener('click', () => {
+    startOperation(() => {
+      loadKernel();
+      const index = v5RuntimeTools.isStudioV5Project(doc)
+        ? v5RuntimeTools.studioV5RootPart(doc).bodies.length + 1
+        : 1;
+      sketch.open({
+        id: newId(),
+        type: 'extrude',
+        sketch: { shapes: [], z: 0 },
+        h: 20,
+        through: false,
+        resultPolicy: { kind: 'new-body', bodyName: 'Body ' + index },
+      });
+    });
+  });
 
   function starterDocument() {
     return {
