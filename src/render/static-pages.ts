@@ -453,41 +453,89 @@ export function policiesPage(): string {
 
 export function researchPage(): string {
   return page({
-    title: 'Research | GenBOM: benchmarking the generated catalog | BOMwiki',
+    title: 'Research | GenBOM and BOMwiki-Bench | BOMwiki',
     description:
-      'GenBOM is the technical report behind BOMwiki: a benchmark and audit of the 192,471-node generated product-structure graph, validated against human-authored BOMs. Read the paper.',
+      'BOMwiki publishes research on its own catalog. GenBOM benchmarks and audits the 192,471-node generated product-structure graph behind this site against human-authored BOMs. Read the paper.',
     path: '/research',
     ogImage: '/og/page/research.png',
     indexable: true,
-    body: `<div class="review">
-      <h1>GenBOM: benchmarking the generated catalog</h1>
-      <p>BOMwiki's catalog began as machine-generated content, and the site says so on every unverified page. GenBOM is the technical report where we measure what that content is actually worth: a benchmark and audit built from the catalog itself, validated against a corpus of human-authored bills of materials collected for the purpose.</p>
-      <p><b><a href="/research/genbom.pdf">Download the paper (PDF, 10 pages)</a></b> &middot; MathproBro and protosphinx, ERP&#8226;AI Research Team, July 2026.</p>
+    body: `<div class="review bi">
+      <h1>Research</h1>
+      <p>BOMwiki publishes research on its own catalog. The catalog began as machine-generated content, the site says so on every unverified page, and the honest next step is to measure what that content is worth under adversarial evaluation rather than assert it. The first report is <b>GenBOM</b>; the instrument it builds is <b>BOMwiki-Bench</b>.</p>
 
-      <h2 class="si-h">The question</h2>
-      <p>Can a generative model author usable engineering data? The dataset under study is the frozen v1.0 snapshot of this site's graph: 192,471 nodes and 263,907 edges, covering 4,879 products decomposed into 50,843 assemblies and 136,749 parts across 53 domains. Rather than assuming the answer, the paper instruments it: fixed tasks, fixed splits, a typed registry of the generator's own mistakes, and a human-authored control corpus to compare against.</p>
+      <h2 class="si-h">GenBOM: the report</h2>
+      <p><i>GenBOM: Benchmarking and Auditing a Large Generated Product-Structure Graph.</i> MathproBro and protosphinx, ERP&#8226;AI Research Team, technical report, July 2026.</p>
+      <p><b><a href="/research/genbom.pdf">Download the paper (PDF, 10 pages)</a></b></p>
+      <p>The question: can a generative model author usable engineering benchmark data? The paper answers it on one artifact, the frozen v1.0 snapshot of this site's graph, by building a benchmark from the graph, auditing the generator's own artifacts, and validating both against a corpus of human-authored bills of materials collected for the purpose. Provenance is disclosed end to end; the content was authored by a documented model pipeline and the pipeline is retained for controlled regeneration.</p>
 
-      <h2 class="si-h">What the benchmark contains</h2>
+      <h2 class="si-h">BOMwiki-Bench: the benchmark</h2>
+      <table class="bi-table">
+        <thead><tr><th>dataset v1.0</th><th>value</th></tr></thead>
+        <tbody>
+          <tr><td>nodes</td><td>192,471 (4,879 products / 50,843 assemblies / 136,749 parts)</td></tr>
+          <tr><td>edges</td><td>263,907 (HAS_PART, quantity-bearing; a DAG after excluding four labeled self-loops)</td></tr>
+          <tr><td>product domains</td><td>53</td></tr>
+          <tr><td>nodes with text summaries</td><td>175,690</td></tr>
+          <tr><td>typed artifact registry</td><td>1,350 items</td></tr>
+          <tr><td>frozen</td><td>2026-06-22 (the live site changes nightly and is not the benchmark)</td></tr>
+        </tbody>
+      </table>
+      <p><b>Four tasks.</b> BOM completion (rank the removed true child against 500 fixed negatives; MRR and Hits@k), where-used retrieval (part to products), domain transfer (53-way), and graph repair (detect planted corruptions and the registry's natural artifacts).</p>
+      <p><b>Evaluation built for hub-dominated graphs.</b> Part reuse in the catalog spans four orders of magnitude (median in-degree 1, maximum 8,026), which is realistic for engineered products and fatal for naive evaluation: under uniform negatives a pure popularity ranker reaches MRR 0.99 on hub edges. The benchmark therefore ships degree-matched negative sets, leakage-audited splits (random as an inflation control, product-held-out, three domain-held-out rotations, and a hub-stress split whose target hubs are removed from training entirely), and a per-split <b>feasibility floor</b>: the popularity MRR obtained against the hardest eligible negatives, which the protocol requires observed popularity to sit within 0.02 of. On all six splits it lands within 0.009.</p>
+
+      <h2 class="si-h">Findings</h2>
+      <table class="bi-table">
+        <thead><tr><th>question</th><th>test</th><th>result</th></tr></thead>
+        <tbody>
+          <tr><td>structural signature?</td><td>matched population, structure-only classifier, within-stratum permutation</td><td>AUC 0.510, 95% CI [0.278, 0.734], p = 0.92: chance</td></tr>
+          <tr><td>text signature?</td><td>same matched population, text-style features</td><td>AUC 1.000 (full-feature 0.995): complete separation</td></tr>
+          <tr><td>does skill transfer?</td><td>completion fusion trained on the graph, evaluated on human BOMs</td><td>MRR 0.622 (product-held-out) drops to 0.095</td></tr>
+          <tr><td>baseline headroom</td><td>best heuristic fusion vs popularity floor</td><td>0.59 to 0.63 against a floor near 0.09</td></tr>
+        </tbody>
+      </table>
+      <p>Read together: at shallow depth the generated structure is statistically indistinguishable from human structure, yet the populations separate perfectly on writing style, so detectability of generated BOMs is a text artifact and any detectability claim that does not ablate text from structure is measuring prose. And structural plausibility does not buy distributional fidelity: models trained on the generated graph do not yet carry to real product structure. The paper also demonstrates the failure mode that motivates the protocol: the externally validated GraphSAGE baseline behaves like a degree model under uniform negatives (MRR 0.96 on hub edges) and collapses to 0.004 to 0.015 on the leakage-resistant splits, which is why the open modeling challenge the benchmark defines is inductive, text-aware link prediction.</p>
+
+      <h2 class="si-h">The artifact registry</h2>
+      <p>Generation artifacts are labeled and shipped rather than silently repaired, because they are the raw material of the audit and repair tasks. The six classes are disjoint:</p>
+      <table class="bi-table">
+        <thead><tr><th>artifact class</th><th>count</th></tr></thead>
+        <tbody>
+          <tr><td>kind/granularity-inconsistent edges</td><td>822</td></tr>
+          <tr><td>quantity outliers (1,000 &lt; q &le; 10,000)</td><td>282</td></tr>
+          <tr><td>duplicate-name candidates (node-level, 69 clusters)</td><td>142</td></tr>
+          <tr><td>quantity outliers (q &gt; 10,000)</td><td>93</td></tr>
+          <tr><td>zero-quantity edges</td><td>7</td></tr>
+          <tr><td>self-loops</td><td>4</td></tr>
+          <tr><td><b>total</b></td><td><b>1,350</b></td></tr>
+        </tbody>
+      </table>
+
+      <h2 class="si-h">The human control corpus</h2>
+      <p>The control corpus is 75 human-authored BOM trees harvested from license-verified public repositories (71 flat electronics BOMs and 4 multi-level trees, including the NASA JPL Open Source Rover parts list), plus 5 deep CAD assemblies at depth 3 to 6 extracted from STEP structure, with a 48-tree quarantine kept as an audit trail. Each tree records its source and retains its original license. The harvest itself produced a finding: machine-readable multi-level product BOMs are rare in public. Deep hierarchy lives in proprietary PLM systems, CAD files, and PDF manuals, so the deep human stratum is thin by nature and the paper says so.</p>
+
+      <h2 class="si-h">What the wiki does with it</h2>
+      <p>The paper freezes a plausibility-audit framework before any labels exist: a three-way rubric with a six-way error taxonomy, a stratified 617-item analysis packet, a companion set covering all 1,350 registry artifacts, and an annotation harness with pre-registered integrity rules (agreement gated at Cohen's kappa of at least 0.6, labels never suggested or prefilled). It is designed to run as <a href="/about/verification">community verification</a> on this site, edge by edge, with redundancy and gold items in place of annotator training. Accumulated labels will ship as versioned additions to the benchmark; v1.0 stays frozen. The deterministic layer described in the paper already runs in <a href="/intelligence">bomwiki-intelligence</a>, which screens every proposed edit.</p>
+
+      <h2 class="si-h">Limits, stated plainly</h2>
       <ul class="rv-lines">
-        <li><b>Four tasks.</b> BOM completion (predict a missing child part), where-used retrieval (find the products a part appears in), domain transfer, and graph repair (detect corrupted or implausible edges).</li>
-        <li><b>Evaluation built for catalogs.</b> A few heavily reused parts (bearings, fasteners, connectors) dominate any real catalog, and a ranker that just predicts the popular part looks better than it is. The benchmark ships leakage-audited splits, negatives matched by part popularity, and a feasibility floor that makes scores meaningful on hub-heavy graphs.</li>
-        <li><b>An artifact registry.</b> 1,350 defects found in the generated graph (inconsistent typing, quantity outliers, duplicate-name clusters, self-loops) are labeled and shipped as part of the benchmark rather than silently repaired.</li>
-        <li><b>A human control corpus.</b> 75 human-authored BOM trees harvested from license-verified public projects, plus deep CAD assemblies, each with recorded provenance and its original license.</li>
+        <li>One artifact, one generator. Results characterize this graph, not generated engineering data at large.</li>
+        <li>The structure-only null is weak by construction: the matched shallow stratum has n = 28 and is powered only for large effects (AUC of roughly 0.75 or more).</li>
+        <li>The graph is a benchmark object, not industrial ground truth. Nothing in it should inform real sourcing or engineering decisions.</li>
+        <li>Plausibility is not yet human-validated; the framework ships first, the labels come from its execution.</li>
       </ul>
-
-      <h2 class="si-h">The three findings</h2>
-      <ul class="rv-lines">
-        <li><b>Structure alone does not give the generated graph away.</b> A classifier restricted to structural features cannot tell generated product trees from human ones on a matched sample (AUC 0.510, chance level).</li>
-        <li><b>Writing style gives it away completely.</b> The same populations separate almost perfectly on text features (AUC 1.000). Generated pages are recognizable by how they are written.</li>
-        <li><b>Skill does not transfer yet.</b> Completion models trained on the generated graph reach MRR 0.62 on held-out generated products but only 0.10 on the human corpus. Looking structurally plausible and standing in for real data are different properties, and the paper measures the gap between them.</li>
-      </ul>
-      <p>The report states its limits plainly: the graph is a benchmark object, not industrial ground truth, and nothing in it should be used for real sourcing or engineering decisions. The position it argues is that generated engineering data becomes usable as a scientific object when its provenance, failure modes, and verification path ship with it.</p>
-
-      <h2 class="si-h">What happens next on the wiki</h2>
-      <p>The paper freezes a plausibility-audit framework (a three-way rubric, a 617-item audit packet, an annotation harness) designed to be executed as <a href="/about/verification">community verification</a> on this site: lightweight judgments on displayed BOM edges, aggregated with the same integrity rules. Verified status appears on pages as labels accumulate, and label versions will be added to the benchmark. The deterministic checks described in the paper run today in <a href="/intelligence">bomwiki-intelligence</a>, the analysis engine that screens every proposed edit.</p>
 
       <h2 class="si-h">Cite</h2>
       <p>MathproBro and protosphinx. <i>GenBOM: Benchmarking and Auditing a Large Generated Product-Structure Graph.</i> ERP&#8226;AI Research Team, technical report, July 2026. Dataset v1.0, frozen 2026-06-22. <a href="/research/genbom.pdf">bomwiki.com/research/genbom.pdf</a></p>
+      <pre class="bi-code">@techreport{genbom2026,
+  title       = {GenBOM: Benchmarking and Auditing a Large Generated
+                 Product-Structure Graph},
+  author      = {MathproBro and protosphinx},
+  institution = {ERP AI Research Team},
+  year        = {2026},
+  month       = jul,
+  note        = {Dataset v1.0, frozen 2026-06-22},
+  url         = {https://bomwiki.com/research/genbom.pdf}
+}</pre>
       <p>Questions and discussion: <a href="https://x.com/MathproBro" rel="noopener">@MathproBro</a> and <a href="https://x.com/protosphinx" rel="me noopener">@protosphinx</a> on X.</p>
     </div>`,
     extraCss: ['/static/edit.css'],
