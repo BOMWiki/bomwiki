@@ -20,12 +20,15 @@ const {
   assignStudioV5OccurrenceAppearance,
   createStudioV5AxialStageGroup,
   createStudioV5ExplodedView,
+  createStudioV5Measurement,
   createStudioV5SectionView,
   ensureStudioV5GenericMaterials,
   STUDIO_V5_GENERIC_MATERIALS,
   studioV5ActiveExplodedTransforms,
   studioV5AppearanceMap,
   studioV5AxialStageGroups,
+  studioV5Measurements,
+  setStudioV5DisplayMode,
   updateStudioV5AxialStageGroup,
 } = inspectionTools;
 // @ts-ignore Browser-native module intentionally has no TypeScript declarations.
@@ -129,11 +132,25 @@ async function documentChecks(): Promise<void> {
   check('stage group visibility is one persisted command and does not suppress or delete components',
     studioV5RootAssembly(hidden).occurrences.filter((entry: any) => group.occurrenceIds.includes(entry.id)).every((entry: any) => entry.visible === false && entry.suppressed === false) && studioV5RootAssembly(hidden).occurrences.length === groupedAssembly.occurrences.length);
 
+  let measured = createStudioV5Measurement(assigned, {
+    id: 'measurement-turbine-envelope', name: 'Turbine envelope', kind: 'bounding-box',
+    definition: { bodyIds: [ASSEMBLY_IDS.turbine + ':body-turbine'] },
+  });
+  measured = createStudioV5Measurement(measured, {
+    id: 'measurement-fan-radius', name: 'Fan reference radius', kind: 'radius',
+    definition: { references: [{ bodyId: ASSEMBLY_IDS.fanModule + '/' + ASSEMBLY_IDS.fan + ':body-fan', ownerKind: 'body', ownerId: 'body-fan', signature: { curveType: 'CIRCLE', r: 42, l: 263.894 } }] },
+  });
+  measured = setStudioV5DisplayMode(measured, 'wireframe');
+  check('document persists exact body/topology measurement records and assembly display mode without copying geometry',
+    studioV5Measurements(measured).length === 2 && studioV5Measurements(measured)[1].definition.references[0].signature.r === 42 &&
+    studioV5RootAssembly(measured).metadata.displayMode === 'wireframe' && JSON.stringify(measured.partDefinitions) === JSON.stringify(assigned.partDefinitions));
+
   const beforeInvalid = JSON.stringify(base); let refused = 0;
   try { createStudioV5SectionView(base, { id: 'bad-section', name: 'Bad', kind: 'plane', definition: { planes: [{ normal: [0, 0, 0], offset: 0 }] } }); } catch { refused++; }
   try { createStudioV5ExplodedView(base, { id: 'bad-explode', name: 'Bad', steps: [{ occurrenceIds: ['missing'], translation: [0, 0, 1] }] }); } catch { refused++; }
   try { createStudioV5AxialStageGroup(base, { id: 'bad-stages', name: 'Bad', occurrenceIds: [ASSEMBLY_IDS.compressor], distanceMateIds: [], spacing: 1 }); } catch { refused++; }
-  check('invalid section, explode, and stage commands leave the canonical project byte-identical', refused === 3 && JSON.stringify(base) === beforeInvalid);
+  try { createStudioV5Measurement(base, { id: 'bad-measure', name: 'Bad', kind: 'minimum-clearance', definition: { bodyIds: ['one'] } }); } catch { refused++; }
+  check('invalid section, explode, stage, and measurement commands leave the canonical project byte-identical', refused === 4 && JSON.stringify(base) === beforeInvalid);
   const serialized = JSON.stringify(canonicalStudioV5Project(withStageGroup(withDisplayViews(assigned))));
   check('materials, sections, exploded views, and axial groups survive schema-5 save/reopen byte-identically', JSON.stringify(parseOrMigrateStudioV5RuntimeProject(serialized)) === serialized);
 }
@@ -198,9 +215,11 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
   const invalid = assignedMaterialProject();
   invalid.partDefinitions.find((part: any) => part.name === 'Turbine drum').features[0].sketch.shapes = [];
   const invalidInspection = await workerRequest(page, { kind: 'inspect-v5', mode: 'properties', revision: 4, document: invalid });
+  const recoveredFailure = invalidInspection.inspection.properties.find((entry: any) => String(entry.bodyId).includes('body-turbine'));
   check('inspection surfaces failed current geometry instead of silently passing or omitting it as healthy',
-    invalidInspection.errors.some((entry: any) => String(entry.bodyId).includes('body-turbine')) && !invalidInspection.inspection.aggregate.valid && invalidInspection.inspection.bodyCount < 7,
-    { errors: invalidInspection.errors, aggregate: invalidInspection.inspection.aggregate });
+    invalidInspection.errors.some((entry: any) => String(entry.bodyId).includes('body-turbine')) && !invalidInspection.inspection.aggregate.valid &&
+    invalidInspection.inspection.bodyCount === 7 && recoveredFailure?.health?.valid === false && recoveredFailure?.health?.recoveredLastValid === true,
+    { errors: invalidInspection.errors, aggregate: invalidInspection.inspection.aggregate, recoveredFailure });
 
   const shaftBody = baseline.bodies.find((entry: any) => entry.bodyName.includes('Main shaft'));
   const nacelleBody = baseline.bodies.find((entry: any) => entry.bodyName.startsWith('Nacelle'));
@@ -213,26 +232,58 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
   check('exact clearance returns a positive minimum distance for two solved non-interfering components',
     clearance.errors.length === 0 && clearance.inspection.pairs.length === 1 && clearance.inspection.pairs[0].interferenceVolumeMm3 === 0 && clearance.inspection.pairs[0].minimumClearanceMm > 100, clearance.inspection.pairs);
 
+  const swallowed = assignedMaterialProject();
+  studioV5RootAssembly(swallowed).parameters.find((entry: any) => entry.name === 'fanStation').value = 0;
+  const swallowedInterference = await workerRequest(page, {
+    kind: 'inspect-v5', mode: 'interference', revision: 7, document: swallowed,
+    bodyIds: [fanBody.bodyId, nacelleBody.bodyId], pairBodyIds: [fanBody.bodyId, nacelleBody.bodyId],
+  });
+  const swallowedPair = swallowedInterference.inspection.pairs[0];
+  const swallowedFan = swallowedInterference.inspection.properties.find((entry: any) => entry.bodyId === fanBody.bodyId);
+  check('exact interference retains a fully enclosed solid whose boundary has positive clearance from the containing solid',
+    swallowedInterference.errors.length === 0 && swallowedInterference.inspection.broadPhasePairs === 1 && swallowedInterference.inspection.pairs.length === 1 &&
+    swallowedPair.interferenceVolumeMm3 > 1 && close(swallowedPair.interferenceVolumeMm3, swallowedFan.volumeMm3, 1e-4),
+    swallowedInterference.inspection);
+
   const display = withDisplayViews(assigned);
-  const displayInspection = await workerRequest(page, { kind: 'inspect-v5', mode: 'properties', revision: 7, document: display });
+  const displayInspection = await workerRequest(page, { kind: 'inspect-v5', mode: 'properties', revision: 8, document: display });
   check('active section and exploded display state do not change exact mass, volume, centre, or normal solved geometry',
     close(displayInspection.inspection.aggregate.volumeMm3, properties.inspection.aggregate.volumeMm3) && close(displayInspection.inspection.aggregate.massKg, properties.inspection.aggregate.massKg) &&
     displayInspection.inspection.aggregate.centerOfVolumeMm.every((value: number, index: number) => close(value, properties.inspection.aggregate.centerOfVolumeMm[index])));
-  const normalExport = await workerRequest(page, { kind: 'export-step', revision: 8, document: assigned });
-  const displayExport = await workerRequest(page, { kind: 'export-step', revision: 9, document: display });
+  const normalExport = await workerRequest(page, { kind: 'export-step', revision: 9, document: assigned });
+  const displayExport = await workerRequest(page, { kind: 'export-step', revision: 10, document: display });
   check('assembly STEP export ignores section/explode playback and retains normal solved placement and hierarchy manifest',
     normalExport.errors.length === 0 && displayExport.errors.length === 0 && displayExport.blobSize > 500 && JSON.stringify(displayExport.manifest) === JSON.stringify(normalExport.manifest), { normal: normalExport.manifest, display: displayExport.manifest });
 
   const grouped = withStageGroup(assigned);
-  const groupedResult = await workerRequest(page, { kind: 'rebuild', revision: 10, document: grouped });
+  const groupedResult = await workerRequest(page, { kind: 'rebuild', revision: 11, document: grouped });
   const compressorCentre = centre(groupedResult.bodies.find((entry: any) => entry.bodyName === 'Compressor:1 / Compressor drum').geometry.bounds)[2];
   const turbineCentre = centre(groupedResult.bodies.find((entry: any) => entry.bodyName === 'Turbine:1 / Turbine drum').geometry.bounds)[2];
   check('axial stage spacing drives the real solved component stations while preserving exact valid bodies',
     close(compressorCentre, 40) && close(turbineCentre, 122) && groupedResult.bodies.every((entry: any) => entry.geometry.valid), { compressorCentre, turbineCentre });
   const hidden = updateStudioV5AxialStageGroup(grouped, 'stage-group-core', { visible: false });
-  const hiddenInspection = await workerRequest(page, { kind: 'inspect-v5', mode: 'properties', revision: 11, document: hidden });
+  const hiddenInspection = await workerRequest(page, { kind: 'inspect-v5', mode: 'properties', revision: 12, document: hidden });
   check('engineering mass remains based on unsuppressed solved structure when a stage group is display-hidden',
     close(hiddenInspection.inspection.aggregate.massKg, properties.inspection.aggregate.massKg) && hiddenInspection.inspection.bodyCount === 7, hiddenInspection.inspection.aggregate);
+
+  let measured = assigned;
+  const addMeasurement = (id: string, kind: string, definition: any) => { measured = createStudioV5Measurement(measured, { id, name: id, kind, definition }); };
+  addMeasurement('measure-envelope', 'bounding-box', { bodyIds: [turbineBody.bodyId] });
+  addMeasurement('measure-clearance', 'minimum-clearance', { bodyIds: [fanBody.bodyId, turbineBody.bodyId] });
+  addMeasurement('measure-coordinate', 'coordinate', { references: [{ bodyId: fanBody.bodyId, signature: { p: [0, 0, 0] } }] });
+  addMeasurement('measure-point-distance', 'point-distance', { references: [{ bodyId: fanBody.bodyId, signature: { p: [0, 0, -4] } }, { bodyId: fanBody.bodyId, signature: { p: [0, 0, 4] } }] });
+  addMeasurement('measure-edge', 'edge-length', { references: [{ bodyId: fanBody.bodyId, signature: { l: 12 } }] });
+  addMeasurement('measure-radius', 'radius', { references: [{ bodyId: fanBody.bodyId, signature: { r: 42 } }] });
+  addMeasurement('measure-diameter', 'diameter', { references: [{ bodyId: fanBody.bodyId, signature: { r: 42 } }] });
+  addMeasurement('measure-angle', 'face-angle', { references: [{ bodyId: fanBody.bodyId, signature: { n: [0, 0, 1] } }, { bodyId: fanBody.bodyId, signature: { n: [1, 0, 0] } }] });
+  addMeasurement('measure-thickness', 'wall-thickness', { references: [{ bodyId: fanBody.bodyId, signature: { p: [0, 0, -4], n: [0, 0, 1] } }, { bodyId: fanBody.bodyId, signature: { p: [0, 0, 4], n: [0, 0, -1] } }] });
+  const measurementInspection = await workerRequest(page, { kind: 'inspect-v5', mode: 'measurements', revision: 13, document: measured });
+  const measurementById = new Map<string, any>(measurementInspection.inspection.measurementResults.map((entry: any) => [entry.id, entry]));
+  check('kernel evaluates persisted coordinate, point, edge, radius, diameter, angle, thickness, bounds, and clearance measurements at one revision',
+    measurementInspection.errors.length === 0 && measurementById.size === 9 && [...measurementById.values()].every((entry: any) => entry.valid) &&
+    close(measurementById.get('measure-point-distance').value, 8) && close(measurementById.get('measure-radius').value, 42) &&
+    close(measurementById.get('measure-diameter').value, 84) && close(measurementById.get('measure-angle').value, 90) && close(measurementById.get('measure-thickness').value, 8),
+    measurementInspection.inspection.measurementResults);
   await page.close();
 }
 
@@ -241,6 +292,16 @@ async function waitForStudio(page: Page, revisionAfter?: number): Promise<void> 
     const studio = (window as any).__bwStudio;
     return Boolean(studio && studio.mode().kind === 'idle' && (after == null || studio.appliedRevision() > after));
   }, { timeout: 60_000, polling: 250 }, revisionAfter ?? null);
+}
+
+function installSemanticControlActivation(page: Page): void {
+  page.click = (async (selector: string) => {
+    await page.evaluate((value) => {
+      const element = document.querySelector(value) as HTMLElement | null;
+      if (!element) throw new Error(`Slice 5F browser control is missing: ${value}`);
+      element.focus(); element.click();
+    }, selector);
+  }) as Page['click'];
 }
 
 async function openProject(page: Page, project: any): Promise<void> {
@@ -263,6 +324,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   console.log('\nSlice 5F visible inspection gate');
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  installSemanticControlActivation(page);
   const pageErrors: string[] = []; const dialogs: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
   page.on('dialog', async (dialog) => { dialogs.push(dialog.type()); await dialog.dismiss(); });
@@ -270,8 +332,8 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     localStorage.setItem('bw-studio-welcome-v1', '1'); localStorage.setItem('bw-studio-v2-seeded', '1'); localStorage.setItem('bw-studio-tour-v1', '1');
   });
   await page.goto(url, { waitUntil: 'domcontentloaded' }); await waitForStudio(page);
-  check('browser exposes visible Section, Explode, Axial stages, Material, Mass, Clearance, and Interference commands plus saved-view tree',
-    (await page.$$('[data-inspection-command]')).length === 7 && Boolean(await page.$('#bw-inspection-tree')));
+  check('browser exposes visible section, explode, stage, material, mass, measurement, clearance, and interference commands plus saved-view tree',
+    (await page.$$('[data-inspection-command]')).length === 9 && Boolean(await page.$('#bw-inspection-tree')) && (await page.$$('[data-display-mode]')).length === 4);
   await openProject(page, createSolvedAssemblyProject());
   await page.click('[data-workspace="assembly"]');
   const baseline = await page.evaluate(() => ({ results: (window as any).__bwStudio.bodyResults(), hash: (window as any).__bwStudio.canonicalHash() }));
@@ -284,6 +346,23 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   check('browser creates a saved active longitudinal section and clips every displayed body without changing exact results',
     Boolean(sectionId) && clipped.length === 7 && clipped.every((count: number) => count === 1) &&
     (await page.evaluate(() => (window as any).__bwStudio.bodyResults().every((entry: any) => entry.geometry.valid))), { sectionId, clipped });
+  const capState = await page.evaluate(() => (window as any).__bwStudio.sectionCapState());
+  check('browser renders one bounded stencil cap with configurable hatch over every scoped exact section boundary',
+    capState.planes === 1 && capState.stencilMeshes === 14 && capState.stencilDrawObjects === 2 && capState.extensionIndependent && await page.evaluate(() => {
+      const project = JSON.parse((window as any).__bwStudio.docJson());
+      const assembly = project.assemblyDefinitions.find((entry: any) => entry.id === project.rootDocument.assemblyId);
+      return assembly.sectionViews[0].definition.hatch.enabled && assembly.sectionViews[0].definition.hatch.spacing === 8;
+    }), capState);
+  const capMotion = await page.evaluate(() => {
+    const studio = (window as any).__bwStudio;
+    const before = studio.sectionCapState().capPositions;
+    const updatedPlanes = studio.sectionPlaneOffsetForTest(5);
+    const after = studio.sectionCapState().capPositions;
+    studio.sectionPlaneOffsetForTest(0);
+    return { before, after, updatedPlanes };
+  });
+  check('browser section-plane drag moves the bounded cap and every visible clipping material together',
+    capMotion.updatedPlanes > 0 && JSON.stringify(capMotion.before) !== JSON.stringify(capMotion.after), capMotion);
   const beforeSectionOff = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
   await page.click(`[data-inspection-kind="section"][data-inspection-id="${sectionId}"] [data-inspection-action="toggle"]`);
   await waitForStudio(page, beforeSectionOff);
@@ -292,9 +371,28 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     (await page.evaluate(() => (window as any).__bwStudio.activeSectionViewId())) === null &&
     (await page.$$('[data-inspection-kind="section"]')).length === 1 && unclipped);
 
+  await page.click('[data-display-mode="wireframe"]');
+  await waitForStudio(page);
+  check('browser persists and applies assembly wireframe display without changing exact body results',
+    await page.evaluate(() => (window as any).__bwStudio.displayMode()) === 'wireframe' &&
+    (await page.evaluate(() => (window as any).__bwStudio.bodyResults().every((entry: any) => entry.geometry.valid))));
+  await page.click('[data-display-mode="shaded-edges"]');
+  await waitForStudio(page);
+
   await page.evaluate((occurrenceId) => (window as any).__bwStudio.selectOccurrenceForTest(occurrenceId), ASSEMBLY_IDS.turbine);
   const turbineBodyId = await page.evaluate(() => (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyName.startsWith('Turbine')).bodyId);
   const solvedMatrix = await page.evaluate((bodyId) => (window as any).__bwStudio.bodyDisplayState(bodyId).matrix, turbineBodyId);
+  await page.click('[data-inspection-command="measure"]');
+  await page.waitForSelector('#bw-v5-command[open]');
+  await submitVisibleCommand(page);
+  check('browser saves a selected-body measurement as an editable tree record',
+    (await page.$$('[data-inspection-kind="measurement"]')).length === 1 && (await page.evaluate(() => (window as any).__bwStudio.measurements()[0].kind)) === 'bounding-box');
+  await page.click('[data-inspection-command="measurements"]');
+  await page.waitForFunction(() => (window as any).__bwStudio.inspectionResult()?.mode === 'measurements', { timeout: 60_000, polling: 250 });
+  const visibleMeasurement = await page.evaluate(() => (window as any).__bwStudio.inspectionResult().measurementResults[0]);
+  check('browser evaluates the persisted measurement at the current exact revision and shows its result',
+    visibleMeasurement.valid && visibleMeasurement.value.length === 3 && visibleMeasurement.value.every((entry: number) => entry > 0), visibleMeasurement);
+  await page.click('[data-inspection-context="clear"]');
   await page.click('[data-inspection-command="explode"]');
   await submitVisibleCommand(page);
   const explodedMatrix = await page.evaluate((bodyId) => (window as any).__bwStudio.bodyDisplayState(bodyId).matrix, turbineBodyId);
@@ -362,10 +460,10 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   const normalExport = await page.evaluate(async () => (window as any).__bwStudio.exportForTest('step'));
   check('browser normal assembly export remains valid and uncut despite saved section and active exploded playback',
     normalExport.errors.length === 0 && normalExport.size > 500 && normalExport.manifest.bodyCount === 7 && normalExport.manifest.placements.every((entry: any) => Array.isArray(entry.transform) && entry.transform.length === 16), normalExport.manifest);
-  const persisted = await page.evaluate(async () => { await (window as any).__bwStudio.flushStorage(); return { hash: (window as any).__bwStudio.canonicalHash(), section: (window as any).__bwStudio.activeSectionViewId(), explode: (window as any).__bwStudio.activeExplodedViewId(), stages: (window as any).__bwStudio.axialStageGroups() }; });
+  const persisted = await page.evaluate(async () => { await (window as any).__bwStudio.flushStorage(); return { hash: (window as any).__bwStudio.canonicalHash(), section: (window as any).__bwStudio.activeSectionViewId(), explode: (window as any).__bwStudio.activeExplodedViewId(), stages: (window as any).__bwStudio.axialStageGroups(), measurements: (window as any).__bwStudio.measurements(), displayMode: (window as any).__bwStudio.displayMode() }; });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => (window as any).__bwStudio?.mode().kind === 'idle' && (window as any).__bwStudio.bodyResults().length === 7, { timeout: 60_000, polling: 250 });
-  const recovered = await page.evaluate(() => ({ hash: (window as any).__bwStudio.canonicalHash(), section: (window as any).__bwStudio.activeSectionViewId(), explode: (window as any).__bwStudio.activeExplodedViewId(), stages: (window as any).__bwStudio.axialStageGroups() }));
+  const recovered = await page.evaluate(() => ({ hash: (window as any).__bwStudio.canonicalHash(), section: (window as any).__bwStudio.activeSectionViewId(), explode: (window as any).__bwStudio.activeExplodedViewId(), stages: (window as any).__bwStudio.axialStageGroups(), measurements: (window as any).__bwStudio.measurements(), displayMode: (window as any).__bwStudio.displayMode() }));
   check('browser recovery preserves saved inspection state, appearance assignments, stage tree, and solved project identity', JSON.stringify(recovered) === JSON.stringify(persisted), { persisted, recovered });
   await page.setViewport({ width: 375, height: 812 }); await page.click('#bw-mtab-history');
   const touchTargets = await page.$$eval('#bw-inspection-tree button', (elements) => elements.map((element) => Number.parseFloat(getComputedStyle(element).minHeight)));

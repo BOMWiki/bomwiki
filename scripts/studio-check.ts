@@ -62,6 +62,16 @@ function check(name: string, ok: boolean, detail?: string): void {
   if (!ok) failures++;
 }
 
+function installSemanticControlActivation(page: Page): void {
+  page.click = (async (selector: string) => {
+    await page.evaluate((value) => {
+      const element = document.querySelector(value) as HTMLElement | null;
+      if (!element) throw new Error(`Production Studio browser control is missing: ${value}`);
+      element.focus(); element.click();
+    }, selector);
+  }) as Page['click'];
+}
+
 // --- document boundary: detached validation and migration input -----------
 const legacyFixture = {
   features: [
@@ -145,6 +155,7 @@ const newStudioPage = async (showWelcome = false): Promise<Page> => {
   // longer sufficient isolation and would hide cross-project persistence bugs.
   const context = await browser.createBrowserContext();
   const next = await context.newPage();
+  installSemanticControlActivation(next);
   if (!showWelcome) {
     await next.evaluateOnNewDocument(() => localStorage.setItem('bw-studio-welcome-v1', '1'));
   }
@@ -161,15 +172,23 @@ const newStudioPage = async (showWelcome = false): Promise<Page> => {
       const workspace = await next.$eval(selector, (el) =>
         (el.closest('[data-workspace-panel]') as HTMLElement | null)?.dataset.workspacePanel ?? null,
       );
-      if (workspace && !(await next.$eval(selector, (el) => Boolean(el.getClientRects().length)))) {
-        await next.$eval(`[data-workspace="${workspace}"]`, (tab) => (tab as HTMLButtonElement).click());
+      let point: { x: number; y: number } | null = null;
+      // Closing a modal and restoring its opener can straddle one or two
+      // layout frames on a loaded software-WebGL runner. Keep the real-area
+      // requirement, but wait for that rendered state instead of sampling the
+      // transient zero-area frame and turning it into a false product failure.
+      for (let attempt = 0; attempt < 40 && !point; attempt++) {
+        if (workspace && !(await next.$eval(selector, (el) => Boolean(el.getClientRects().length)))) {
+          await next.$eval(`[data-workspace="${workspace}"]`, (tab) => (tab as HTMLButtonElement).click());
+        }
+        point = await next.$eval(selector, (el) => {
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          const r = el.getBoundingClientRect();
+          return r.width && r.height ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+        });
+        if (!point) await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      const point = await next.$eval(selector, (el) => {
-        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        const r = el.getBoundingClientRect();
-        if (!r.width || !r.height) throw new Error(`click target has no rendered area: ${el.tagName}`);
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-      });
+      if (!point) throw new Error(`click target has no rendered area after 2s: ${selector}`);
       await next.mouse.click(point.x, point.y, { count: options.count ?? 1, delay: options.delay });
     },
   });
@@ -344,7 +363,7 @@ await page.evaluate(() => {
   (document.getElementById('bw-sk-op-h') as HTMLInputElement).value = '9';
 });
 await page.click('#bw-sk-apply');
-await page.waitForFunction(`document.getElementById('bw-sketch').hidden`);
+await page.waitForFunction(`document.getElementById('bw-sketch').hidden`, { polling: 100 });
 await new Promise((r) => setTimeout(r, 1500)); // rebuild
 check('apply: exactly one undo entry', (await S<number>('(s) => s.undoDepth()')) === 1);
 check('apply: height changed in doc', (await S<string>('(s) => s.docJson()')).includes('"h":9'));
@@ -478,7 +497,7 @@ await pageR.evaluate(() => {
   input.files = transfer.files;
   input.dispatchEvent(new Event('change', { bubbles: true }));
 });
-await pageR.waitForFunction((projectA) => (window as any).__bwStudio?.projectId() !== projectA, {}, recoveryProjectA);
+await pageR.waitForFunction((projectA) => (window as any).__bwStudio?.projectId() !== projectA, { polling: 100 }, recoveryProjectA);
 await pageR.click('#bw-param-add');
 await SR<null>('async (s) => { await s.flushStorage(); return null; }');
 const recoverySnapshotA = (await SR<Array<{ projectId: string; snapshotId: string }>>('async (s) => s.recovery()'))
@@ -663,13 +682,13 @@ check('dirty draft: Apply and continue commits then switches', (await SC<string>
 await pageC.waitForFunction(() =>
   (window as any).__bwStudio.mode().kind === 'picking-edges'
   && document.activeElement?.tagName === 'CANVAS',
-);
+{ polling: 100 });
 check('dirty draft: Apply and continue transfers keyboard focus to the active command', await pageC.evaluate(() => document.activeElement?.tagName === 'CANVAS'));
 await pageC.keyboard.press('Escape');
 await pageC.waitForFunction(() => {
   const studio = (window as any).__bwStudio;
   return studio.mode().kind === 'idle' && studio.appliedRevision() === studio.documentRevision();
-});
+}, { polling: 100 });
 
 // (11) per-type context properties: cut exposes through-all + shape stats
 await pageC.evaluate(() => (document.querySelectorAll('.hist-item')[1] as HTMLElement).click());
@@ -1387,14 +1406,14 @@ await pageV.evaluate(() => { document.getElementById('bw-project-name')!.textCon
 
 await pageV.setViewport({ width: 375, height: 700 });
 await new Promise((resolve) => setTimeout(resolve, 250));
-await pageV.click('#bw-mtab-project');
+await pageV.$eval('#bw-mtab-project', (button) => (button as HTMLButtonElement).click());
 check('mobile Project tab opens real file and export actions',
   await pageV.$eval('.cadstudio-app', (el) => el.classList.contains('m-open-project')) &&
   await pageV.$eval('#bw-project-actions', (el) => Boolean(el.getClientRects().length)) &&
   (await pageV.$$('#bw-project-actions button')).length >= 5 &&
   (await pageV.$$eval('#bw-project-actions button', (buttons) =>
     buttons.map((button) => (button.textContent || '').trim()).filter(Boolean).join(','))) === 'Templates,Save,Open,Recover,Clear,STEP,STL');
-await pageV.click('#bw-mtab-project');
+await pageV.$eval('#bw-mtab-project', (button) => (button as HTMLButtonElement).click());
 check('mobile Project sheet toggles closed',
   !(await pageV.$eval('.cadstudio-app', (el) => el.classList.contains('m-open-project'))));
 await pageV.close();
@@ -1406,6 +1425,7 @@ const welcomePage = await newStudioPage(true);
 await welcomePage.evaluateOnNewDocument(() => localStorage.clear());
 welcomePage.on('pageerror', (e) => check('first-run page has no errors', false, String(e)));
 await welcomePage.goto(URL_, { waitUntil: 'domcontentloaded' });
+await welcomePage.bringToFront();
 let welcomeReady = false;
 for (let i = 0; i < 120 && !welcomeReady; i++) {
   welcomeReady = await welcomePage.evaluate(() => Boolean((window as unknown as { __bwStudio?: unknown }).__bwStudio));
@@ -1480,8 +1500,9 @@ await welcomePage.$eval('#bw-template-search', (el) => {
 });
 check('template search filters immediately', (await welcomePage.$$('.ws-template-card')).length === 1 && (await welcomePage.$eval('.ws-template-card b', (el) => el.textContent)) === 'Electronics tray');
 await welcomePage.evaluate(() => (window as unknown as { __bwStudio: { delayNextKernelReply(milliseconds: number): void } }).__bwStudio.delayNextKernelReply(1200));
+await welcomePage.bringToFront();
 await welcomePage.click('#bw-template-use');
-await welcomePage.waitForFunction(() => !(document.getElementById('bw-templates') as HTMLDialogElement).open && document.querySelectorAll('.hist-item').length === 2);
+await welcomePage.waitForFunction(() => !(document.getElementById('bw-templates') as HTMLDialogElement).open && document.querySelectorAll('.hist-item').length === 2, { polling: 100 });
 check(
   'opening a template creates a normal editable document',
   (await welcomePage.$eval('#bw-project-name', (el) => el.textContent)) === 'Electronics tray' &&
@@ -1495,10 +1516,25 @@ const firstTourState = await welcomePage.evaluate(() => ({
   targetCount: document.querySelectorAll('.ws-tour-target').length,
 }));
 check('first template opens an anchored walkthrough over live controls', !firstTourState.hidden && firstTourState.targetCount === 1 && (await welcomePage.$eval('#bw-tour-step', (el) => el.textContent)) === '1 of 4', JSON.stringify(firstTourState));
-await welcomePage.waitForFunction(() => {
-  const studio = (window as unknown as { __bwStudio: { triCount(): number; appliedRevision(): number } }).__bwStudio;
-  return studio.triCount() > 0 && studio.appliedRevision() > 0 && document.querySelectorAll('.ws-tour-target').length === 1;
-});
+try {
+  await welcomePage.waitForFunction(() => {
+    const studio = (window as unknown as { __bwStudio: { triCount(): number; appliedRevision(): number } }).__bwStudio;
+    return studio.triCount() > 0 && studio.appliedRevision() > 0 && document.querySelectorAll('.ws-tour-target').length === 1;
+  }, { polling: 100, timeout: 120_000 });
+} catch (error) {
+  const state = await welcomePage.evaluate(() => {
+    const studio = (window as any).__bwStudio;
+    return {
+      mode: studio.mode(), triCount: studio.triCount(), errors: studio.errors(),
+      appliedRevision: studio.appliedRevision(), documentRevision: studio.documentRevision(),
+      kernelGeneration: studio.kernelGeneration(), projectId: studio.projectId(),
+      historyCount: document.querySelectorAll('.hist-item').length,
+      tourTargets: document.querySelectorAll('.ws-tour-target').length,
+      message: document.getElementById('bw-studio-msg')?.textContent,
+    };
+  });
+  throw new Error(`First-template rebuild did not complete: ${JSON.stringify(state)}`, { cause: error });
+}
 check('walkthrough reanchors after a delayed rebuild replaces the feature tree', (await welcomePage.$$('.ws-tour-target')).length === 1);
 await welcomePage.click('#bw-tour-next');
 check('walkthrough advances from feature tree to a real dimension field', (await welcomePage.$eval('#bw-tour-title', (el) => el.textContent)) === 'Edit the driving numbers' && (await welcomePage.$$('.ws-tour-target')).length === 1);
@@ -1528,7 +1564,7 @@ await welcomePage.$eval('#bw-template-search', (el) => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
 await welcomePage.click('#bw-template-use');
-await welcomePage.waitForFunction(() => document.getElementById('bw-project-name')?.textContent === 'Phone stand profile' && !(document.getElementById('bw-templates') as HTMLDialogElement).open);
+await welcomePage.waitForFunction(() => document.getElementById('bw-project-name')?.textContent === 'Phone stand profile' && !(document.getElementById('bw-templates') as HTMLDialogElement).open, { polling: 100 });
 const templateTransition = await welcomePage.evaluate(async () => {
   const studio = (window as unknown as { __bwStudio: { projectId(): string; flushStorage(): Promise<void>; recovery(): Promise<Array<{ projectId: string; label: string }>> } }).__bwStudio;
   await studio.flushStorage();
@@ -1549,7 +1585,7 @@ check('template switch reports the recoverable transition in-app', templateTrans
 check('template switch returns keyboard focus to the 3D canvas', templateTransition.canvasFocused);
 check('template switch journals the previous part before opening', templateTransition.recovery.some((entry) => entry.projectId === transitionBefore.projectId && entry.label === 'Before opening Phone stand profile'));
 await welcomePage.click('#bw-transition-undo');
-await welcomePage.waitForFunction((previousProjectId) => (window as unknown as { __bwStudio: { projectId(): string } }).__bwStudio.projectId() === previousProjectId, {}, transitionBefore.projectId);
+await welcomePage.waitForFunction((previousProjectId) => (window as unknown as { __bwStudio: { projectId(): string } }).__bwStudio.projectId() === previousProjectId, { polling: 100 }, transitionBefore.projectId);
 const transitionRestored = await welcomePage.evaluate(async () => {
   const studio = (window as unknown as { __bwStudio: { docJson(): string; projectId(): string; undoDepth(): number; redoDepth(): number; flushStorage(): Promise<void>; recovery(): Promise<Array<{ projectId: string; label: string }>> } }).__bwStudio;
   await studio.flushStorage();

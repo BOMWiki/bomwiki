@@ -448,6 +448,9 @@ function validateBodyPattern(pattern, path, partId, bodyIds, featureIds, datumId
   if (!BODY_PATTERN_KINDS.has(pattern.kind)) fail('INVALID_PATTERN', path + '.kind is unsupported.');
   const sourceBodyId = requireId(pattern.sourceBodyId, path + '.sourceBodyId');
   if (!bodyIds.has(sourceBodyId)) fail('MISSING_REFERENCE', path + '.sourceBodyId does not resolve in this part.');
+  if (pattern.outputMode !== undefined && pattern.outputMode !== 'linked' && pattern.outputMode !== 'union') {
+    fail('INVALID_PATTERN', path + '.outputMode must be linked or union.');
+  }
   const references = requireArray(pattern.references, path + '.references', 4);
   references.forEach((reference, index) => validatePartReferenceContext(
     reference,
@@ -755,6 +758,38 @@ function validatePart(part, path, counters, projectIds, materialIds, projectPara
       } else if (!policy.targetBodyIds.includes(sourceBodyId)) {
         fail('INVALID_FEATURE', path + '.features[' + index + '] must target its source body unless it creates a copy.');
       }
+    } else if (feature.type === 'thicken') {
+      const sourceBodyId = requireId(feature.sourceBodyId, path + '.features[' + index + '].sourceBodyId');
+      const sourceBody = bodyById.get(sourceBodyId);
+      if (!sourceBody) fail('MISSING_REFERENCE', path + '.features[' + index + '].sourceBodyId does not resolve in this part.');
+      if (orderIndex.get(sourceBody.createdByFeatureId) >= orderIndex.get(feature.id)) {
+        fail('INVALID_FEATURE_ORDER', path + '.features[' + index + '] must come after its source body creation feature.');
+      }
+      if (sourceBody.featureIds.some((sourceFeatureId) => orderIndex.get(sourceFeatureId) >= orderIndex.get(feature.id))) {
+        fail('INVALID_FEATURE_ORDER', path + '.features[' + index + '] must come after the complete source-body history.');
+      }
+      if (policy.kind !== 'new-body') fail('INVALID_FEATURE', path + '.features[' + index + '] Thicken must create a linked body.');
+      const createdBody = part.bodies.find((body) => body.createdByFeatureId === feature.id);
+      if (!createdBody || createdBody.id === sourceBodyId) fail('INVALID_FEATURE', path + '.features[' + index + '] Thicken must create a distinct linked body.');
+      bodyDependencies.get(createdBody.id).add(sourceBodyId);
+    } else if (feature.type === 'boolean-split-side') {
+      const sourceBodyId = requireId(feature.sourceBodyId, path + '.features[' + index + '].sourceBodyId');
+      const sourceBody = bodyById.get(sourceBodyId);
+      if (!sourceBody) fail('MISSING_REFERENCE', path + '.features[' + index + '].sourceBodyId does not resolve in this part.');
+      const toolBodyIds = requireArray(feature.toolBodyIds, path + '.features[' + index + '].toolBodyIds', 2);
+      if (toolBodyIds.length !== 2 || toolBodyIds[0] !== sourceBodyId) fail('INVALID_FEATURE', path + '.features[' + index + '] Boolean Split must store target then tool body.');
+      const toolBodyId = requireId(toolBodyIds[1], path + '.features[' + index + '].toolBodyIds[1]');
+      const toolBody = bodyById.get(toolBodyId);
+      if (!toolBody || toolBodyId === sourceBodyId) fail('MISSING_REFERENCE', path + '.features[' + index + '] Boolean Split tool must resolve to a different body.');
+      if (feature.side !== 'inside' && feature.side !== 'outside') fail('INVALID_FEATURE', path + '.features[' + index + '].side must be inside or outside.');
+      if (policy.kind !== 'new-body') fail('INVALID_FEATURE', path + '.features[' + index + '] Boolean Split sides must create bodies.');
+      if ([...sourceBody.featureIds, ...toolBody.featureIds].some((dependencyId) => orderIndex.get(dependencyId) >= orderIndex.get(feature.id))) {
+        fail('INVALID_FEATURE_ORDER', path + '.features[' + index + '] must come after complete target and tool histories.');
+      }
+      const createdBody = part.bodies.find((body) => body.createdByFeatureId === feature.id);
+      if (!createdBody) fail('INVALID_FEATURE', path + '.features[' + index + '] Boolean Split side must create a distinct body.');
+      bodyDependencies.get(createdBody.id).add(sourceBodyId);
+      bodyDependencies.get(createdBody.id).add(toolBodyId);
     }
   }
 
@@ -1297,20 +1332,248 @@ function cleanIdFragment(value, fallback) {
   return cleaned && ID_PATTERN.test(cleaned) ? cleaned : fallback;
 }
 
+const STUDIO_V4_FEATURE_TYPES = new Set(['extrude', 'cut', 'revolve', 'fillet', 'chamfer', 'shell']);
+const STUDIO_V4_ENTITY_TYPES = new Set(['line', 'arc', 'circle']);
+const STUDIO_V4_GROUP_TYPES = new Set(['rectangle', 'polygon', 'offset-loop']);
+const STUDIO_V4_PLANES = new Set(['XY', 'YZ', 'ZX']);
+const STUDIO_V4_SURFACES = new Set(['plane', 'cylinder', 'cone', 'sphere', 'torus', 'other']);
+const STUDIO_V4_CURVES = new Set(['line', 'circle', 'ellipse', 'spline', 'other']);
+const STUDIO_V4_CONSTRAINT_TYPES = new Set([
+  'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular', 'tangent',
+  'equal-length', 'equal-radius', 'midpoint', 'point-on-object', 'fixed',
+  'horizontal-distance', 'vertical-distance', 'point-to-point-distance',
+  'line-length', 'radius', 'diameter', 'angle',
+]);
+const STUDIO_V4_DIMENSION_CONSTRAINT_TYPES = new Set([
+  'horizontal-distance', 'vertical-distance', 'point-to-point-distance',
+  'line-length', 'radius', 'diameter', 'angle',
+]);
+const STUDIO_V4_LIMITS = Object.freeze({
+  bytes: 10 * 1024 * 1024,
+  features: 500,
+  sketchEntities: 5000,
+  constraints: 10000,
+});
+
+function requireFiniteNumber(value, path) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) fail('INVALID_NUMBER', path + ' must be a finite number.');
+  return value;
+}
+
+function requireV4Point(value, path, dimensions = 2) {
+  if (!Array.isArray(value) || value.length !== dimensions) fail('INVALID_POINT', path + ' must be a finite ' + dimensions + 'D point.');
+  value.forEach((coordinate, index) => requireFiniteNumber(coordinate, path + '[' + index + ']'));
+  return value;
+}
+
+function validateV4Sketch(sketch, path, projectIds, counters, parameterValues) {
+  requireRecord(sketch, path);
+  const sketchId = requireId(sketch.id, path + '.id');
+  addUnique(projectIds, sketchId, path, 'schema-4');
+  const entities = requireArray(sketch.entities, path + '.entities', STUDIO_V4_LIMITS.sketchEntities, 'LIMIT_SKETCH_ENTITIES');
+  counters.sketchEntities += entities.length;
+  if (counters.sketchEntities > STUDIO_V4_LIMITS.sketchEntities) {
+    fail('LIMIT_SKETCH_ENTITIES', 'Schema-4 project exceeds the 5,000-sketch-entity limit.');
+  }
+  const entityIds = new Set();
+  entities.forEach((entity, index) => {
+    const entityPath = path + '.entities[' + index + ']';
+    requireRecord(entity, entityPath);
+    const entityId = requireId(entity.id, entityPath + '.id');
+    addUnique(projectIds, entityId, entityPath, 'schema-4');
+    addUnique(entityIds, entityId, entityPath, 'sketch entity');
+    if (!STUDIO_V4_ENTITY_TYPES.has(entity.kind)) fail('INVALID_SKETCH_ENTITY', entityPath + '.kind is unsupported.');
+    if (entity.kind === 'line') {
+      requireV4Point(entity.a, entityPath + '.a');
+      requireV4Point(entity.b, entityPath + '.b');
+      if (sameV4Point(entity.a, entity.b)) fail('INVALID_SKETCH_ENTITY', entityPath + ' must not be zero length.');
+    } else if (entity.kind === 'arc') {
+      requireV4Point(entity.center, entityPath + '.center');
+      requireV4Point(entity.start, entityPath + '.start');
+      requireV4Point(entity.end, entityPath + '.end');
+      const startRadius = Math.hypot(entity.start[0] - entity.center[0], entity.start[1] - entity.center[1]);
+      const endRadius = Math.hypot(entity.end[0] - entity.center[0], entity.end[1] - entity.center[1]);
+      if (startRadius <= 1e-9 || endRadius <= 1e-9 || Math.abs(startRadius - endRadius) > 1e-7 * Math.max(1, startRadius, endRadius)) {
+        fail('INVALID_SKETCH_ENTITY', entityPath + ' start and end must lie on one non-zero-radius arc.');
+      }
+      if (sameV4Point(entity.start, entity.end)) fail('INVALID_SKETCH_ENTITY', entityPath + ' must not encode a full circle as an arc.');
+      if (entity.clockwise != null) requireBoolean(entity.clockwise, entityPath + '.clockwise');
+    } else {
+      requireV4Point(entity.center, entityPath + '.center');
+      if (requireFiniteNumber(entity.radius, entityPath + '.radius') <= 0) fail('INVALID_SKETCH_ENTITY', entityPath + '.radius must be positive.');
+    }
+    if (entity.construction != null) requireBoolean(entity.construction, entityPath + '.construction');
+  });
+
+  const groups = requireArray(sketch.groups === undefined ? [] : sketch.groups, path + '.groups', STUDIO_V4_LIMITS.sketchEntities, 'LIMIT_SKETCH_ENTITIES');
+  groups.forEach((group, index) => {
+    const groupPath = path + '.groups[' + index + ']';
+    requireRecord(group, groupPath);
+    const groupId = requireId(group.id, groupPath + '.id');
+    addUnique(projectIds, groupId, groupPath, 'schema-4');
+    if (!STUDIO_V4_GROUP_TYPES.has(group.kind)) fail('INVALID_SKETCH_GROUP', groupPath + '.kind is unsupported.');
+    const references = requireArray(group.entityIds, groupPath + '.entityIds', STUDIO_V4_LIMITS.sketchEntities);
+    if (references.length === 0) fail('INVALID_SKETCH_GROUP', groupPath + '.entityIds must not be empty.');
+    const seen = new Set();
+    references.forEach((entityId, entityIndex) => {
+      const id = requireId(entityId, groupPath + '.entityIds[' + entityIndex + ']');
+      if (!entityIds.has(id)) fail('MISSING_REFERENCE', groupPath + ' references missing sketch entity "' + id + '".');
+      if (seen.has(id)) fail('DUPLICATE_REFERENCE', groupPath + ' repeats sketch entity "' + id + '".');
+      seen.add(id);
+    });
+    if (group.creationMode != null && group.creationMode !== 'corner' && group.creationMode !== 'center') {
+      fail('INVALID_SKETCH_GROUP', groupPath + '.creationMode must be corner or center.');
+    }
+  });
+
+  const constraints = requireArray(sketch.constraints, path + '.constraints', STUDIO_V4_LIMITS.constraints, 'LIMIT_CONSTRAINTS');
+  counters.constraints += constraints.length;
+  if (counters.constraints > STUDIO_V4_LIMITS.constraints) fail('LIMIT_CONSTRAINTS', 'Schema-4 project exceeds the 10,000-constraint limit.');
+  constraints.forEach((constraint, index) => {
+    const constraintPath = path + '.constraints[' + index + ']';
+    requireRecord(constraint, constraintPath);
+    const constraintId = requireId(constraint.id, constraintPath + '.id');
+    addUnique(projectIds, constraintId, constraintPath, 'schema-4');
+    if (!STUDIO_V4_CONSTRAINT_TYPES.has(constraint.kind)) fail('INVALID_CONSTRAINT', constraintPath + '.kind is unsupported.');
+    const constraintRefs = requireArray(constraint.refs, constraintPath + '.refs', 16);
+    if (!constraintRefs.length) fail('INVALID_CONSTRAINT', constraintPath + '.refs must not be empty.');
+    constraintRefs.forEach((reference, referenceIndex) => {
+      requireRecord(reference, constraintPath + '.refs[' + referenceIndex + ']');
+      if (reference.entityId != null && !entityIds.has(requireId(reference.entityId, constraintPath + '.refs[' + referenceIndex + '].entityId'))) {
+        fail('MISSING_REFERENCE', constraintPath + '.refs[' + referenceIndex + '] references a missing entity.');
+      }
+    });
+    requireBoolean(constraint.driving, constraintPath + '.driving');
+    if (constraint.driving && STUDIO_V4_DIMENSION_CONSTRAINT_TYPES.has(constraint.kind) && constraint.expression == null) {
+      fail('INVALID_CONSTRAINT', constraintPath + '.expression is required for a driving dimension.');
+    }
+    if (constraint.expression != null) {
+      const parsed = parseSafeExpression(constraint.expression, constraintPath + '.expression', new Set(parameterValues.keys()));
+      parsed.evaluate((name) => parameterValues.get(name));
+    }
+    if (constraint.auto != null) requireBoolean(constraint.auto, constraintPath + '.auto');
+  });
+  validateOptionalRecord(sketch.extensions, path + '.extensions');
+}
+
+function validateV4TopologyReference(signature, path, featureIds, kind) {
+  requireRecord(signature, path);
+  const ownerFeatureId = requireId(signature.ownerFeatureId, path + '.ownerFeatureId');
+  if (!featureIds.has(ownerFeatureId)) fail('MISSING_REFERENCE', path + '.ownerFeatureId does not resolve in schema-4 history.');
+  if (signature.semanticPath != null && (typeof signature.semanticPath !== 'string' || signature.semanticPath.length > 500)) {
+    fail('INVALID_REFERENCE', path + '.semanticPath must be a bounded string.');
+  }
+  if (kind === 'face') {
+    if (!STUDIO_V4_SURFACES.has(signature.surface)) fail('INVALID_REFERENCE', path + '.surface is unsupported.');
+    if (requireFiniteNumber(signature.area, path + '.area') <= 0) fail('INVALID_REFERENCE', path + '.area must be positive.');
+    requireV4Point(signature.centroid, path + '.centroid', 3);
+    if (signature.normalOrAxis != null) requireV4Point(signature.normalOrAxis, path + '.normalOrAxis', 3);
+    requireArray(signature.adjacentSurfaceKinds, path + '.adjacentSurfaceKinds', 100).forEach((surface, index) => {
+      if (!STUDIO_V4_SURFACES.has(surface)) fail('INVALID_REFERENCE', path + '.adjacentSurfaceKinds[' + index + '] is unsupported.');
+    });
+    return;
+  }
+  if (!STUDIO_V4_CURVES.has(signature.curve)) fail('INVALID_REFERENCE', path + '.curve is unsupported.');
+  if (requireFiniteNumber(signature.length, path + '.length') <= 0) fail('INVALID_REFERENCE', path + '.length must be positive.');
+  if (signature.endpoints != null) {
+    if (!Array.isArray(signature.endpoints) || signature.endpoints.length !== 2) fail('INVALID_REFERENCE', path + '.endpoints must contain two points.');
+    signature.endpoints.forEach((point, index) => requireV4Point(point, path + '.endpoints[' + index + ']', 3));
+  }
+  if (signature.centreOrAxis != null) requireV4Point(signature.centreOrAxis, path + '.centreOrAxis', 3);
+  requireArray(signature.adjacentFaces, path + '.adjacentFaces', 100).forEach((face, index) => {
+    requireRecord(face, path + '.adjacentFaces[' + index + ']');
+    if (!STUDIO_V4_SURFACES.has(face.surface)) fail('INVALID_REFERENCE', path + '.adjacentFaces[' + index + '].surface is unsupported.');
+  });
+}
+
 function legacyV4Boundary(candidate) {
   validateJsonTree(candidate);
-  if (jsonBytes(candidate) > STUDIO_V5_PROJECT_LIMITS.bytes) fail('LIMIT_BYTES', 'Legacy project exceeds the 20 MB migration limit.');
-  if (!Array.isArray(candidate.features) || !Array.isArray(candidate.params)) {
-    fail('INVALID_LEGACY_DOCUMENT', 'Schema-4 migration input must expose features and params arrays until the final V4 adapter replaces this boundary.');
-  }
-  if (candidate.features.length > STUDIO_V5_PROJECT_LIMITS.featuresPerPart) fail('LIMIT_FEATURES', 'Legacy part exceeds the 2,000-feature V5 migration limit.');
-  if (candidate.params.length > STUDIO_V5_PROJECT_LIMITS.parameters) fail('LIMIT_PARAMETERS', 'Legacy part exceeds the 5,000-parameter V5 migration limit.');
-  const ids = new Set();
-  candidate.features.forEach((feature, index) => {
-    requireRecord(feature, 'legacy.features[' + index + ']');
-    const id = requireId(feature.id, 'legacy.features[' + index + '].id');
-    addUnique(ids, id, 'legacy.features[' + index + ']', 'legacy feature');
+  if (jsonBytes(candidate) > STUDIO_V4_LIMITS.bytes) fail('LIMIT_BYTES', 'Schema-4 project exceeds the 10 MB migration limit.');
+  if (candidate.schemaVersion !== 4) fail('INVALID_SCHEMA', 'Schema-4 migration input must declare schemaVersion 4.');
+  if (candidate.units !== 'mm' && candidate.units !== 'in') fail('INVALID_UNITS', 'Schema-4 project units must be mm or in.');
+  requireName(candidate.title, 'legacy.title');
+  const parameters = requireArray(candidate.params, 'legacy.params', STUDIO_V5_PROJECT_LIMITS.parameters, 'LIMIT_PARAMETERS');
+  const features = requireArray(candidate.features, 'legacy.features', STUDIO_V4_LIMITS.features, 'LIMIT_FEATURES');
+  const projectIds = new Set();
+  const parameterNames = new Set();
+  parameters.forEach((parameter, index) => {
+    const path = 'legacy.params[' + index + ']';
+    requireRecord(parameter, path);
+    const id = requireId(parameter.id, path + '.id');
+    addUnique(projectIds, id, path, 'schema-4');
+    if (typeof parameter.name !== 'string' || !PARAMETER_NAME_PATTERN.test(parameter.name)) fail('INVALID_PARAMETER', path + '.name is invalid.');
+    if (parameterNames.has(parameter.name)) fail('DUPLICATE_PARAMETER', 'Duplicate schema-4 parameter name "' + parameter.name + '".');
+    parameterNames.add(parameter.name);
+    if (!expressionLike(parameter.expression)) fail('INVALID_PARAMETER', path + '.expression is invalid.');
   });
+  const parameterValues = validateParameterArray(
+    parameters.map((parameter) => ({ ...parameter, value: parameter.expression })),
+    'legacy.params',
+    { count: 0 },
+    new Set(),
+  );
+  const featureIds = new Set();
+  features.forEach((feature, index) => {
+    const path = 'legacy.features[' + index + ']';
+    requireRecord(feature, path);
+    const id = requireId(feature.id, path + '.id');
+    addUnique(projectIds, id, path, 'schema-4');
+    addUnique(featureIds, id, path, 'schema-4 feature');
+  });
+  const counters = { sketchEntities: 0, constraints: 0 };
+  features.forEach((feature, index) => {
+    const path = 'legacy.features[' + index + ']';
+    if (!STUDIO_V4_FEATURE_TYPES.has(feature.type)) fail('INVALID_FEATURE', path + '.type is unsupported by schema 4.');
+    requireName(feature.name, path + '.name');
+    requireBoolean(feature.suppressed, path + '.suppressed');
+    if (feature.plane != null) {
+      requireRecord(feature.plane, path + '.plane');
+      if (feature.plane.kind === 'base') {
+        if (!STUDIO_V4_PLANES.has(feature.plane.plane)) fail('INVALID_REFERENCE', path + '.plane.plane is unsupported.');
+      } else if (feature.plane.kind === 'face') {
+        validateV4TopologyReference(feature.plane.reference, path + '.plane.reference', featureIds, 'face');
+      } else fail('INVALID_REFERENCE', path + '.plane.kind must be base or face.');
+    }
+    if (feature.sketch != null) validateV4Sketch(feature.sketch, path + '.sketch', projectIds, counters, parameterValues);
+    if ((feature.type === 'extrude' || feature.type === 'cut' || feature.type === 'revolve') && feature.sketch == null) {
+      fail('INVALID_SKETCH', path + '.sketch is required for sketch-based features.');
+    }
+    if (feature.extent != null) {
+      requireRecord(feature.extent, path + '.extent');
+      if (feature.extent.kind !== 'distance' && feature.extent.kind !== 'through-all') fail('INVALID_FEATURE', path + '.extent.kind is unsupported.');
+      if (feature.extent.kind === 'distance') {
+        const parsed = parseSafeExpression(feature.extent.expression, path + '.extent.expression', new Set(parameterValues.keys()));
+        if (parsed.evaluate((name) => parameterValues.get(name)) <= 0) fail('INVALID_EXPRESSION', path + '.extent.expression must evaluate above zero.');
+      }
+      requireBoolean(feature.extent.reversed, path + '.extent.reversed');
+      requireBoolean(feature.extent.symmetric, path + '.extent.symmetric');
+    }
+    if (feature.type === 'extrude' && feature.extent == null) fail('INVALID_FEATURE', path + '.extent is required for Extrude.');
+    if (feature.type === 'cut' && feature.extent == null) fail('INVALID_FEATURE', path + '.extent is required for Cut.');
+    if (feature.type === 'revolve') {
+      const parsed = parseSafeExpression(feature.angle, path + '.angle', new Set(parameterValues.keys()));
+      const angle = parsed.evaluate((name) => parameterValues.get(name));
+      if (!(angle > 0 && angle <= 360)) fail('INVALID_EXPRESSION', path + '.angle must evaluate above zero and at most 360 degrees.');
+      requireRecord(feature.axis, path + '.axis');
+    }
+    if (feature.type === 'fillet' || feature.type === 'chamfer') {
+      const parsed = parseSafeExpression(feature.r, path + '.r', new Set(parameterValues.keys()));
+      if (parsed.evaluate((name) => parameterValues.get(name)) <= 0) fail('INVALID_EXPRESSION', path + '.r must evaluate above zero.');
+      const edges = requireArray(feature.edges, path + '.edges', STUDIO_V4_LIMITS.features);
+      if (!edges.length) fail('INVALID_REFERENCE', path + '.edges must not be empty.');
+      edges.forEach((edge, edgeIndex) => validateV4TopologyReference(edge, path + '.edges[' + edgeIndex + ']', featureIds, 'edge'));
+    }
+    if (feature.type === 'shell') {
+      const parsed = parseSafeExpression(feature.t, path + '.t', new Set(parameterValues.keys()));
+      if (parsed.evaluate((name) => parameterValues.get(name)) <= 0) fail('INVALID_EXPRESSION', path + '.t must evaluate above zero.');
+      const faces = requireArray(feature.faces, path + '.faces', STUDIO_V4_LIMITS.features);
+      if (!faces.length) fail('INVALID_REFERENCE', path + '.faces must not be empty.');
+      faces.forEach((face, faceIndex) => validateV4TopologyReference(face, path + '.faces[' + faceIndex + ']', featureIds, 'face'));
+    }
+    validateOptionalRecord(feature.extensions, path + '.extensions');
+  });
+  validateOptionalRecord(candidate.metadata, 'legacy.metadata');
+  validateOptionalRecord(candidate.extensions, 'legacy.extensions');
   return clone(candidate);
 }
 
@@ -1319,9 +1582,11 @@ function migrateLegacyParameter(parameter, index, prefix) {
   if (typeof parameter.name !== 'string' || !PARAMETER_NAME_PATTERN.test(parameter.name)) {
     fail('INVALID_PARAMETER', 'legacy.params[' + index + '].name is invalid.');
   }
-  if (!expressionLike(parameter.value)) fail('INVALID_PARAMETER', 'legacy.params[' + index + '].value is invalid.');
+  const value = parameter.value ?? parameter.expression;
+  if (!expressionLike(value)) fail('INVALID_PARAMETER', 'legacy.params[' + index + '] value/expression is invalid.');
   const migrated = clone(parameter);
   migrated.id = ID_PATTERN.test(parameter.id || '') ? parameter.id : prefix + '-param-' + cleanIdFragment(parameter.name, String(index + 1));
+  migrated.value = value;
   return migrated;
 }
 
@@ -1332,12 +1597,225 @@ function inferredResultPolicy(feature, index, bodyId) {
   return { kind: 'add', targetBodyIds: [bodyId] };
 }
 
-function migrateLegacyFeature(feature, index, bodyId) {
+function sameV4Point(left, right) {
+  return Math.abs(left[0] - right[0]) <= 1e-9 && Math.abs(left[1] - right[1]) <= 1e-9;
+}
+
+function v4EntityEnds(entity) {
+  if (entity.kind === 'line') return [entity.a, entity.b];
+  if (entity.kind === 'arc') return [entity.start, entity.end];
+  return null;
+}
+
+function sampleV4Arc(entity, reversed = false) {
+  const start = reversed ? entity.end : entity.start;
+  const end = reversed ? entity.start : entity.end;
+  const clockwise = reversed ? entity.clockwise !== true : entity.clockwise === true;
+  const startAngle = Math.atan2(start[1] - entity.center[1], start[0] - entity.center[0]);
+  const endAngle = Math.atan2(end[1] - entity.center[1], end[0] - entity.center[0]);
+  let delta = endAngle - startAngle;
+  if (clockwise) {
+    while (delta >= 0) delta -= Math.PI * 2;
+  } else {
+    while (delta <= 0) delta += Math.PI * 2;
+  }
+  const radius = Math.hypot(start[0] - entity.center[0], start[1] - entity.center[1]);
+  const count = Math.max(4, Math.ceil(Math.abs(delta) / (Math.PI / 12)));
+  return Array.from({ length: count + 1 }, (_, index) => {
+    const angle = startAngle + delta * index / count;
+    return [entity.center[0] + Math.cos(angle) * radius, entity.center[1] + Math.sin(angle) * radius];
+  });
+}
+
+function traceV4Loop(entities, path) {
+  if (!entities.length) fail('INVALID_SKETCH', path + ' must contain at least one profile entity.');
+  const remaining = [...entities];
+  const first = remaining.shift();
+  const firstEnds = v4EntityEnds(first);
+  if (!firstEnds) fail('INVALID_SKETCH', path + ' contains a non-chain entity.');
+  const traced = [{ entity: first, reversed: false }];
+  let current = firstEnds[1];
+  while (remaining.length) {
+    const nextIndex = remaining.findIndex((entity) => {
+      const ends = v4EntityEnds(entity);
+      return ends && (sameV4Point(ends[0], current) || sameV4Point(ends[1], current));
+    });
+    if (nextIndex < 0) fail('INVALID_SKETCH', path + ' does not form one connected chain.');
+    const next = remaining.splice(nextIndex, 1)[0];
+    const ends = v4EntityEnds(next);
+    const reversed = sameV4Point(ends[1], current);
+    traced.push({ entity: next, reversed });
+    current = reversed ? ends[0] : ends[1];
+  }
+  if (!sameV4Point(current, firstEnds[0])) fail('INVALID_SKETCH', path + ' is open and cannot produce a solid profile.');
+  return traced;
+}
+
+function sampledV4Loop(traced) {
+  const points = [];
+  for (const entry of traced) {
+    const ends = v4EntityEnds(entry.entity);
+    if (entry.entity.kind === 'line') {
+      const start = entry.reversed ? ends[1] : ends[0];
+      const end = entry.reversed ? ends[0] : ends[1];
+      if (!points.length) points.push([...start]);
+      points.push([...end]);
+    } else {
+      const sampled = sampleV4Arc(entry.entity, entry.reversed);
+      if (!points.length) points.push(sampled[0]);
+      points.push(...sampled.slice(1));
+    }
+  }
+  if (points.length > 1 && sameV4Point(points[0], points[points.length - 1])) points.pop();
+  return points;
+}
+
+function migrateV4SketchShapes(sketch, path) {
+  const entities = sketch.entities.filter((entity) => entity.construction !== true);
+  const byId = new Map(entities.map((entity) => [entity.id, entity]));
+  const used = new Set();
+  const shapes = [];
+  for (const entity of entities) {
+    if (entity.kind === 'circle') {
+      shapes.push({ kind: 'circle', x: entity.center[0], y: entity.center[1], r: entity.radius, sourceEntityIds: [entity.id] });
+      used.add(entity.id);
+    }
+  }
+  for (const [index, group] of (sketch.groups || []).entries()) {
+    const chain = group.entityIds.map((id) => byId.get(id)).filter(Boolean);
+    if (!chain.length || chain.some((entity) => entity.kind === 'circle')) continue;
+    const traced = traceV4Loop(chain, path + '.groups[' + index + ']');
+    shapes.push({ kind: 'poly', pts: sampledV4Loop(traced), closed: true, sourceEntityIds: group.entityIds.slice() });
+    group.entityIds.forEach((id) => used.add(id));
+  }
+  const remaining = entities.filter((entity) => !used.has(entity.id));
+  while (remaining.length) {
+    const first = remaining.shift();
+    if (first.kind === 'circle') continue;
+    const chain = [first];
+    let current = v4EntityEnds(first)[1];
+    for (;;) {
+      const nextIndex = remaining.findIndex((entity) => {
+        const ends = v4EntityEnds(entity);
+        return ends && (sameV4Point(ends[0], current) || sameV4Point(ends[1], current));
+      });
+      if (nextIndex < 0) break;
+      const next = remaining.splice(nextIndex, 1)[0];
+      const ends = v4EntityEnds(next);
+      current = sameV4Point(ends[0], current) ? ends[1] : ends[0];
+      chain.push(next);
+      if (sameV4Point(current, v4EntityEnds(first)[0])) break;
+    }
+    const traced = traceV4Loop(chain, path + '.entities');
+    shapes.push({ kind: 'poly', pts: sampledV4Loop(traced), closed: true, sourceEntityIds: traced.map((entry) => entry.entity.id) });
+  }
+  if (!shapes.length) fail('INVALID_SKETCH', path + ' contains no closed non-construction profile.');
+  return shapes;
+}
+
+function v4PlaneReference(plane, partId) {
+  if (plane?.kind === 'face') {
+    return {
+      ownerKind: 'feature',
+      ownerId: plane.reference.ownerFeatureId,
+      semanticPath: plane.reference.semanticPath ? { value: plane.reference.semanticPath } : { kind: 'face' },
+      signature: clone(plane.reference),
+    };
+  }
+  const basePlane = plane?.plane || 'XY';
+  return {
+    ownerKind: 'part',
+    ownerId: partId,
+    semanticPath: { kind: 'base-plane', plane: basePlane },
+    signature: { plane: basePlane },
+  };
+}
+
+function migrateV4Sketch(sketch, feature, partId, index) {
+  const migrated = clone(sketch);
+  migrated.name = typeof sketch.name === 'string' && sketch.name.trim()
+    ? sketch.name.trim().slice(0, 200)
+    : feature.name + ' sketch';
+  migrated.support = v4PlaneReference(feature.plane, partId);
+  migrated.groups = Array.isArray(sketch.groups) ? migrated.groups : [];
+  migrated.extensions = {
+    ...(isRecord(sketch.extensions) ? migrated.extensions : {}),
+    migratedFromSchema: 4,
+    sourceFeatureId: feature.id,
+    sourceOrder: index,
+  };
+  return migrated;
+}
+
+function v4TopologyGeometryReference(signature, kind) {
+  return {
+    ownerKind: 'feature',
+    ownerId: signature.ownerFeatureId,
+    semanticPath: signature.semanticPath ? { value: signature.semanticPath } : { kind },
+    signature: clone(signature),
+  };
+}
+
+function legacyEdgeSignatureFromV4(signature) {
+  const point = signature.endpoints
+    ? signature.endpoints[0].map((value, index) => (value + signature.endpoints[1][index]) / 2)
+    : signature.centreOrAxis || [0, 0, 0];
+  return { p: point, l: signature.length, ownerFeatureId: signature.ownerFeatureId, v4Signature: clone(signature) };
+}
+
+function legacyFaceSignatureFromV4(signature) {
+  return {
+    p: clone(signature.centroid),
+    n: clone(signature.normalOrAxis || [0, 0, 1]),
+    ownerFeatureId: signature.ownerFeatureId,
+    v4Signature: clone(signature),
+  };
+}
+
+function migrateLegacyFeature(feature, index, bodyId, sourceSchema, partId) {
   const migrated = clone(feature);
   migrated.name = typeof feature.name === 'string' && feature.name.trim() ? feature.name.trim().slice(0, 200) : String(feature.type || 'Feature') + ' ' + (index + 1);
   migrated.suppressed = feature.suppressed === true;
   migrated.inputRefs = Array.isArray(feature.inputRefs) ? clone(feature.inputRefs) : [];
   migrated.resultPolicy = inferredResultPolicy(feature, index, bodyId);
+  if (sourceSchema === 4) {
+    if (feature.sketch) {
+      migrated.sketch = clone(feature.sketch);
+      migrated.sketch.shapes = migrateV4SketchShapes(feature.sketch, 'legacy.features[' + index + '].sketch');
+      migrated.sketchId = feature.sketch.id;
+      migrated.inputRefs.push({
+        ownerKind: 'sketch',
+        ownerId: feature.sketch.id,
+        semanticPath: { role: 'profile' },
+        signature: {},
+      });
+    }
+    if (feature.plane?.kind === 'face') {
+      migrated.onFace = legacyFaceSignatureFromV4(feature.plane.reference);
+      migrated.inputRefs.push(v4TopologyGeometryReference(feature.plane.reference, 'face'));
+    }
+    if (feature.extent) {
+      migrated.through = feature.extent.kind === 'through-all';
+      if (feature.extent.kind === 'distance') migrated.h = feature.extent.expression;
+      migrated.reversed = feature.extent.reversed;
+      migrated.symmetric = feature.extent.symmetric;
+    }
+    if (feature.type === 'revolve') migrated.h = feature.angle;
+    if (Array.isArray(feature.edges)) {
+      migrated.edges = feature.edges.map(legacyEdgeSignatureFromV4);
+      migrated.inputRefs.push(...feature.edges.map((signature) => v4TopologyGeometryReference(signature, 'edge')));
+    }
+    if (Array.isArray(feature.faces)) {
+      migrated.faces = feature.faces.map(legacyFaceSignatureFromV4);
+      migrated.inputRefs.push(...feature.faces.map((signature) => v4TopologyGeometryReference(signature, 'face')));
+    }
+    migrated.extensions = {
+      ...(isRecord(feature.extensions) ? clone(feature.extensions) : {}),
+      migratedFromSchema: 4,
+      sourceOrder: index,
+      exactSketchEntities: Boolean(feature.sketch),
+    };
+  }
   delete migrated.error;
   return migrated;
 }
@@ -1375,7 +1853,10 @@ export function migrateStudioPartToV5(candidate, options = {}) {
       : 'Untitled part';
 
   const parameters = legacy.params.map((parameter, index) => migrateLegacyParameter(parameter, index, projectId));
-  const features = legacy.features.map((feature, index) => migrateLegacyFeature(feature, index, bodyId));
+  const features = legacy.features.map((feature, index) => migrateLegacyFeature(feature, index, bodyId, sourceSchema, partId));
+  const sketches = sourceSchema === 4
+    ? legacy.features.flatMap((feature, index) => feature.sketch ? [migrateV4Sketch(feature.sketch, feature, partId, index)] : [])
+    : [];
   const featureOrder = features.map((feature) => feature.id);
   const bodies = features.length
     ? [{
@@ -1402,7 +1883,7 @@ export function migrateStudioPartToV5(candidate, options = {}) {
       name: projectName,
       parameters: [],
       referenceGeometry: [],
-      sketches: [],
+      sketches,
       bodies,
       bodyPatterns: [],
       features,

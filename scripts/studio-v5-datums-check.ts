@@ -256,6 +256,49 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   await page.$eval(`#bw-bodies [data-body-id="${RUNTIME_BODY_IDS.housing}"] [data-body-action="select"]`, (element: any) => element.click());
   const baseline = await page.evaluate((id) => (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === id).geometry.bounds, RUNTIME_BODY_IDS.housing);
 
+  const shaftBaseline = await page.evaluate((id) => (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === id).geometry.bounds, RUNTIME_BODY_IDS.shaft);
+  await page.$eval(`#bw-bodies [data-body-id="${RUNTIME_BODY_IDS.shaft}"] [data-body-action="select"]`, (element: any) => element.click());
+  await page.$eval('[data-v5-command="move"]', (element: any) => element.click());
+  await page.waitForSelector('#bw-v5-command.with-gizmo[open]');
+  const gizmoState = await page.evaluate(() => (window as any).__bwStudio.gizmoState());
+  check('browser Move exposes attached 3D handles with explicit millimetre snapping',
+    gizmoState.attached && gizmoState.helperVisible && gizmoState.mode === 'translate' && gizmoState.translationSnap === 1,
+    gizmoState);
+  await page.evaluate(() => (window as any).__bwStudio.gizmoTranslateForTest([5, 0, 0]));
+  check('browser 3D handle preview stays synchronized with exact numeric fields',
+    await page.$eval('#bw-v5-command [name="tx"]', (input: any) => Number(input.value) === 5));
+  const beforeGizmoApply = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeGizmoApply);
+  const movedShaft = await page.evaluate((id) => (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === id).geometry.bounds, RUNTIME_BODY_IDS.shaft);
+  check('browser 3D handle Apply commits one exact editable transform', close(movedShaft[0][0] - shaftBaseline[0][0], 5));
+  await page.$eval(`#bw-bodies [data-body-id="${RUNTIME_BODY_IDS.housing}"] [data-body-action="select"]`, (element: any) => element.click());
+
+  const moveFeatureId = await page.evaluate((shaftId) => {
+    const part = JSON.parse((window as any).__bwStudio.docJson()).partDefinitions[0];
+    return part.features.find((feature: any) => feature.type === 'transform' && feature.sourceBodyId === shaftId && feature.transform?.mode === 'move').id;
+  }, RUNTIME_BODY_IDS.shaft);
+  const moveRowIsDraggable = await page.$eval(`#bw-history [data-sel="${moveFeatureId}"]`, (row: any) => row.draggable === true);
+  const beforeReorder = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.$eval(`#bw-history [data-sel="${moveFeatureId}"] [data-move-feature="up"]`, (element: any) => element.click());
+  await waitForStudio(page, beforeReorder);
+  const reorderedHistory = await page.evaluate((featureId) => {
+    const order = JSON.parse((window as any).__bwStudio.docJson()).partDefinitions[0].featureOrder;
+    return { order, index: order.indexOf(featureId) };
+  }, moveFeatureId);
+  check('browser feature history exposes drag plus keyboard-accessible safe reorder',
+    moveRowIsDraggable && reorderedHistory.index === reorderedHistory.order.length - 2,
+    reorderedHistory);
+  const lastHistoryFeatureId = reorderedHistory.order.at(-1)!;
+  const beforeRollback = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.$eval(`#bw-history [data-sel="${lastHistoryFeatureId}"] [data-rollback-feature]`, (element: any) => element.click());
+  await waitForStudio(page, beforeRollback);
+  check('browser rollback marker is visible and preserves canonical history',
+    await page.$eval(`#bw-history [data-sel="${lastHistoryFeatureId}"]`, (row) => row.classList.contains('rollback') && row.querySelector('[data-rollback-feature]')?.getAttribute('aria-pressed') === 'true'));
+  const beforeClearRollback = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.$eval(`#bw-history [data-sel="${lastHistoryFeatureId}"] [data-rollback-feature]`, (element: any) => element.click());
+  await waitForStudio(page, beforeClearRollback);
+
   await page.$eval('[data-v5-command="plane"]', (element: any) => element.click());
   await page.waitForSelector('#bw-v5-command[open]');
   const modes = await page.$$eval('#bw-v5-command [name="mode"] option', (entries) => entries.map((entry: any) => entry.value));
@@ -312,6 +355,21 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   const afterCancel = await page.evaluate(() => ({ json: (window as any).__bwStudio.docJson(), undo: (window as any).__bwStudio.undoDepth() }));
   check('browser transform Cancel is byte-identical and stack-identical', JSON.stringify(beforeCancel) === JSON.stringify(afterCancel));
 
+  await page.$eval('[data-v5-command="rotate"]', (element: any) => element.click());
+  const rotateGizmo = await page.evaluate(() => (window as any).__bwStudio.gizmoState());
+  await page.evaluate(() => (window as any).__bwStudio.gizmoRotateForTest([0, 0, 1], 30));
+  const rotateFields = await page.evaluate(() => ({
+    axis: (document.querySelector('#bw-v5-command [name="axisDatumId"]') as HTMLSelectElement).value,
+    angle: Number((document.querySelector('#bw-v5-command [name="angle"]') as HTMLInputElement).value),
+  }));
+  check('browser Rotate exposes snapped 3D rings synchronized to the selected canonical axis',
+    rotateGizmo.attached && rotateGizmo.mode === 'rotate' && close(rotateGizmo.rotationSnapDegrees, 15) &&
+    rotateFields.axis === 'datum-origin-z' && close(rotateFields.angle, 30),
+    { rotateGizmo, rotateFields });
+  await page.$eval('#bw-v5-command-cancel', (element: any) => element.click());
+  const afterRotateCancel = await page.evaluate(() => ({ json: (window as any).__bwStudio.docJson(), undo: (window as any).__bwStudio.undoDepth() }));
+  check('browser 3D rotation preview Cancel restores the exact document and stack', JSON.stringify(beforeCancel) === JSON.stringify(afterRotateCancel));
+
   await page.$eval(`#bw-datum-tree [data-datum-id="${browserStationId}"] [data-datum-action="edit"]`, (element: any) => element.click());
   await page.select('#bw-v5-command [name="mode"]', 'midplane');
   await page.select('#bw-v5-command [name="firstDatumId"]', 'datum-origin-yz');
@@ -344,6 +402,23 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   }));
   check('browser recovery reload preserves the exact datum/transform document and stable IDs',
     reloaded.hash === hashBefore && JSON.stringify(reloaded.bodyIds) === JSON.stringify(persistedIds.bodyIds) && JSON.stringify(reloaded.datumIds) === JSON.stringify(persistedIds.datumIds));
+
+  const browserBrokenProject = updateStudioV5Datum(createDatumTransformProject(), DATUM_IDS.station165, {
+    definition: { mode: 'offset', referenceDatumId: 'datum-missing-browser-plane', offset: 165 },
+  }, { allowBroken: true });
+  await openProject(page, browserBrokenProject);
+  const repairControl = await page.$eval(`#bw-datum-tree [data-datum-id="${DATUM_IDS.station165}"]`, (row) => ({
+    broken: row.getAttribute('data-broken'),
+    label: row.querySelector('[data-datum-action="edit"]')?.textContent,
+  }));
+  check('browser broken-reference tree exposes an explicit Repair control', repairControl.broken === 'true' && repairControl.label === 'Repair', repairControl);
+  await page.$eval(`#bw-datum-tree [data-datum-id="${DATUM_IDS.station165}"] [data-datum-action="edit"]`, (element: any) => element.click());
+  await page.select('#bw-v5-command [name="referenceDatumId"]', DATUM_IDS.yz);
+  const beforeRepair = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeRepair);
+  check('browser reference repair keeps the datum identity and clears the broken state transactionally',
+    await page.$eval(`#bw-datum-tree [data-datum-id="${DATUM_IDS.station165}"]`, (row) => row.getAttribute('data-broken') === 'false'));
   check('browser 5B gate has no page errors or native dialogs', pageErrors.length === 0 && dialogs.length === 0, { pageErrors, dialogs });
   await context.close();
 }

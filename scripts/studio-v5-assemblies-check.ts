@@ -48,6 +48,10 @@ function datumRef(ownerId: string, occurrenceId: string, role: string) {
   return { ownerKind: 'datum', ownerId, occurrencePath: [occurrenceId], semanticPath: { role }, signature: { role } };
 }
 
+function planarFaceRef(ownerId: string, occurrenceId: string, p: number[], n: number[], role: string) {
+  return { ownerKind: 'body', ownerId, occurrencePath: [occurrenceId], semanticPath: { role, topologyKind: 'planar-face' }, signature: { topologyKind: 'planar-face', p, n } };
+}
+
 async function documentChecks(): Promise<void> {
   console.log('\nSlice 5E assembly documents and solver');
   const project = createSolvedAssemblyProject();
@@ -84,6 +88,13 @@ async function documentChecks(): Promise<void> {
   check('linked duplicate reuses the same part definition without copying feature history',
     studioV5RootAssembly(linked).occurrences.find((entry: any) => entry.id === 'occurrence-turbine-linked').definition.partId ===
       studioV5RootAssembly(linked).occurrences.find((entry: any) => entry.id === ASSEMBLY_IDS.turbine).definition.partId && linked.partDefinitions.length === project.partDefinitions.length);
+  const variant = updateStudioV5ComponentOccurrence(project, ASSEMBLY_IDS.compressor, { parameterOverrides: { moduleLength: 30 } });
+  const variantOccurrence = studioV5RootAssembly(variant).occurrences.find((entry: any) => entry.id === ASSEMBLY_IDS.compressor);
+  const variantSolved = solveStudioV5Assembly(variant, ASSEMBLY_IDS.root);
+  check('component variant overrides remain occurrence-local and flow into patterned leaf instances',
+    variantOccurrence.parameterOverrides.moduleLength === 30 &&
+    variant.partDefinitions.find((entry: any) => entry.id === variantOccurrence.definition.partId).parameters.find((entry: any) => entry.name === 'moduleLength').value === 18 &&
+    variantSolved.leafOccurrences.filter((entry: any) => entry.sourceOccurrenceId === ASSEMBLY_IDS.compressor).every((entry: any) => entry.parameterOverrides.moduleLength === 30));
   const independent = makeStudioV5OccurrenceIndependent(linked, 'occurrence-turbine-linked', { partId: 'part-turbine-independent', name: 'Independent turbine' });
   check('Make independent creates one remapped editable definition and retargets only that occurrence',
     independent.partDefinitions.length === project.partDefinitions.length + 1 && studioV5RootAssembly(independent).occurrences.find((entry: any) => entry.id === 'occurrence-turbine-linked').definition.partId === 'part-turbine-independent' &&
@@ -91,9 +102,12 @@ async function documentChecks(): Promise<void> {
 
   const parts = sourceIds();
   const replaced = replaceStudioV5ComponentOccurrence(project, ASSEMBLY_IDS.turbine, { kind: 'part', partId: parts['Compressor drum'] });
-  check('Replace retargets one component and drops only mates whose datum owners are incompatible',
+  const repairedTurbineMates = studioV5RootAssembly(replaced).mates.filter((mate: any) => mate.occurrenceIds.includes(ASSEMBLY_IDS.turbine));
+  check('Replace retargets one component and repairs compatible datum owners without dropping unrelated mates',
     studioV5RootAssembly(replaced).occurrences.find((entry: any) => entry.id === ASSEMBLY_IDS.turbine).definition.partId === parts['Compressor drum'] &&
-    studioV5RootAssembly(replaced).mates.length === assembly.mates.length - 3 && studioV5RootAssembly(replaced).mates.some((mate: any) => mate.id === 'mate-compressor-distance'));
+    studioV5RootAssembly(replaced).mates.length === assembly.mates.length && studioV5RootAssembly(replaced).mates.some((mate: any) => mate.id === 'mate-compressor-distance') &&
+    repairedTurbineMates.length === 3 && repairedTurbineMates.every((mate: any) => mate.references.some((reference: any) =>
+      reference.occurrencePath.includes(ASSEMBLY_IDS.turbine) && reference.ownerId.startsWith('datum-compressor-') && reference.signature?.repairedFromOwnerId?.startsWith('datum-turbine-'))));
 
   const context = enterStudioV5AssemblyContext(project, ASSEMBLY_IDS.compressor);
   check('edit in context activates the linked source part and stores an explicit occurrence breadcrumb',
@@ -131,6 +145,39 @@ async function documentChecks(): Promise<void> {
     return solveStudioV5Assembly(prepared, ASSEMBLY_IDS.root);
   });
   check('solver accepts all ten required rigid mate types with explicit occurrence references', kindResults.every((result: any) => result.errors.length === 0), kindResults.map((result: any) => result.errors));
+
+  const topologyProject: any = canonicalStudioV5Project(project);
+  const topologyRoot = topologyProject.assemblyDefinitions.find((entry: any) => entry.id === ASSEMBLY_IDS.root);
+  topologyRoot.mates = [{
+    id: 'mate-topology-coincident', name: 'Direct planar faces', kind: 'coincident',
+    occurrenceIds: [ASSEMBLY_IDS.nacelle, ASSEMBLY_IDS.compressor],
+    references: [
+      planarFaceRef('body-nacelle', ASSEMBLY_IDS.nacelle, [0, 0, 12], [0, 0, 1], 'anchor'),
+      planarFaceRef('body-compressor', ASSEMBLY_IDS.compressor, [0, 0, 9], [0, 0, 1], 'moving'),
+    ],
+    value: 0, suppressed: false,
+  }];
+  topologyRoot.occurrencePatterns = [];
+  const topologySolved = solveStudioV5Assembly(prepareStudioV5Project(topologyProject), ASSEMBLY_IDS.root);
+  check('solver resolves persistent planar-face topology signatures through component occurrence transforms',
+    topologySolved.errors.length === 0 && close(topologySolved.transforms.get(ASSEMBLY_IDS.compressor)[14], 3),
+    { errors: topologySolved.errors, transform: topologySolved.transforms.get(ASSEMBLY_IDS.compressor) });
+
+  const closedGraph: any = canonicalStudioV5Project(project);
+  const closedRoot = closedGraph.assemblyDefinitions.find((entry: any) => entry.id === ASSEMBLY_IDS.root);
+  closedRoot.occurrencePatterns = [];
+  closedRoot.mates = [
+    { id: 'mate-closed-fixed', name: 'Fix anchor', kind: 'fixed', occurrenceIds: [ASSEMBLY_IDS.nacelle], references: [], suppressed: false },
+    { id: 'mate-closed-ab', name: 'A to B', kind: 'distance', occurrenceIds: [ASSEMBLY_IDS.nacelle, ASSEMBLY_IDS.compressor], references: [datumRef('datum-nacelle-station', ASSEMBLY_IDS.nacelle, 'anchor'), datumRef('datum-compressor-station', ASSEMBLY_IDS.compressor, 'moving')], value: 10, suppressed: false },
+    { id: 'mate-closed-bc', name: 'B to C', kind: 'distance', occurrenceIds: [ASSEMBLY_IDS.compressor, ASSEMBLY_IDS.turbine], references: [datumRef('datum-compressor-station', ASSEMBLY_IDS.compressor, 'anchor'), datumRef('datum-turbine-station', ASSEMBLY_IDS.turbine, 'moving')], value: 10, suppressed: false },
+    { id: 'mate-closed-ac', name: 'A to C', kind: 'distance', occurrenceIds: [ASSEMBLY_IDS.nacelle, ASSEMBLY_IDS.turbine], references: [datumRef('datum-nacelle-station', ASSEMBLY_IDS.nacelle, 'anchor'), datumRef('datum-turbine-station', ASSEMBLY_IDS.turbine, 'moving')], value: 25, suppressed: false },
+  ];
+  const closedSolved = solveStudioV5Assembly(prepareStudioV5Project(closedGraph), ASSEMBLY_IDS.root);
+  check('solver verifies the final closed mate graph and reports the three driving constraints when a later solve invalidates an earlier mate',
+    closedSolved.state === 'conflicting' && closedSolved.errors.some((entry: any) => entry.mateId === 'mate-closed-bc' &&
+      ['mate-closed-ab', 'mate-closed-bc', 'mate-closed-ac'].every((id) => entry.conflictSet.includes(id))) &&
+    closedSolved.residuals.some((entry: any) => entry.mateId === 'mate-closed-bc' && close(entry.residual, 5)),
+    { errors: closedSolved.errors, residuals: closedSolved.residuals });
 
   const conflict = createStudioV5AssemblyMate(project, {
     id: 'mate-compressor-distance-conflict', name: 'Conflicting compressor station', kind: 'distance',
@@ -218,13 +265,34 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
 
   const edited: any = canonicalStudioV5Project(project);
   const compressorPart = edited.partDefinitions.find((part: any) => part.name === 'Compressor drum');
-  compressorPart.features.find((feature: any) => feature.id === 'feature-compressor-solid').h = 26;
+  compressorPart.parameters.find((parameter: any) => parameter.name === 'moduleLength').value = 26;
   const editedPrepared = prepareStudioV5Project(edited);
   const sourceEdited = await workerRequest(page, { kind: 'rebuild', revision: 2, document: editedPrepared });
   const editedCompressors = sourceEdited.bodies.filter((entry: any) => entry.bodyName.includes('Compressor'));
   check('editing one source part rebuilds every linked occurrence and keeps unrelated parts cached',
     editedCompressors.every((entry: any) => close(entry.geometry.volume, editedCompressors[0].geometry.volume)) &&
     !close(editedCompressors[0].geometry.volume, compressorBodies[0].geometry.volume) && sourceEdited.evaluation.reusedBodyIds.includes('body-nacelle') && sourceEdited.evaluation.reusedBodyIds.includes('body-turbine'));
+
+  let variantProject = updateStudioV5ComponentOccurrence(project, ASSEMBLY_IDS.compressor, { parameterOverrides: { moduleLength: 30 } });
+  variantProject = duplicateStudioV5LinkedOccurrence(variantProject, ASSEMBLY_IDS.compressor, {
+    id: 'occurrence-compressor-short', name: 'Compressor short:1', baseTransform: studioV5TranslationMatrix([0, 0, 170]),
+  });
+  variantProject = updateStudioV5ComponentOccurrence(variantProject, 'occurrence-compressor-short', { parameterOverrides: { moduleLength: 12 } });
+  const variantResult = await workerRequest(page, { kind: 'rebuild', revision: 21, document: variantProject });
+  const longBodies = variantResult.bodies.filter((entry: any) => entry.occurrenceInstance?.sourceOccurrenceId === ASSEMBLY_IDS.compressor);
+  const shortBody = occurrenceBodies(variantResult, 'occurrence-compressor-short')[0];
+  check('kernel evaluates distinct exact component variants and shares one mesh only among identical overrides',
+    longBodies.length === 3 && new Set(longBodies.map((entry: any) => Math.round(entry.geometry.volume))).size === 1 &&
+    longBodies.filter((entry: any) => entry.mesh).length === 1 && shortBody.mesh && !close(shortBody.geometry.volume, longBodies[0].geometry.volume) &&
+    variantResult.evaluation.evaluatedVariantKeys.length === 6,
+    { long: longBodies.map((entry: any) => ({ mesh: Boolean(entry.mesh), volume: entry.geometry.volume, source: entry.renderSourceBodyId })), short: { mesh: Boolean(shortBody?.mesh), volume: shortBody?.geometry?.volume }, variants: variantResult.evaluation.evaluatedVariantKeys });
+  const changedVariant = updateStudioV5ComponentOccurrence(variantProject, 'occurrence-compressor-short', { parameterOverrides: { moduleLength: 14 } });
+  const changedVariantResult = await workerRequest(page, { kind: 'rebuild', revision: 22, document: changedVariant });
+  const compressorLongKey = changedVariantResult.bodies.find((entry: any) => entry.occurrenceInstance?.sourceOccurrenceId === ASSEMBLY_IDS.compressor)?.occurrenceInstance.variantKey;
+  check('editing one variant rebuilds only its variant cache while the other component definitions stay exact and reusable',
+    changedVariantResult.evaluation.reusedVariantBodyIds.some((key: string) => key.startsWith(compressorLongKey + ':')) &&
+    changedVariantResult.evaluation.evaluatedVariantBodyIds.some((key: string) => key.includes('body-compressor')),
+    changedVariantResult.evaluation);
 
   const moved = updateStudioV5AssemblyMate(editedPrepared, 'mate-compressor-distance', { value: 43 });
   const movedResult = await workerRequest(page, { kind: 'rebuild', revision: 3, document: moved });
@@ -305,6 +373,16 @@ async function waitForStudio(page: Page, revisionAfter?: number): Promise<void> 
   }, { timeout: 60_000, polling: 250 }, revisionAfter ?? null);
 }
 
+function installSemanticControlActivation(page: Page): void {
+  page.click = (async (selector: string) => {
+    await page.evaluate((value) => {
+      const element = document.querySelector(value) as HTMLElement | null;
+      if (!element) throw new Error(`Slice 5E browser control is missing: ${value}`);
+      element.focus(); element.click();
+    }, selector);
+  }) as Page['click'];
+}
+
 async function openProject(page: Page, project: any): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), 'bomwiki-slice5e-'));
   const filename = join(directory, 'slice5e.bomcad.json');
@@ -331,6 +409,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   console.log('\nSlice 5E visible browser assembly gate');
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  installSemanticControlActivation(page);
   const pageErrors: string[] = [];
   const dialogs: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
@@ -344,7 +423,11 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     Boolean(await page.$('[data-workspace="assembly"]')) && Boolean(await page.$('#bw-assembly-tree')) && Boolean(await page.$('#bw-mate-tree')) &&
     (await page.$$('[data-assembly-mate]')).length === 10);
 
-  await openProject(page, createThreeBodyRuntimeProject({ boolean: false, projectId: 'project-visible-assembly-authoring' }));
+  const authoringPart: any = createThreeBodyRuntimeProject({ boolean: false, projectId: 'project-visible-assembly-authoring' });
+  const authoringDefinition = authoringPart.partDefinitions[0];
+  authoringDefinition.parameters.push({ id: 'parameter-variant-height', name: 'variantHeight', value: 20, unit: 'length' });
+  authoringDefinition.features.find((entry: any) => entry.id === 'feature-shaft').h = 'variantHeight';
+  await openProject(page, prepareStudioV5Project(authoringPart));
   await page.click('[data-workspace="assembly"]');
   await page.click('[data-assembly-command="create"]');
   await page.waitForSelector('#bw-v5-command[open]');
@@ -366,9 +449,49 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     occurrenceIds.length === 2 && (await page.evaluate(() => JSON.parse((window as any).__bwStudio.docJson()).partDefinitions.length)) === 1 &&
     (await page.evaluate(() => (window as any).__bwStudio.bodyResults().length)) === 6);
   await page.evaluate((occurrenceId) => (window as any).__bwStudio.selectOccurrenceForTest(occurrenceId), secondOccurrence);
+  await page.click('[data-assembly-command="variant"]');
+  await page.waitForSelector('#bw-v5-command[open]');
+  await page.$eval('#bw-v5-command [name="parameterOverrides"]', (element: any) => { element.value = 'variantHeight = 32'; });
+  await submitVisibleCommand(page);
+  const visibleVariant = await page.evaluate((occurrenceId) => {
+    const project = JSON.parse((window as any).__bwStudio.docJson());
+    const root = project.assemblyDefinitions.find((entry: any) => entry.id === project.rootDocument.assemblyId);
+    return { occurrence: root.occurrences.find((entry: any) => entry.id === occurrenceId), bodies: (window as any).__bwStudio.bodyResults().filter((entry: any) => entry.occurrenceInstance?.occurrenceId === occurrenceId) };
+  }, secondOccurrence);
+  check('browser edits occurrence-local variant parameters transactionally and rebuilds the selected exact component',
+    visibleVariant.occurrence.parameterOverrides.variantHeight === '32' && visibleVariant.bodies.some((entry: any) => entry.occurrenceInstance?.variantKey));
+
+  const transformBefore = await page.evaluate(() => (window as any).__bwStudio.docJson());
+  await page.click('[data-assembly-command="transform"]');
+  await page.waitForSelector('#bw-v5-command[open]');
+  const transformAttached = await page.evaluate((occurrenceId) => {
+    const studio = (window as any).__bwStudio;
+    return studio.gizmoState().attached && studio.gizmoState().occurrenceId === occurrenceId && studio.gizmoTranslateForTest([5, 0, 0]);
+  }, secondOccurrence);
+  const previewMatrix = await page.$eval('#bw-v5-command [name="matrix"]', (element: any) => element.value);
+  await page.click('#bw-v5-command-cancel');
+  check('browser occurrence gizmo previews a snapped direct transform and Cancel leaves the assembly byte-identical',
+    transformAttached && previewMatrix !== '' && await page.evaluate(() => (window as any).__bwStudio.docJson()) === transformBefore);
+  await page.click('[data-assembly-command="transform"]');
+  await page.waitForSelector('#bw-v5-command[open]');
+  await page.evaluate(() => (window as any).__bwStudio.gizmoTranslateForTest([5, 0, 0]));
+  await submitVisibleCommand(page);
+  const appliedTransform = await page.evaluate((occurrenceId) => {
+    const project = JSON.parse((window as any).__bwStudio.docJson());
+    return project.assemblyDefinitions.find((entry: any) => entry.id === project.rootDocument.assemblyId).occurrences.find((entry: any) => entry.id === occurrenceId).baseTransform;
+  }, secondOccurrence);
+  check('browser Apply commits the direct 3D occurrence transform as one rigid transactional edit', close(appliedTransform[12], 5) && close(appliedTransform[14], 35), appliedTransform);
+
+  await page.click('[data-assembly-mate="coincident"]');
+  await page.waitForSelector('#bw-v5-command[open]');
+  const topologyOptions = await page.$$eval('#bw-v5-command [name="anchorReference"] option, #bw-v5-command [name="movingReference"] option',
+    (elements) => elements.map((element) => element.textContent || '').filter((text) => /planar face/.test(text)));
+  await page.click('#bw-v5-command-cancel');
+  check('browser mate editor lists direct planar B-rep faces from both selected component occurrences', topologyOptions.length >= 4, topologyOptions);
 
   const mateKinds = ['fixed', 'coincident', 'concentric', 'distance', 'angle', 'parallel', 'perpendicular', 'tangent', 'revolute', 'slider'];
   const authoredKinds: string[] = [];
+  let topologyAuthored = false;
   for (const kind of mateKinds) {
     await page.click(`[data-assembly-mate="${kind}"]`);
     await page.waitForSelector('#bw-v5-command[open]');
@@ -376,9 +499,11 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     const mateState = await page.evaluate(() => ({ ids: (window as any).__bwStudio.mateIds(), json: JSON.parse((window as any).__bwStudio.docJson()) }));
     const root = mateState.json.assemblyDefinitions.find((entry: any) => entry.id === mateState.json.rootDocument.assemblyId);
     if (mateState.ids.length === 1 && root.mates[0]?.kind === kind) authoredKinds.push(kind);
+    if (kind === 'coincident') topologyAuthored = root.mates[0]?.references?.every((reference: any) => reference.ownerKind === 'body' && reference.signature?.topologyKind === 'planar-face');
     await undo(page);
   }
   check('browser authors every required mate kind through Apply and one-command undo', authoredKinds.join(',') === mateKinds.join(','), authoredKinds);
+  check('browser persists direct topology signatures instead of reducing face mates to component origins', topologyAuthored);
 
   const beforeInvalid = await page.evaluate(() => ({ json: (window as any).__bwStudio.docJson(), undo: (window as any).__bwStudio.undoDepth(), redo: (window as any).__bwStudio.redoDepth() }));
   await page.click('[data-assembly-mate="distance"]');

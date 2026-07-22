@@ -111,6 +111,14 @@ async function workerRequest(page: Page, payload: any): Promise<any> {
   }, payload);
 }
 
+async function restartInterchangeWorker(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const state = window as any;
+    state.__interchangeWorker?.terminate();
+    state.__interchangeWorker = null;
+  });
+}
+
 function withoutBomwikiManifest(text: string): string {
   return text.replace(/\/\*BOMWIKI_V5_MANIFEST:[A-Za-z0-9+/=]+\*\/\n?/, '');
 }
@@ -125,19 +133,27 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
   console.log('\nSlice 5F exact STEP interchange worker');
   const page = await browser.newPage();
   await page.goto(url, { waitUntil: 'domcontentloaded' });
-  const source = createSolvedAssemblyProject();
+  const sourceDraft: any = canonicalStudioV5Project(createSolvedAssemblyProject());
+  sourceDraft.materials.push({
+    id: 'material-step-proof', name: 'STEP proof alloy', densityKgM3: 2810, appearanceId: 'appearance-step-proof', source: 'interchange regression',
+    extensions: { studioAppearance: { baseColor: '#3f81b5', metallic: 0.55, roughness: 0.32, opacity: 1, edgeColor: '#1d3447' } },
+  });
+  sourceDraft.partDefinitions.find((part: any) => part.name === 'Nacelle').bodies[0].materialId = 'material-step-proof';
+  sourceDraft.partDefinitions.find((part: any) => part.name === 'Nacelle').bodies[0].appearanceId = 'appearance-step-proof';
+  const source = prepareStudioV5Project(sourceDraft);
   const exported = await workerRequest(page, { kind: 'export-step', revision: 1, document: source });
   exportedStepText = exported.stepText;
   const products = (exported.stepText.match(/PRODUCT\('/g) || []).length;
   const usages = (exported.stepText.match(/NEXT_ASSEMBLY_USAGE_OCCURRENCE/g) || []).length;
   check('complete assembly export is a genuine named XCAF product/component hierarchy with an embedded bounded manifest',
     exported.errors.length === 0 && exported.manifest.structuredHierarchy === true && products >= 12 && usages >= 13 &&
-    exported.stepText.includes('BOMWIKI_V5_MANIFEST:'), { products, usages, manifest: exported.manifest });
+    exported.stepText.includes('BOMWIKI_V5_MANIFEST:') && exported.stepText.includes('COLOUR_RGB') && exported.manifest.interchange.materials[0].id === 'material-step-proof', { products, usages, manifest: exported.manifest });
 
   const imported = await workerRequest(page, { kind: 'import-step-v5', revision: 2, filename: 'engine.step', stepText: exported.stepText });
   check('BOMwiki STEP import restores reusable part/subassembly definitions and five shared exact body resources',
     imported.manifest.importMode === 'bomwiki-solved-hierarchy' && imported.project.partDefinitions.length === 5 &&
-    imported.project.assemblyDefinitions.length === 2 && imported.manifest.bodyCount === 5 && imported.project.resources.length === 5,
+    imported.project.assemblyDefinitions.length === 2 && imported.manifest.bodyCount === 5 && imported.project.resources.length === 5 &&
+    imported.project.materials[0].id === 'material-step-proof' && imported.project.partDefinitions.some((part: any) => part.bodies.some((body: any) => body.materialId === 'material-step-proof')),
     imported.manifest);
   check('round-trip document explicitly retains solved placements but no recovered mates or parametric feature history',
     imported.project.assemblyDefinitions.every((assembly: any) => assembly.mates.length === 0 && assembly.occurrencePatterns.length === 0) &&
@@ -151,6 +167,7 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
     rebuilt.bodies.some((body: any) => body.occurrenceInstance.occurrencePath.length === 2), rebuilt.errors);
 
   const reexported = await workerRequest(page, { kind: 'export-step', revision: 4, document: preparedImported });
+  await restartInterchangeWorker(page);
   const reimported = await workerRequest(page, { kind: 'import-step-v5', revision: 5, filename: 'engine-roundtrip.step', stepText: reexported.stepText });
   check('re-export and second import preserve definition, occurrence, and exact-body counts',
     reexported.manifest.structuredHierarchy === true && reimported.project.partDefinitions.length === 5 &&
@@ -158,10 +175,21 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
 
   const external = await workerRequest(page, { kind: 'import-step-v5', revision: 6, filename: 'external.step', stepText: withoutBomwikiManifest(exported.stepText) });
   const externalRebuild = await workerRequest(page, { kind: 'rebuild', revision: 7, document: external.project });
-  check('third-party STEP without the sidecar uses an honest flat multi-body fallback while preserving every exact solid',
-    external.manifest.importMode === 'flat-solid-fallback' && external.project.partDefinitions.length === 1 && external.project.partDefinitions[0].bodies.length === 7 &&
-    external.project.assemblyDefinitions.length === 1 && externalRebuild.bodies.length === 7 && externalRebuild.errors.length === 0 &&
-    external.manifest.limitations.includes('external-product-hierarchy-unavailable'), external.manifest);
+  check('third-party STEP without the sidecar recovers AP242 products, nesting, names, palette, units, and every exact solid',
+    external.manifest.importMode === 'external-product-hierarchy' && external.project.partDefinitions.length === 7 &&
+    external.project.assemblyDefinitions.length === 2 && externalRebuild.bodies.length === 7 && externalRebuild.errors.length === 0 &&
+    external.project.metadata.sourceUnits === 'mm' && external.project.materials.length > 0 &&
+    external.project.assemblyDefinitions.some((assembly: any) => assembly.name === 'Fan rotor') &&
+    !external.manifest.limitations.includes('external-product-hierarchy-unavailable'), external.manifest);
+
+  const metreText = withoutBomwikiManifest(exported.stepText).replace(/SI_UNIT\(\.MILLI\.,\s*\.METRE\.\)/g, 'SI_UNIT($,.METRE.)');
+  const metreExternal = await workerRequest(page, { kind: 'import-step-v5', revision: 71, filename: 'external-metres.step', stepText: metreText });
+  const metreRebuild = await workerRequest(page, { kind: 'rebuild', revision: 72, document: metreExternal.project });
+  const mmSpan = externalRebuild.bodies[0].geometry.bounds[1][0] - externalRebuild.bodies[0].geometry.bounds[0][0];
+  const metreSpan = metreRebuild.bodies[0].geometry.bounds[1][0] - metreRebuild.bodies[0].geometry.bounds[0][0];
+  check('third-party metre STEP is normalized to internal millimetres while retaining source-unit metadata',
+    metreExternal.project.metadata.sourceUnits === 'm' && metreExternal.project.metadata.sourceUnitScaleToMm === 1000 && Math.abs(metreSpan - mmSpan * 1000) <= Math.max(1, Math.abs(mmSpan * 1000)) * 1e-6,
+    { mmSpan, metreSpan, metadata: metreExternal.project.metadata });
 
   const selectedBodyId = rebuilt.bodies.find((body: any) => body.bodyName.startsWith('Turbine'))?.bodyId;
   const selected = await workerRequest(page, { kind: 'export-step', revision: 8, document: preparedImported, bodyIds: [selectedBodyId] });
@@ -268,6 +296,19 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   check('browser can re-export the recovered complete assembly as structured STEP',
     reexport.errors.length === 0 && reexport.size > 500 && reexport.manifest.structuredHierarchy === true &&
     reexport.text.includes('NEXT_ASSEMBLY_USAGE_OCCURRENCE') && reexport.text.includes('BOMWIKI_V5_MANIFEST:'), reexport.manifest);
+  const browserRoundTrip = await page.evaluate(async (stepText) => {
+    const studio = (window as any).__bwStudio;
+    const restartsBefore = studio.kernelRestartCount();
+    const result = await studio.importStepForTest(new Blob([stepText], { type: 'application/STEP' }), 'browser-roundtrip.step');
+    return {
+      restartsBefore, restartsAfter: studio.kernelRestartCount(),
+      parts: result.project.partDefinitions.length, assemblies: result.project.assemblyDefinitions.length,
+      bodies: result.manifest.bodyCount,
+    };
+  }, reexport.text);
+  check('browser re-imports its own recovered XCAF export, resetting and retrying once if the long-lived STEP reader faults',
+    browserRoundTrip.parts === 5 && browserRoundTrip.assemblies === 2 && browserRoundTrip.bodies === 5 &&
+    browserRoundTrip.restartsAfter - browserRoundTrip.restartsBefore <= 1, browserRoundTrip);
 
   const beforeStale = await page.evaluate(() => ({
     projectId: (window as any).__bwStudio.projectId(), revision: (window as any).__bwStudio.documentRevision(),

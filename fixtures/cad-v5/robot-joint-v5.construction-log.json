@@ -1,0 +1,843 @@
+[
+  {
+    "transactionId": "tx-release-001",
+    "label": "Build swept robot-joint bracket",
+    "expectedRevision": 0,
+    "atomic": true,
+    "operations": [
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-xy",
+          "name": "Robot XY",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              0,
+              1
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "sketch.profile.create",
+        "input": {
+          "id": "sketch-robot-profile",
+          "name": "Bracket profile",
+          "planeDatumId": "datum-robot-xy",
+          "curveKind": "polyline",
+          "points": [
+            [
+              -8,
+              -5
+            ],
+            [
+              8,
+              -5
+            ],
+            [
+              8,
+              5
+            ],
+            [
+              -8,
+              5
+            ]
+          ]
+        }
+      },
+      {
+        "kind": "sketch.path.create",
+        "input": {
+          "id": "sketch-robot-path",
+          "name": "Bracket sweep path",
+          "curveKind": "spline",
+          "points": [
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              45
+            ],
+            [
+              25,
+              0,
+              70
+            ],
+            [
+              45,
+              0,
+              70
+            ]
+          ]
+        }
+      },
+      {
+        "kind": "feature.sweep",
+        "input": {
+          "id": "feature-robot-arm",
+          "name": "Swept robot arm",
+          "bodyName": "Robot arm",
+          "profileSketchId": "sketch-robot-profile",
+          "pathSketchId": "sketch-robot-path",
+          "orientation": "minimum-twist",
+          "transition": "round"
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-mirror",
+          "name": "Robot mirror plane",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "body.transform",
+        "input": {
+          "id": "feature-robot-mirror",
+          "name": "Mirrored bracket arm",
+          "bodyId": "body-feature-robot-arm",
+          "bodyName": "Mirrored robot arm",
+          "copy": true,
+          "transform": {
+            "mode": "mirror",
+            "planeDatumId": "datum-robot-mirror"
+          }
+        }
+      },
+      {
+        "kind": "assembly.create",
+        "input": {
+          "id": "assembly-robot-joint",
+          "name": "Robot joint",
+          "occurrenceId": "occurrence-robot-bracket",
+          "fixed": true
+        }
+      }
+    ],
+    "metadata": {
+      "actor": "agent",
+      "clientLabel": "Canonical generic V5 construction replay"
+    }
+  },
+  {
+    "transactionId": "tx-release-002",
+    "label": "Build Robot joint shaft",
+    "expectedRevision": 1,
+    "atomic": true,
+    "operations": [
+      {
+        "kind": "component.createPart",
+        "input": {
+          "partId": "part-robot-shaft",
+          "name": "Robot joint shaft",
+          "occurrenceId": "occurrence-robot-shaft",
+          "occurrenceName": "Robot joint shaft:1",
+          "fixed": false,
+          "enterContext": true
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-shaft-axis",
+          "name": "robot-shaft axis",
+          "datumKind": "axis",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "direction": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-shaft-station",
+          "name": "robot-shaft station",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "xDirection": [
+              0,
+              1,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-shaft-xz",
+          "name": "robot-shaft longitudinal plane",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "sketch.profile.create",
+        "input": {
+          "id": "sketch-robot-shaft-body",
+          "name": "Robot joint shaft profile",
+          "planeDatumId": "datum-robot-shaft-xz",
+          "curveKind": "polyline",
+          "points": [
+            [
+              -25,
+              0
+            ],
+            [
+              -25,
+              8
+            ],
+            [
+              25,
+              8
+            ],
+            [
+              25,
+              0
+            ]
+          ]
+        }
+      },
+      {
+        "kind": "feature.revolveProfile",
+        "input": {
+          "id": "feature-robot-shaft-body",
+          "name": "Robot joint shaft",
+          "bodyName": "Robot joint shaft",
+          "profileSketchId": "sketch-robot-shaft-body",
+          "axisDatumId": "datum-robot-shaft-axis",
+          "angle": 360
+        }
+      },
+      {
+        "kind": "assembly.context.exit",
+        "input": {}
+      }
+    ],
+    "metadata": {
+      "actor": "agent",
+      "clientLabel": "Canonical generic V5 construction replay"
+    }
+  },
+  {
+    "transactionId": "tx-release-003",
+    "label": "Build Robot joint bearing",
+    "expectedRevision": 2,
+    "atomic": true,
+    "operations": [
+      {
+        "kind": "component.createPart",
+        "input": {
+          "partId": "part-robot-bearing",
+          "name": "Robot joint bearing",
+          "occurrenceId": "occurrence-robot-bearing",
+          "occurrenceName": "Robot joint bearing:1",
+          "fixed": false,
+          "enterContext": true
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-bearing-axis",
+          "name": "robot-bearing axis",
+          "datumKind": "axis",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "direction": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-bearing-station",
+          "name": "robot-bearing station",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "xDirection": [
+              0,
+              1,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-bearing-xz",
+          "name": "robot-bearing longitudinal plane",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "sketch.profile.create",
+        "input": {
+          "id": "sketch-robot-bearing-body",
+          "name": "Robot joint bearing profile",
+          "planeDatumId": "datum-robot-bearing-xz",
+          "curveKind": "polyline",
+          "points": [
+            [
+              -8,
+              8.5
+            ],
+            [
+              -8,
+              16
+            ],
+            [
+              8,
+              16
+            ],
+            [
+              8,
+              8.5
+            ]
+          ]
+        }
+      },
+      {
+        "kind": "feature.revolveProfile",
+        "input": {
+          "id": "feature-robot-bearing-body",
+          "name": "Robot joint bearing",
+          "bodyName": "Robot joint bearing",
+          "profileSketchId": "sketch-robot-bearing-body",
+          "axisDatumId": "datum-robot-bearing-axis",
+          "angle": 360
+        }
+      },
+      {
+        "kind": "assembly.context.exit",
+        "input": {}
+      }
+    ],
+    "metadata": {
+      "actor": "agent",
+      "clientLabel": "Canonical generic V5 construction replay"
+    }
+  },
+  {
+    "transactionId": "tx-release-004",
+    "label": "Build Robot joint motor",
+    "expectedRevision": 3,
+    "atomic": true,
+    "operations": [
+      {
+        "kind": "component.createPart",
+        "input": {
+          "partId": "part-robot-motor",
+          "name": "Robot joint motor",
+          "occurrenceId": "occurrence-robot-motor",
+          "occurrenceName": "Robot joint motor:1",
+          "fixed": false,
+          "enterContext": true
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-motor-axis",
+          "name": "robot-motor axis",
+          "datumKind": "axis",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "direction": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-motor-station",
+          "name": "robot-motor station",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "xDirection": [
+              0,
+              1,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-motor-xz",
+          "name": "robot-motor longitudinal plane",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "sketch.profile.create",
+        "input": {
+          "id": "sketch-robot-motor-body",
+          "name": "Robot joint motor profile",
+          "planeDatumId": "datum-robot-motor-xz",
+          "curveKind": "polyline",
+          "points": [
+            [
+              -22,
+              0
+            ],
+            [
+              -22,
+              28
+            ],
+            [
+              22,
+              28
+            ],
+            [
+              22,
+              0
+            ]
+          ]
+        }
+      },
+      {
+        "kind": "feature.revolveProfile",
+        "input": {
+          "id": "feature-robot-motor-body",
+          "name": "Robot joint motor",
+          "bodyName": "Robot joint motor",
+          "profileSketchId": "sketch-robot-motor-body",
+          "axisDatumId": "datum-robot-motor-axis",
+          "angle": 360
+        }
+      },
+      {
+        "kind": "assembly.context.exit",
+        "input": {}
+      }
+    ],
+    "metadata": {
+      "actor": "agent",
+      "clientLabel": "Canonical generic V5 construction replay"
+    }
+  },
+  {
+    "transactionId": "tx-release-005",
+    "label": "Build Robot joint cover",
+    "expectedRevision": 4,
+    "atomic": true,
+    "operations": [
+      {
+        "kind": "component.createPart",
+        "input": {
+          "partId": "part-robot-cover",
+          "name": "Robot joint cover",
+          "occurrenceId": "occurrence-robot-cover",
+          "occurrenceName": "Robot joint cover:1",
+          "fixed": false,
+          "enterContext": true
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-cover-axis",
+          "name": "robot-cover axis",
+          "datumKind": "axis",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "direction": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-cover-station",
+          "name": "robot-cover station",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "xDirection": [
+              0,
+              1,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "datum.create",
+        "input": {
+          "id": "datum-robot-cover-xz",
+          "name": "robot-cover longitudinal plane",
+          "datumKind": "plane",
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "kind": "sketch.profile.create",
+        "input": {
+          "id": "sketch-robot-cover-body",
+          "name": "Robot joint cover profile",
+          "planeDatumId": "datum-robot-cover-xz",
+          "curveKind": "polyline",
+          "points": [
+            [
+              -10,
+              17
+            ],
+            [
+              -10,
+              31
+            ],
+            [
+              10,
+              31
+            ],
+            [
+              10,
+              17
+            ]
+          ]
+        }
+      },
+      {
+        "kind": "feature.revolveProfile",
+        "input": {
+          "id": "feature-robot-cover-body",
+          "name": "Robot joint cover",
+          "bodyName": "Robot joint cover",
+          "profileSketchId": "sketch-robot-cover-body",
+          "axisDatumId": "datum-robot-cover-axis",
+          "angle": 360
+        }
+      },
+      {
+        "kind": "assembly.context.exit",
+        "input": {}
+      }
+    ],
+    "metadata": {
+      "actor": "agent",
+      "clientLabel": "Canonical generic V5 construction replay"
+    }
+  },
+  {
+    "transactionId": "tx-release-006",
+    "label": "Finish robot-joint inspection and materials",
+    "expectedRevision": 5,
+    "atomic": true,
+    "operations": [
+      {
+        "kind": "component.update",
+        "input": {
+          "occurrenceId": "occurrence-robot-shaft",
+          "patch": {
+            "fixed": true
+          }
+        }
+      },
+      {
+        "kind": "component.update",
+        "input": {
+          "occurrenceId": "occurrence-robot-bearing",
+          "patch": {
+            "baseTransform": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              18,
+              1
+            ],
+            "fixed": true
+          }
+        }
+      },
+      {
+        "kind": "component.update",
+        "input": {
+          "occurrenceId": "occurrence-robot-motor",
+          "patch": {
+            "baseTransform": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              -32,
+              1
+            ],
+            "fixed": true
+          }
+        }
+      },
+      {
+        "kind": "component.update",
+        "input": {
+          "occurrenceId": "occurrence-robot-cover",
+          "patch": {
+            "baseTransform": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              32,
+              1
+            ],
+            "fixed": true
+          }
+        }
+      },
+      {
+        "kind": "material.ensureGeneric",
+        "input": {}
+      },
+      {
+        "kind": "material.assignBody",
+        "input": {
+          "partId": "part-new-0xhkkhb",
+          "bodyId": "body-feature-robot-arm",
+          "materialId": "material-generic-aluminum"
+        }
+      },
+      {
+        "kind": "section.create",
+        "input": {
+          "id": "section-robot-joint",
+          "name": "Robot joint section",
+          "kind": "plane",
+          "planes": [
+            {
+              "normal": [
+                0,
+                1,
+                0
+              ],
+              "offset": 0
+            }
+          ],
+          "cap": true
+        }
+      }
+    ],
+    "metadata": {
+      "actor": "agent",
+      "clientLabel": "Canonical generic V5 construction replay"
+    }
+  }
+]

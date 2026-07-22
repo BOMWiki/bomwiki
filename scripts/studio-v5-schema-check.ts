@@ -173,26 +173,100 @@ const schema4Fixture = {
   schemaVersion: 4,
   title: 'Synthetic V4 constrained part',
   units: 'mm',
-  params: [{ id: 'parameter-width', name: 'width', value: 80 }],
+  params: [{ id: 'parameter-width', name: 'width', expression: '80', vendorUnit: 'nominal' }],
   features: [{
     id: 'feature-schema-4',
     type: 'extrude',
-    sketchId: 'sketch-schema-4',
+    name: 'Constrained base',
+    suppressed: false,
+    plane: { kind: 'base', plane: 'XY' },
     sketch: {
       id: 'sketch-schema-4',
-      entities: [{ id: 'entity-1', kind: 'line' }],
-      constraints: [{ id: 'constraint-1', kind: 'horizontal' }],
+      entities: [
+        { id: 'entity-1', kind: 'line', a: [-40, -20], b: [40, -20], vendorEntity: { retained: true } },
+        { id: 'entity-2', kind: 'line', a: [40, -20], b: [40, 20] },
+        { id: 'entity-3', kind: 'line', a: [40, 20], b: [-40, 20] },
+        { id: 'entity-4', kind: 'line', a: [-40, 20], b: [-40, -20] },
+      ],
+      groups: [{ id: 'group-1', kind: 'rectangle', entityIds: ['entity-1', 'entity-2', 'entity-3', 'entity-4'], creationMode: 'center' }],
+      constraints: [
+        { id: 'constraint-1', kind: 'horizontal', refs: [{ entityId: 'entity-1' }], driving: true },
+        { id: 'constraint-2', kind: 'horizontal-distance', refs: [{ entityId: 'entity-1' }], expression: 'width', driving: true },
+      ],
+      extensions: { sketchUnknown: { retained: true } },
     },
-    h: 5,
+    extent: { kind: 'distance', expression: 'width / 16', reversed: false, symmetric: false },
+    extensions: { featureUnknown: { retained: true } },
   }],
   extensions: { schema4Unknown: { retained: true } },
 };
+const schema4Before = JSON.stringify(schema4Fixture);
 const migrated4 = migrateStudioPartToV5(schema4Fixture);
+const migrated4Again = migrateStudioPartToV5(deepCopy(schema4Fixture));
 const migrated4Feature = migrated4.partDefinitions[0].features[0] as Record<string, any>;
+const migrated4Sketch = migrated4.partDefinitions[0].sketches[0] as Record<string, any>;
 const migrated4Extensions = migrated4.extensions as Record<string, any>;
-check('schema-4 adapter records schema 4 provenance', migrated4.metadata.migratedFromSchema === 4);
-check('schema-4 adapter preserves future entity data opaquely', migrated4Feature.sketch.entities[0].id === 'entity-1');
-check('schema-4 adapter preserves safe extensions', migrated4Extensions.schema4Unknown?.retained === true);
+check('schema-4 migration never mutates its input', JSON.stringify(schema4Fixture) === schema4Before);
+check('schema-4 migration is byte-deterministic', JSON.stringify(migrated4) === JSON.stringify(migrated4Again));
+check('schema-4 migration is idempotent at the schema-5 boundary', JSON.stringify(migrateStudioPartToV5(deepCopy(migrated4))) === JSON.stringify(migrated4));
+check('schema-4 migration records schema 4 provenance', migrated4.metadata.migratedFromSchema === 4);
+check('schema-4 migration promotes the constrained sketch into the part', migrated4Sketch.id === 'sketch-schema-4' && migrated4.partDefinitions[0].sketches.length === 1);
+check('schema-4 migration preserves entity and constraint identity', migrated4Sketch.entities.map((entity: any) => entity.id).join(',') === 'entity-1,entity-2,entity-3,entity-4' && migrated4Sketch.constraints[1].id === 'constraint-2');
+check('schema-4 migration gives the feature an explicit sketch reference', migrated4Feature.inputRefs.some((reference: any) => reference.ownerKind === 'sketch' && reference.ownerId === 'sketch-schema-4'));
+check('schema-4 migration converts the constrained loop for exact legacy evaluation', migrated4Feature.sketch.shapes[0].kind === 'poly' && migrated4Feature.sketch.shapes[0].pts.length === 4);
+check('schema-4 migration preserves expressions verbatim', migrated4.parameters[0].value === '80' && migrated4Feature.h === 'width / 16');
+check('schema-4 migration preserves safe extensions at their migrated object paths',
+  migrated4Extensions.schema4Unknown?.retained === true &&
+  migrated4Sketch.extensions?.sketchUnknown?.retained === true &&
+  migrated4Feature.extensions?.featureUnknown?.retained === true &&
+  migrated4Sketch.entities[0].vendorEntity?.retained === true);
+
+const schema4Rejections: Array<[string, Record<string, any>, string]> = [];
+const duplicateV4Entity = deepCopy(schema4Fixture);
+duplicateV4Entity.features[0].sketch.entities[1].id = 'entity-1';
+schema4Rejections.push(['schema-4 migration rejects duplicate entity identity', duplicateV4Entity, 'DUPLICATE_ID']);
+const danglingV4Group = deepCopy(schema4Fixture);
+danglingV4Group.features[0].sketch.groups[0].entityIds[3] = 'entity-missing';
+schema4Rejections.push(['schema-4 migration rejects dangling group membership', danglingV4Group, 'MISSING_REFERENCE']);
+const danglingV4Constraint = deepCopy(schema4Fixture);
+danglingV4Constraint.features[0].sketch.constraints[0].refs[0].entityId = 'entity-missing';
+schema4Rejections.push(['schema-4 migration rejects dangling constraint references', danglingV4Constraint, 'MISSING_REFERENCE']);
+const invalidV4Extent = deepCopy(schema4Fixture);
+invalidV4Extent.features[0].extent.expression = 'width ** 2';
+schema4Rejections.push(['schema-4 migration rejects unsafe extent expressions', invalidV4Extent, 'INVALID_EXPRESSION']);
+const openV4Profile = deepCopy(schema4Fixture);
+openV4Profile.features[0].sketch.entities.pop();
+openV4Profile.features[0].sketch.groups[0].entityIds.pop();
+schema4Rejections.push(['schema-4 migration rejects an open solid profile', openV4Profile, 'INVALID_SKETCH']);
+const cyclicV4Parameters = deepCopy(schema4Fixture);
+cyclicV4Parameters.params = [
+  { id: 'parameter-a', name: 'a', expression: 'b + 1', vendorUnit: 'nominal' },
+  { id: 'parameter-b', name: 'b', expression: 'a + 1', vendorUnit: 'nominal' },
+];
+cyclicV4Parameters.features[0].extent.expression = 'a';
+schema4Rejections.push(['schema-4 migration rejects cyclic parameter expressions', cyclicV4Parameters, 'CYCLIC_PARAMETER']);
+const excessiveV4Features = deepCopy(schema4Fixture);
+excessiveV4Features.features = Array.from({ length: 501 }, () => deepCopy(schema4Fixture.features[0]));
+schema4Rejections.push(['schema-4 migration enforces the 500-feature budget', excessiveV4Features, 'LIMIT_FEATURES']);
+const excessiveV4Entities = deepCopy(schema4Fixture);
+excessiveV4Entities.features[0].sketch.entities = Array.from({ length: 5001 }, (_, index) => ({
+  id: `entity-budget-${index}`, kind: 'line', a: [index, 0], b: [index, 1],
+}));
+schema4Rejections.push(['schema-4 migration enforces the 5,000-entity budget', excessiveV4Entities, 'LIMIT_SKETCH_ENTITIES']);
+const excessiveV4Constraints = deepCopy(schema4Fixture);
+excessiveV4Constraints.features[0].sketch.constraints = Array.from({ length: 10001 }, (_, index) => ({
+  id: `constraint-budget-${index}`, kind: 'fixed', refs: [{ entityId: 'entity-1' }], driving: true,
+}));
+schema4Rejections.push(['schema-4 migration enforces the 10,000-constraint budget', excessiveV4Constraints, 'LIMIT_CONSTRAINTS']);
+const excessiveV4Bytes = deepCopy(schema4Fixture);
+(excessiveV4Bytes.extensions as Record<string, unknown>).padding = 'x'.repeat(10 * 1024 * 1024);
+schema4Rejections.push(['schema-4 migration enforces the 10 MB document budget', excessiveV4Bytes, 'LIMIT_BYTES']);
+for (const [name, fixture, expected] of schema4Rejections) {
+  const before = JSON.stringify(fixture);
+  const actual = errorCode(() => migrateStudioPartToV5(fixture));
+  check(name, actual === expected, `expected ${expected}, got ${actual ?? 'no error'}`);
+  check(name + ' without mutating input', JSON.stringify(fixture) === before);
+}
 
 const parsedMigrated = parseOrMigrateStudioV5Project(JSON.stringify(legacy), { projectId: 'project-from-text' });
 check('text migration produces a detached schema-5 project', parsedMigrated.schemaVersion === 5 && parsedMigrated.projectId === 'project-from-text');

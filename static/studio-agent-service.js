@@ -7,14 +7,72 @@ import {
   canonicalStudioV5Project,
   configureStudioV5Feature,
   createStudioV5BooleanFeature,
+  createStudioV5BooleanSplit,
+  createStudioV5Datum,
+  updateStudioV5Datum,
+  deleteStudioV5Datum,
+  createStudioV5ProfileSketch,
+  createStudioV5PathSketch,
+  updateStudioV5AdvancedSketch,
+  deleteStudioV5AdvancedSketch,
+  createStudioV5LoftFeature,
+  createStudioV5SweepFeature,
+  createStudioV5RevolveFeature,
+  createStudioV5DraftFeature,
+  createStudioV5ThickenFeature,
+  createStudioV5VariableFilletFeature,
+  updateStudioV5AdvancedFeature,
+  createStudioV5BodyPattern,
+  updateStudioV5BodyPattern,
+  deleteStudioV5BodyPattern,
+  materializeStudioV5PatternOccurrences,
+  createStudioV5AssemblyFromPart,
+  createStudioV5ComponentOccurrence,
+  updateStudioV5ComponentOccurrence,
+  duplicateStudioV5LinkedOccurrence,
+  makeStudioV5OccurrenceIndependent,
+  replaceStudioV5ComponentOccurrence,
+  deleteStudioV5ComponentOccurrence,
+  createStudioV5AssemblyMate,
+  updateStudioV5AssemblyMate,
+  deleteStudioV5AssemblyMate,
+  createStudioV5OccurrencePattern,
+  updateStudioV5OccurrencePattern,
+  deleteStudioV5OccurrencePattern,
+  enterStudioV5AssemblyContext,
+  exitStudioV5AssemblyContext,
+  createStudioV5TransformFeature,
+  updateStudioV5TransformFeature,
+  reorderStudioV5Feature,
+  setStudioV5RollbackMarker,
   deleteStudioV5Body,
   isStudioV5Project,
   prepareStudioV5RuntimeProject,
   studioV5CanonicalHash,
   studioV5ActiveBody,
+  studioV5RootAssembly,
   studioV5RootPart,
   updateStudioV5Body,
 } from './studio-v5-runtime-document.js';
+import {
+  assignStudioV5BodyMaterial,
+  assignStudioV5OccurrenceAppearance,
+  ensureStudioV5GenericMaterials,
+  createStudioV5SectionView,
+  updateStudioV5SectionView,
+  activateStudioV5SectionView,
+  deleteStudioV5SectionView,
+  createStudioV5ExplodedView,
+  activateStudioV5ExplodedView,
+  deleteStudioV5ExplodedView,
+  createStudioV5Measurement,
+  updateStudioV5Measurement,
+  deleteStudioV5Measurement,
+  setStudioV5DisplayMode,
+  createStudioV5AxialStageGroup,
+  updateStudioV5AxialStageGroup,
+  deleteStudioV5AxialStageGroup,
+} from './studio-v5-inspection.js';
 
 export const CAD_AGENT_PROTOCOL = 'bomwiki.cad.agent/v1';
 export const CAD_AGENT_STUDIO_VERSION = '5A-agent-1';
@@ -119,6 +177,63 @@ const OPERATION_INPUT_SCHEMAS = Object.freeze({
   'boolean.union': objectSchema(['targetBodyId', 'toolBodyId'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyId: ENTITY_OR_ALIAS_SCHEMA, keepTools: { type: 'boolean' } }),
   'boolean.subtract': objectSchema(['targetBodyId', 'toolBodyId'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyId: ENTITY_OR_ALIAS_SCHEMA, keepTools: { type: 'boolean' } }),
   'boolean.intersect': objectSchema(['targetBodyId', 'toolBodyId'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyId: ENTITY_OR_ALIAS_SCHEMA, keepTools: { type: 'boolean' } }),
+  'boolean.split': objectSchema(['targetBodyId', 'toolBodyIds'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, keepTools: { type: 'boolean' }, bodyNames: { type: 'array', items: { type: 'string' } } }),
+  'datum.create': objectSchema(['id', 'name', 'datumKind', 'definition'], { id: ID_SCHEMA, name: { type: 'string' }, datumKind: { enum: ['plane', 'axis', 'point', 'coordinate-system'] }, definition: { type: 'object' } }),
+  'datum.update': objectSchema(['datumId', 'patch'], { datumId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'datum.delete': objectSchema(['datumId'], { datumId: ENTITY_OR_ALIAS_SCHEMA }),
+  'sketch.profile.create': objectSchema(['id', 'name', 'planeDatumId', 'points'], { id: ID_SCHEMA, name: { type: 'string' }, planeDatumId: ENTITY_OR_ALIAS_SCHEMA, points: { type: 'array' }, curveKind: { enum: ['spline', 'polyline'] } }),
+  'sketch.path.create': objectSchema(['id', 'name', 'points'], { id: ID_SCHEMA, name: { type: 'string' }, points: { type: 'array' }, curveKind: { enum: ['spline', 'polyline'] } }),
+  'sketch.advanced.update': objectSchema(['sketchId', 'patch'], { sketchId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'sketch.advanced.delete': objectSchema(['sketchId'], { sketchId: ENTITY_OR_ALIAS_SCHEMA }),
+  'body.transform': objectSchema(['id', 'bodyId', 'transform'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, transform: { type: 'object' }, copy: { type: 'boolean' }, moveOriginal: { type: 'boolean' }, bodyName: { type: 'string' }, createdBodyId: ID_SCHEMA }),
+  'transform.update': objectSchema(['featureId', 'patch'], { featureId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'feature.reorder': objectSchema(['featureId'], { featureId: ENTITY_OR_ALIAS_SCHEMA, beforeFeatureId: ENTITY_OR_ALIAS_SCHEMA }),
+  'feature.rollback': objectSchema([], { featureId: ENTITY_OR_ALIAS_SCHEMA }),
+  'feature.loft': objectSchema(['id', 'sections'], { id: ID_SCHEMA, name: { type: 'string' }, sections: { type: 'array', minItems: 2 }, guideSketchIds: { type: 'array', items: ENTITY_OR_ALIAS_SCHEMA }, centerlineSketchId: ENTITY_OR_ALIAS_SCHEMA, continuity: { type: 'object' }, ruled: { type: 'boolean' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, operation: { enum: ['add', 'subtract', 'intersect'] }, bodyName: { type: 'string' } }),
+  'feature.sweep': objectSchema(['id', 'profileSketchId', 'pathSketchId'], { id: ID_SCHEMA, name: { type: 'string' }, profileSketchId: ENTITY_OR_ALIAS_SCHEMA, pathSketchId: ENTITY_OR_ALIAS_SCHEMA, guideSketchId: ENTITY_OR_ALIAS_SCHEMA, orientation: { type: 'string' }, referenceDirection: { type: 'array' }, twistAngle: DIMENSION_SCHEMA, scaleEnd: DIMENSION_SCHEMA, transition: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, operation: { enum: ['add', 'subtract', 'intersect'] }, bodyName: { type: 'string' } }),
+  'feature.revolveProfile': objectSchema(['id', 'profileSketchId', 'axisDatumId', 'angle'], { id: ID_SCHEMA, name: { type: 'string' }, profileSketchId: ENTITY_OR_ALIAS_SCHEMA, axisDatumId: ENTITY_OR_ALIAS_SCHEMA, angle: DIMENSION_SCHEMA, startAngle: DIMENSION_SCHEMA, symmetric: { type: 'boolean' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, operation: { enum: ['add', 'subtract', 'intersect'] }, bodyName: { type: 'string' } }),
+  'feature.draft': objectSchema(['id', 'bodyId', 'neutralPlaneDatumId', 'angle'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, neutralPlaneDatumId: ENTITY_OR_ALIAS_SCHEMA, angle: DIMENSION_SCHEMA, faceRefs: { type: 'array' }, pullDirectionDatumId: ENTITY_OR_ALIAS_SCHEMA }),
+  'feature.thicken': objectSchema(['id', 'bodyId', 'faceRefs', 'thickness'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, faceRefs: { type: 'array', minItems: 1 }, thickness: DIMENSION_SCHEMA, direction: { enum: ['inside', 'outside', 'symmetric'] } }),
+  'feature.variableFillet': objectSchema(['id', 'bodyId', 'edgeRefs', 'variableRadii'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, edgeRefs: { type: 'array', minItems: 1 }, variableRadii: { type: 'array', minItems: 1 } }),
+  'feature.advanced.update': objectSchema(['featureId', 'patch'], { featureId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'pattern.create': objectSchema(['id', 'kind', 'sourceBodyId'], { id: ID_SCHEMA, name: { type: 'string' }, kind: { enum: ['linear', 'circular', 'curve', 'mirror'] }, sourceBodyId: ENTITY_OR_ALIAS_SCHEMA, count: DIMENSION_SCHEMA, directionDatumId: ENTITY_OR_ALIAS_SCHEMA, directionDatumIds: { type: 'array', items: ENTITY_OR_ALIAS_SCHEMA }, axisDatumId: ENTITY_OR_ALIAS_SCHEMA, pathSketchId: ENTITY_OR_ALIAS_SCHEMA, planeDatumId: ENTITY_OR_ALIAS_SCHEMA, definition: { type: 'object' } }),
+  'pattern.update': objectSchema(['patternId', 'patch'], { patternId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'pattern.delete': objectSchema(['patternId'], { patternId: ENTITY_OR_ALIAS_SCHEMA }),
+  'pattern.materialize': objectSchema(['patternId', 'records'], { patternId: ENTITY_OR_ALIAS_SCHEMA, records: { type: 'array', minItems: 1 }, dissolve: { type: 'boolean' } }),
+  'assembly.create': objectSchema(['id', 'occurrenceId'], { id: ID_SCHEMA, name: { type: 'string' }, occurrenceId: ID_SCHEMA, occurrenceName: { type: 'string' }, fixed: { type: 'boolean' } }),
+  'document.activate': objectSchema(['definition'], { definition: { type: 'object' } }),
+  'assembly.context.enter': objectSchema(['occurrenceId'], { occurrenceId: ENTITY_OR_ALIAS_SCHEMA }),
+  'assembly.context.exit': objectSchema([], {}),
+  'component.createPart': objectSchema(['partId', 'name', 'occurrenceId'], { partId: ID_SCHEMA, name: { type: 'string' }, occurrenceId: ID_SCHEMA, occurrenceName: { type: 'string' }, baseTransform: { type: 'array', minItems: 16, maxItems: 16 }, fixed: { type: 'boolean' }, enterContext: { type: 'boolean' } }),
+  'component.insert': objectSchema(['id', 'definition'], { id: ID_SCHEMA, name: { type: 'string' }, definition: { type: 'object' }, baseTransform: { type: 'array', minItems: 16, maxItems: 16 }, fixed: { type: 'boolean' }, visible: { type: 'boolean' }, parameterOverrides: { type: 'object' } }),
+  'component.update': objectSchema(['occurrenceId', 'patch'], { occurrenceId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'component.duplicate': objectSchema(['occurrenceId', 'id'], { occurrenceId: ENTITY_OR_ALIAS_SCHEMA, id: ID_SCHEMA, name: { type: 'string' }, baseTransform: { type: 'array', minItems: 16, maxItems: 16 } }),
+  'component.makeIndependent': objectSchema(['occurrenceId', 'partId'], { occurrenceId: ENTITY_OR_ALIAS_SCHEMA, partId: ID_SCHEMA, name: { type: 'string' }, occurrenceName: { type: 'string' } }),
+  'component.replace': objectSchema(['occurrenceId', 'definition'], { occurrenceId: ENTITY_OR_ALIAS_SCHEMA, definition: { type: 'object' } }),
+  'component.delete': objectSchema(['occurrenceId'], { occurrenceId: ENTITY_OR_ALIAS_SCHEMA }),
+  'component.pattern': objectSchema(['id', 'sourceOccurrenceIds', 'generatedCount'], { id: ID_SCHEMA, name: { type: 'string' }, kind: { type: 'string' }, sourceOccurrenceIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, generatedCount: { type: 'integer' }, definition: { type: 'object' } }),
+  'component.pattern.update': objectSchema(['patternId', 'patch'], { patternId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'component.pattern.delete': objectSchema(['patternId'], { patternId: ENTITY_OR_ALIAS_SCHEMA }),
+  'mate.create': objectSchema(['id', 'mateKind', 'occurrenceIds'], { id: ID_SCHEMA, name: { type: 'string' }, mateKind: { enum: ['fixed', 'coincident', 'concentric', 'distance', 'angle'] }, occurrenceIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, references: { type: 'array' }, value: DIMENSION_SCHEMA }),
+  'mate.update': objectSchema(['mateId', 'patch'], { mateId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'mate.delete': objectSchema(['mateId'], { mateId: ENTITY_OR_ALIAS_SCHEMA }),
+  'section.create': objectSchema(['id', 'name', 'kind', 'planes'], { id: ID_SCHEMA, name: { type: 'string' }, kind: { enum: ['plane', 'quarter', 'box'] }, planes: { type: 'array', minItems: 1 }, scopeOccurrenceIds: { type: 'array', items: ENTITY_OR_ALIAS_SCHEMA }, cap: { type: 'boolean' }, hatch: { type: 'object' } }),
+  'section.update': objectSchema(['sectionId', 'patch'], { sectionId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'section.activate': objectSchema([], { sectionId: ENTITY_OR_ALIAS_SCHEMA }),
+  'section.delete': objectSchema(['sectionId'], { sectionId: ENTITY_OR_ALIAS_SCHEMA }),
+  'exploded.create': objectSchema(['id', 'name', 'steps'], { id: ID_SCHEMA, name: { type: 'string' }, steps: { type: 'array', minItems: 1 } }),
+  'exploded.activate': objectSchema([], { explodedViewId: ENTITY_OR_ALIAS_SCHEMA }),
+  'exploded.delete': objectSchema(['explodedViewId'], { explodedViewId: ENTITY_OR_ALIAS_SCHEMA }),
+  'measurement.create': objectSchema(['id', 'name', 'measurementKind', 'definition'], { id: ID_SCHEMA, name: { type: 'string' }, measurementKind: { type: 'string' }, definition: { type: 'object' } }),
+  'measurement.update': objectSchema(['measurementId', 'patch'], { measurementId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'measurement.delete': objectSchema(['measurementId'], { measurementId: ENTITY_OR_ALIAS_SCHEMA }),
+  'display.setMode': objectSchema(['mode'], { mode: { enum: ['shaded', 'shaded-edges', 'wireframe', 'hidden-line', 'ghost'] } }),
+  'material.ensureGeneric': objectSchema([], {}),
+  'material.assignBody': objectSchema(['partId', 'bodyId', 'materialId'], { partId: ENTITY_OR_ALIAS_SCHEMA, bodyId: ENTITY_OR_ALIAS_SCHEMA, materialId: ENTITY_OR_ALIAS_SCHEMA }),
+  'appearance.assignOccurrence': objectSchema(['occurrenceId', 'appearanceId'], { occurrenceId: ENTITY_OR_ALIAS_SCHEMA, appearanceId: ID_SCHEMA }),
+  'stage.create': objectSchema(['id', 'name', 'occurrenceIds', 'distanceMateIds'], { id: ID_SCHEMA, name: { type: 'string' }, occurrenceIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, distanceMateIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, axis: { type: 'array' }, start: { type: 'number' }, spacing: { type: 'number' }, visible: { type: 'boolean' } }),
+  'stage.update': objectSchema(['groupId', 'patch'], { groupId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
+  'stage.delete': objectSchema(['groupId'], { groupId: ENTITY_OR_ALIAS_SCHEMA }),
 });
 
 const AVAILABLE_OPERATION_KINDS = Object.freeze([
@@ -144,26 +259,23 @@ const AVAILABLE_OPERATION_KINDS = Object.freeze([
   'boolean.union',
   'boolean.subtract',
   'boolean.intersect',
+  'boolean.split',
+  'datum.create', 'datum.update', 'datum.delete',
+  'sketch.profile.create', 'sketch.path.create', 'sketch.advanced.update', 'sketch.advanced.delete',
+  'body.transform', 'transform.update', 'feature.reorder', 'feature.rollback',
+  'feature.loft', 'feature.sweep', 'feature.revolveProfile', 'feature.draft', 'feature.thicken', 'feature.variableFillet', 'feature.advanced.update',
+  'pattern.create', 'pattern.update', 'pattern.delete', 'pattern.materialize',
+  'assembly.create', 'document.activate', 'assembly.context.enter', 'assembly.context.exit',
+  'component.createPart', 'component.insert', 'component.update', 'component.duplicate', 'component.makeIndependent', 'component.replace', 'component.delete', 'component.pattern', 'component.pattern.update', 'component.pattern.delete',
+  'mate.create', 'mate.update', 'mate.delete',
+  'section.create', 'section.update', 'section.activate', 'section.delete',
+  'exploded.create', 'exploded.activate', 'exploded.delete',
+  'measurement.create', 'measurement.update', 'measurement.delete',
+  'display.setMode', 'material.ensureGeneric', 'material.assignBody', 'appearance.assignOccurrence',
+  'stage.create', 'stage.update', 'stage.delete',
 ]);
 
-const DISABLED_OPERATION_REASONS = Object.freeze({
-  'datum.createPlane': 'V5_DATUM_RUNTIME_NOT_AVAILABLE',
-  'datum.createAxis': 'V5_DATUM_RUNTIME_NOT_AVAILABLE',
-  'body.transform': 'V5_TRANSFORM_RUNTIME_NOT_AVAILABLE',
-  'feature.loft': 'V5_LOFT_RUNTIME_NOT_AVAILABLE',
-  'feature.sweep': 'V5_SWEEP_RUNTIME_NOT_AVAILABLE',
-  'pattern.linear': 'V5_LINKED_PATTERN_RUNTIME_NOT_AVAILABLE',
-  'pattern.circular': 'V5_LINKED_PATTERN_RUNTIME_NOT_AVAILABLE',
-  'pattern.dissolve': 'V5_LINKED_PATTERN_RUNTIME_NOT_AVAILABLE',
-  'pattern.curve': 'V5_LINKED_PATTERN_RUNTIME_NOT_AVAILABLE',
-  'pattern.mirror': 'V5_LINKED_PATTERN_RUNTIME_NOT_AVAILABLE',
-  'boolean.split': 'V5_BOOLEAN_SPLIT_RUNTIME_NOT_AVAILABLE',
-  'component.createPart': 'V5_ASSEMBLY_RUNTIME_NOT_AVAILABLE',
-  'component.insert': 'V5_ASSEMBLY_RUNTIME_NOT_AVAILABLE',
-  'component.transform': 'V5_ASSEMBLY_RUNTIME_NOT_AVAILABLE',
-  'mate.create': 'V5_ASSEMBLY_SOLVER_NOT_AVAILABLE',
-  'section.create': 'V5_SECTION_RUNTIME_NOT_AVAILABLE',
-});
+const DISABLED_OPERATION_REASONS = Object.freeze({});
 
 const QUERY_CAPABILITIES = Object.freeze([
   'project.summary',
@@ -200,7 +312,7 @@ export function cadCapabilityManifest(options = {}) {
     studioVersion: CAD_AGENT_STUDIO_VERSION,
     schemaVersions: [STUDIO_V5_SCHEMA_VERSION],
     kernelVersion: CAD_AGENT_KERNEL_VERSION,
-    documentKinds: ['part'],
+    documentKinds: ['part', 'assembly'],
     operations: [...available, ...disabled],
     queries: QUERY_CAPABILITIES.map((kind) => ({
       kind,
@@ -296,16 +408,30 @@ function assertPermission(context, required, projectId, operationKinds = []) {
 }
 
 function canonicalEntityMap(project) {
-  const part = studioV5RootPart(project);
   const entries = [];
   entries.push(['project', project.projectId, project]);
-  entries.push(['part', part.id, part]);
   for (const parameter of project.parameters || []) entries.push(['parameter', parameter.id, parameter]);
-  for (const parameter of part.parameters || []) entries.push(['parameter', parameter.id, parameter]);
-  for (const datum of part.referenceGeometry || []) entries.push(['datum', datum.id, datum]);
-  for (const sketch of part.sketches || []) entries.push(['sketch', sketch.id, sketch]);
-  for (const feature of part.features || []) entries.push(['feature', feature.id, feature]);
-  for (const body of part.bodies || []) entries.push(['body', body.id, body]);
+  for (const material of project.materials || []) entries.push(['material', material.id, material]);
+  for (const part of project.partDefinitions || []) {
+    entries.push(['part', part.id, part]);
+    for (const parameter of part.parameters || []) entries.push(['parameter', parameter.id, parameter]);
+    for (const datum of part.referenceGeometry || []) entries.push(['datum', datum.id, datum]);
+    for (const sketch of part.sketches || []) entries.push(['sketch', sketch.id, sketch]);
+    for (const feature of part.features || []) entries.push(['feature', feature.id, feature]);
+    for (const body of part.bodies || []) entries.push(['body', body.id, body]);
+    for (const pattern of part.bodyPatterns || []) entries.push(['body-pattern', pattern.id, pattern]);
+  }
+  for (const assembly of project.assemblyDefinitions || []) {
+    entries.push(['assembly', assembly.id, assembly]);
+    for (const parameter of assembly.parameters || []) entries.push(['parameter', parameter.id, parameter]);
+    for (const occurrence of assembly.occurrences || []) entries.push(['occurrence', occurrence.id, occurrence]);
+    for (const mate of assembly.mates || []) entries.push(['mate', mate.id, mate]);
+    for (const pattern of assembly.occurrencePatterns || []) entries.push(['occurrence-pattern', pattern.id, pattern]);
+    for (const section of assembly.sectionViews || []) entries.push(['section', section.id, section]);
+    for (const exploded of assembly.explodedViews || []) entries.push(['exploded-view', exploded.id, exploded]);
+    for (const measurement of assembly.metadata?.measurements || []) entries.push(['measurement', measurement.id, measurement]);
+    for (const stage of assembly.metadata?.axialStageGroups || []) entries.push(['stage-group', stage.id, stage]);
+  }
   return new Map(entries.map(([kind, id, value]) => [kind + ':' + id, { kind, id, value }]));
 }
 
@@ -331,11 +457,20 @@ function semanticChangeSet(before, after, aliases = {}) {
       ? [{ parameter: { kind: 'parameter', id: entry.id }, before: old?.value, after: entry.value, nameBefore: old?.name, nameAfter: entry.name }]
       : [];
   });
-  const previousBodies = new Map(studioV5RootPart(before).bodies.map((body) => [body.id, body]));
-  const visibilityDiffs = studioV5RootPart(after).bodies.flatMap((body) => {
+  const beforeBodies = (before.partDefinitions || []).flatMap((part) => part.bodies || []);
+  const afterBodies = (after.partDefinitions || []).flatMap((part) => part.bodies || []);
+  const previousBodies = new Map(beforeBodies.map((body) => [body.id, body]));
+  const visibilityDiffs = afterBodies.flatMap((body) => {
     const old = previousBodies.get(body.id);
     return old && (old.visible !== body.visible || old.suppressed !== body.suppressed)
       ? [{ body: { kind: 'body', id: body.id }, visibleBefore: old.visible, visibleAfter: body.visible, suppressedBefore: old.suppressed, suppressedAfter: body.suppressed }]
+      : [];
+  });
+  const previousOccurrences = new Map((before.assemblyDefinitions || []).flatMap((assembly) => assembly.occurrences || []).map((entry) => [entry.id, entry]));
+  const transformDiffs = (after.assemblyDefinitions || []).flatMap((assembly) => assembly.occurrences || []).flatMap((entry) => {
+    const old = previousOccurrences.get(entry.id);
+    return old && JSON.stringify(old.baseTransform) !== JSON.stringify(entry.baseTransform)
+      ? [{ occurrence: { kind: 'occurrence', id: entry.id }, before: clone(old.baseTransform), after: clone(entry.baseTransform) }]
       : [];
   });
   return {
@@ -347,7 +482,7 @@ function semanticChangeSet(before, after, aliases = {}) {
     rebuilt: updated.filter((entry) => entry.kind === 'feature' || entry.kind === 'body').map((entry) => ({ entity: entry })),
     unchangedAssertions: [],
     parameterDiffs,
-    transformDiffs: [],
+    transformDiffs,
     visibilityDiffs,
     aliases: clone(aliases),
     documentHashBefore: studioV5CanonicalHash(before),
@@ -435,6 +570,22 @@ function resolveReference(value, aliases, path) {
   return assertId(value, path);
 }
 
+function resolveOptionalReference(value, aliases, path) {
+  return value == null ? value : resolveReference(value, aliases, path);
+}
+
+function resolveReferenceArray(values, aliases, path) {
+  if (!Array.isArray(values)) fail('INVALID_REQUEST', path + ' must be an array.');
+  return values.map((value, index) => resolveReference(value, aliases, path + '[' + index + ']'));
+}
+
+function resolveDefinition(definition, aliases, path) {
+  const value = assertRecord(definition, path);
+  if (value.kind === 'part') return { kind: 'part', partId: resolveReference(value.partId, aliases, path + '.partId') };
+  if (value.kind === 'assembly') return { kind: 'assembly', assemblyId: resolveReference(value.assemblyId, aliases, path + '.assemblyId') };
+  fail('INVALID_REQUEST', path + '.kind must be "part" or "assembly".');
+}
+
 function nextStableId(project, prefix) {
   const used = new Set(canonicalEntityMap(project).values());
   const usedIds = new Set([...used].map((entry) => entry.id));
@@ -502,7 +653,8 @@ function applyOperation(project, operation, aliases) {
   if (kind === 'project.rename') {
     const name = assertText(input.name, 'operation.input.name');
     candidate.name = name;
-    studioV5RootPart(candidate).name = name;
+    if (candidate.rootDocument.kind === 'part') studioV5RootPart(candidate).name = name;
+    else studioV5RootAssembly(candidate).name = name;
   } else if (kind === 'project.setUnits') {
     if (input.units !== 'mm' && input.units !== 'in') fail('INVALID_UNITS', 'Project units must be "mm" or "in".');
     candidate.units = input.units;
@@ -532,6 +684,112 @@ function applyOperation(project, operation, aliases) {
     if (!parameterId) fail('MISSING_REFERENCE', 'The requested parameter does not exist.');
     findParameter(candidate, parameterId);
     candidate.parameters = candidate.parameters.filter((entry) => entry.id !== parameterId);
+  } else if (kind === 'datum.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5Datum(candidate, { id, name: input.name, kind: input.datumKind, definition: clone(input.definition) });
+    resultRef = { kind: 'datum', id, name: input.name };
+  } else if (kind === 'datum.update') {
+    const datumId = resolveReference(input.datumId, aliases, 'operation.input.datumId');
+    candidate = updateStudioV5Datum(candidate, datumId, clone(input.patch));
+    resultRef = { kind: 'datum', id: datumId };
+  } else if (kind === 'datum.delete') {
+    candidate = deleteStudioV5Datum(candidate, resolveReference(input.datumId, aliases, 'operation.input.datumId'));
+  } else if (kind === 'sketch.profile.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5ProfileSketch(candidate, {
+      id, name: input.name, planeDatumId: resolveReference(input.planeDatumId, aliases, 'operation.input.planeDatumId'),
+      points: clone(input.points), kind: input.curveKind,
+    });
+    resultRef = { kind: 'sketch', id, name: input.name };
+  } else if (kind === 'sketch.path.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5PathSketch(candidate, { id, name: input.name, points: clone(input.points), kind: input.curveKind });
+    resultRef = { kind: 'sketch', id, name: input.name };
+  } else if (kind === 'sketch.advanced.update') {
+    const sketchId = resolveReference(input.sketchId, aliases, 'operation.input.sketchId');
+    candidate = updateStudioV5AdvancedSketch(candidate, sketchId, clone(input.patch));
+    resultRef = { kind: 'sketch', id: sketchId };
+  } else if (kind === 'sketch.advanced.delete') {
+    candidate = deleteStudioV5AdvancedSketch(candidate, resolveReference(input.sketchId, aliases, 'operation.input.sketchId'));
+  } else if (kind === 'body.transform') {
+    const id = assertId(input.id, 'operation.input.id');
+    const transform = clone(input.transform);
+    for (const key of ['axisDatumId', 'planeDatumId', 'fromDatumId', 'toDatumId']) {
+      if (transform[key] != null) transform[key] = resolveReference(transform[key], aliases, 'operation.input.transform.' + key);
+    }
+    candidate = createStudioV5TransformFeature(candidate, {
+      ...clone(input), id, bodyId: resolveReference(input.bodyId, aliases, 'operation.input.bodyId'), transform,
+    });
+    resultRef = { kind: 'feature', id, name: input.name || 'Transform' };
+  } else if (kind === 'transform.update') {
+    const featureId = resolveReference(input.featureId, aliases, 'operation.input.featureId');
+    candidate = updateStudioV5TransformFeature(candidate, featureId, clone(input.patch));
+    resultRef = { kind: 'feature', id: featureId };
+  } else if (kind === 'feature.reorder') {
+    const featureId = resolveReference(input.featureId, aliases, 'operation.input.featureId');
+    candidate = reorderStudioV5Feature(candidate, featureId, resolveOptionalReference(input.beforeFeatureId, aliases, 'operation.input.beforeFeatureId'));
+    resultRef = { kind: 'feature', id: featureId };
+  } else if (kind === 'feature.rollback') {
+    candidate = setStudioV5RollbackMarker(candidate, resolveOptionalReference(input.featureId, aliases, 'operation.input.featureId'));
+  } else if (kind === 'feature.loft') {
+    const id = assertId(input.id, 'operation.input.id');
+    const sections = input.sections.map((section, index) => typeof section === 'string' || section?.alias
+      ? resolveReference(section, aliases, 'operation.input.sections[' + index + ']')
+      : { ...clone(section), sketchId: resolveReference(section.sketchId, aliases, 'operation.input.sections[' + index + '].sketchId') });
+    candidate = createStudioV5LoftFeature(candidate, {
+      ...clone(input), id, sections,
+      guideSketchIds: input.guideSketchIds ? resolveReferenceArray(input.guideSketchIds, aliases, 'operation.input.guideSketchIds') : [],
+      centerlineSketchId: resolveOptionalReference(input.centerlineSketchId, aliases, 'operation.input.centerlineSketchId'),
+      targetBodyId: resolveOptionalReference(input.targetBodyId, aliases, 'operation.input.targetBodyId'),
+    });
+    resultRef = { kind: 'feature', id, name: input.name || 'Loft' };
+  } else if (kind === 'feature.sweep') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5SweepFeature(candidate, {
+      ...clone(input), id,
+      profileSketchId: resolveReference(input.profileSketchId, aliases, 'operation.input.profileSketchId'),
+      pathSketchId: resolveReference(input.pathSketchId, aliases, 'operation.input.pathSketchId'),
+      guideSketchId: resolveOptionalReference(input.guideSketchId, aliases, 'operation.input.guideSketchId'),
+      targetBodyId: resolveOptionalReference(input.targetBodyId, aliases, 'operation.input.targetBodyId'),
+    });
+    resultRef = { kind: 'feature', id, name: input.name || 'Sweep' };
+  } else if (kind === 'feature.revolveProfile') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5RevolveFeature(candidate, {
+      ...clone(input), id,
+      profileSketchId: resolveReference(input.profileSketchId, aliases, 'operation.input.profileSketchId'),
+      axisDatumId: resolveReference(input.axisDatumId, aliases, 'operation.input.axisDatumId'),
+      targetBodyId: resolveOptionalReference(input.targetBodyId, aliases, 'operation.input.targetBodyId'),
+    });
+    resultRef = { kind: 'feature', id, name: input.name || 'Revolve' };
+  } else if (kind === 'feature.draft') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5DraftFeature(candidate, {
+      ...clone(input), id, bodyId: resolveReference(input.bodyId, aliases, 'operation.input.bodyId'),
+      neutralPlaneDatumId: resolveReference(input.neutralPlaneDatumId, aliases, 'operation.input.neutralPlaneDatumId'),
+      faces: clone(input.faceRefs || input.faces || []),
+    });
+    resultRef = { kind: 'feature', id, name: input.name || 'Draft' };
+  } else if (kind === 'feature.thicken') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5ThickenFeature(candidate, {
+      ...clone(input), id, bodyId: resolveReference(input.bodyId, aliases, 'operation.input.bodyId'),
+      faces: clone(input.faceRefs || input.faces || []), symmetric: input.direction === 'symmetric', flip: input.direction === 'inside',
+    });
+    resultRef = { kind: 'feature', id, name: input.name || 'Thicken' };
+  } else if (kind === 'feature.variableFillet') {
+    const id = assertId(input.id, 'operation.input.id');
+    const radii = clone(input.variableRadii || input.radii || []);
+    candidate = createStudioV5VariableFilletFeature(candidate, {
+      ...clone(input), id, bodyId: resolveReference(input.bodyId, aliases, 'operation.input.bodyId'),
+      edges: clone(input.edgeRefs || input.edges || []), radii,
+      startRadius: radii[0]?.startRadius, endRadius: radii[0]?.endRadius,
+    });
+    resultRef = { kind: 'feature', id, name: input.name || 'Variable Fillet' };
+  } else if (kind === 'feature.advanced.update') {
+    const featureId = resolveReference(input.featureId, aliases, 'operation.input.featureId');
+    candidate = updateStudioV5AdvancedFeature(candidate, featureId, clone(input.patch));
+    resultRef = { kind: 'feature', id: featureId };
   } else if (kind.startsWith('feature.') && ['feature.extrude', 'feature.cut', 'feature.revolve', 'feature.fillet', 'feature.chamfer', 'feature.shell'].includes(kind)) {
     const feature = featureFromOperation(candidate, kind, input, aliases);
     candidate = configureStudioV5Feature(candidate, feature, { resultPolicy: feature.resultPolicy, bodyName: feature.resultPolicy?.bodyName || input.bodyName });
@@ -582,6 +840,170 @@ function applyOperation(project, operation, aliases) {
     const bodyId = resolveReference(input.bodyId, aliases, 'operation.input.bodyId');
     findBody(candidate, bodyId);
     candidate = deleteStudioV5Body(candidate, bodyId);
+  } else if (kind === 'pattern.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5BodyPattern(candidate, {
+      ...clone(input), ...clone(input.definition || {}), id,
+      sourceBodyId: resolveReference(input.sourceBodyId, aliases, 'operation.input.sourceBodyId'),
+      directionDatumId: resolveOptionalReference(input.directionDatumId, aliases, 'operation.input.directionDatumId'),
+      directionDatumIds: input.directionDatumIds ? resolveReferenceArray(input.directionDatumIds, aliases, 'operation.input.directionDatumIds') : undefined,
+      axisDatumId: resolveOptionalReference(input.axisDatumId, aliases, 'operation.input.axisDatumId'),
+      pathSketchId: resolveOptionalReference(input.pathSketchId, aliases, 'operation.input.pathSketchId'),
+      planeDatumId: resolveOptionalReference(input.planeDatumId, aliases, 'operation.input.planeDatumId'),
+    });
+    resultRef = { kind: 'body-pattern', id, name: input.name || input.kind + ' pattern' };
+  } else if (kind === 'pattern.update') {
+    const patternId = resolveReference(input.patternId, aliases, 'operation.input.patternId');
+    candidate = updateStudioV5BodyPattern(candidate, patternId, clone(input.patch));
+    resultRef = { kind: 'body-pattern', id: patternId };
+  } else if (kind === 'pattern.delete') {
+    candidate = deleteStudioV5BodyPattern(candidate, resolveReference(input.patternId, aliases, 'operation.input.patternId'));
+  } else if (kind === 'pattern.materialize') {
+    const patternId = resolveReference(input.patternId, aliases, 'operation.input.patternId');
+    candidate = materializeStudioV5PatternOccurrences(candidate, patternId, clone(input.records), { dissolve: input.dissolve === true });
+  } else if (kind === 'assembly.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5AssemblyFromPart(candidate, { ...clone(input), id, occurrenceId: assertId(input.occurrenceId, 'operation.input.occurrenceId') });
+    resultRef = { kind: 'assembly', id, name: input.name || 'Assembly' };
+  } else if (kind === 'document.activate') {
+    const definition = resolveDefinition(input.definition, aliases, 'operation.input.definition');
+    const exists = definition.kind === 'part'
+      ? candidate.partDefinitions.some((entry) => entry.id === definition.partId)
+      : candidate.assemblyDefinitions.some((entry) => entry.id === definition.assemblyId);
+    if (!exists) fail('MISSING_REFERENCE', 'The requested active document definition does not exist.');
+    candidate.rootDocument = definition;
+    delete candidate.metadata.editContext;
+  } else if (kind === 'assembly.context.enter') {
+    candidate = enterStudioV5AssemblyContext(candidate, resolveReference(input.occurrenceId, aliases, 'operation.input.occurrenceId'));
+  } else if (kind === 'assembly.context.exit') {
+    candidate = exitStudioV5AssemblyContext(candidate);
+  } else if (kind === 'component.createPart') {
+    const partId = assertId(input.partId, 'operation.input.partId');
+    const occurrenceId = assertId(input.occurrenceId, 'operation.input.occurrenceId');
+    if (candidate.partDefinitions.some((entry) => entry.id === partId)) fail('DUPLICATE_ID', 'Part ID "' + partId + '" is already in use.');
+    candidate.partDefinitions.push({
+      id: partId, name: assertText(input.name, 'operation.input.name'), parameters: [], referenceGeometry: [], sketches: [],
+      bodies: [], bodyPatterns: [], features: [], featureOrder: [], metadata: {},
+    });
+    candidate = createStudioV5ComponentOccurrence(candidate, {
+      id: occurrenceId, name: input.occurrenceName || input.name, definition: { kind: 'part', partId },
+      baseTransform: input.baseTransform, fixed: input.fixed === true, visible: true,
+    });
+    if (input.enterContext === true) candidate = enterStudioV5AssemblyContext(candidate, occurrenceId);
+    resultRef = { kind: 'part', id: partId, name: input.name };
+  } else if (kind === 'component.insert') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5ComponentOccurrence(candidate, { ...clone(input), id, definition: resolveDefinition(input.definition, aliases, 'operation.input.definition') });
+    resultRef = { kind: 'occurrence', id, name: input.name || 'Component' };
+  } else if (kind === 'component.update') {
+    const occurrenceId = resolveReference(input.occurrenceId, aliases, 'operation.input.occurrenceId');
+    candidate = updateStudioV5ComponentOccurrence(candidate, occurrenceId, clone(input.patch));
+    resultRef = { kind: 'occurrence', id: occurrenceId };
+  } else if (kind === 'component.duplicate') {
+    const occurrenceId = resolveReference(input.occurrenceId, aliases, 'operation.input.occurrenceId');
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = duplicateStudioV5LinkedOccurrence(candidate, occurrenceId, { ...clone(input), id });
+    resultRef = { kind: 'occurrence', id, name: input.name || 'Linked component' };
+  } else if (kind === 'component.makeIndependent') {
+    const occurrenceId = resolveReference(input.occurrenceId, aliases, 'operation.input.occurrenceId');
+    candidate = makeStudioV5OccurrenceIndependent(candidate, occurrenceId, { ...clone(input), partId: assertId(input.partId, 'operation.input.partId') });
+    resultRef = { kind: 'part', id: input.partId, name: input.name || 'Independent part' };
+  } else if (kind === 'component.replace') {
+    const occurrenceId = resolveReference(input.occurrenceId, aliases, 'operation.input.occurrenceId');
+    candidate = replaceStudioV5ComponentOccurrence(candidate, occurrenceId, resolveDefinition(input.definition, aliases, 'operation.input.definition'));
+    resultRef = { kind: 'occurrence', id: occurrenceId };
+  } else if (kind === 'component.delete') {
+    candidate = deleteStudioV5ComponentOccurrence(candidate, resolveReference(input.occurrenceId, aliases, 'operation.input.occurrenceId'));
+  } else if (kind === 'component.pattern') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5OccurrencePattern(candidate, {
+      ...clone(input), id, sourceOccurrenceIds: resolveReferenceArray(input.sourceOccurrenceIds, aliases, 'operation.input.sourceOccurrenceIds'),
+    });
+    resultRef = { kind: 'occurrence-pattern', id, name: input.name || 'Component pattern' };
+  } else if (kind === 'component.pattern.update') {
+    const patternId = resolveReference(input.patternId, aliases, 'operation.input.patternId');
+    const patch = clone(input.patch);
+    if (patch.sourceOccurrenceIds) patch.sourceOccurrenceIds = resolveReferenceArray(patch.sourceOccurrenceIds, aliases, 'operation.input.patch.sourceOccurrenceIds');
+    candidate = updateStudioV5OccurrencePattern(candidate, patternId, patch);
+    resultRef = { kind: 'occurrence-pattern', id: patternId };
+  } else if (kind === 'component.pattern.delete') {
+    candidate = deleteStudioV5OccurrencePattern(candidate, resolveReference(input.patternId, aliases, 'operation.input.patternId'));
+  } else if (kind === 'mate.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5AssemblyMate(candidate, {
+      ...clone(input), id, kind: input.mateKind,
+      occurrenceIds: resolveReferenceArray(input.occurrenceIds, aliases, 'operation.input.occurrenceIds'),
+    });
+    resultRef = { kind: 'mate', id, name: input.name || input.mateKind + ' mate' };
+  } else if (kind === 'mate.update') {
+    const mateId = resolveReference(input.mateId, aliases, 'operation.input.mateId');
+    candidate = updateStudioV5AssemblyMate(candidate, mateId, clone(input.patch));
+    resultRef = { kind: 'mate', id: mateId };
+  } else if (kind === 'mate.delete') {
+    candidate = deleteStudioV5AssemblyMate(candidate, resolveReference(input.mateId, aliases, 'operation.input.mateId'));
+  } else if (kind === 'section.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5SectionView(candidate, {
+      ...clone(input), id,
+      scopeOccurrenceIds: input.scopeOccurrenceIds ? resolveReferenceArray(input.scopeOccurrenceIds, aliases, 'operation.input.scopeOccurrenceIds') : [],
+    });
+    resultRef = { kind: 'section', id, name: input.name };
+  } else if (kind === 'section.update') {
+    const sectionId = resolveReference(input.sectionId, aliases, 'operation.input.sectionId');
+    candidate = updateStudioV5SectionView(candidate, sectionId, clone(input.patch));
+    resultRef = { kind: 'section', id: sectionId };
+  } else if (kind === 'section.activate') {
+    candidate = activateStudioV5SectionView(candidate, resolveOptionalReference(input.sectionId, aliases, 'operation.input.sectionId'));
+  } else if (kind === 'section.delete') {
+    candidate = deleteStudioV5SectionView(candidate, resolveReference(input.sectionId, aliases, 'operation.input.sectionId'));
+  } else if (kind === 'exploded.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    const steps = clone(input.steps).map((step, index) => ({
+      ...step, occurrenceIds: resolveReferenceArray(step.occurrenceIds, aliases, 'operation.input.steps[' + index + '].occurrenceIds'),
+    }));
+    candidate = createStudioV5ExplodedView(candidate, { ...clone(input), id, steps });
+    resultRef = { kind: 'exploded-view', id, name: input.name };
+  } else if (kind === 'exploded.activate') {
+    candidate = activateStudioV5ExplodedView(candidate, resolveOptionalReference(input.explodedViewId, aliases, 'operation.input.explodedViewId'));
+  } else if (kind === 'exploded.delete') {
+    candidate = deleteStudioV5ExplodedView(candidate, resolveReference(input.explodedViewId, aliases, 'operation.input.explodedViewId'));
+  } else if (kind === 'measurement.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5Measurement(candidate, { ...clone(input), id, kind: input.measurementKind });
+    resultRef = { kind: 'measurement', id, name: input.name };
+  } else if (kind === 'measurement.update') {
+    const measurementId = resolveReference(input.measurementId, aliases, 'operation.input.measurementId');
+    candidate = updateStudioV5Measurement(candidate, measurementId, clone(input.patch));
+    resultRef = { kind: 'measurement', id: measurementId };
+  } else if (kind === 'measurement.delete') {
+    candidate = deleteStudioV5Measurement(candidate, resolveReference(input.measurementId, aliases, 'operation.input.measurementId'));
+  } else if (kind === 'display.setMode') {
+    candidate = setStudioV5DisplayMode(candidate, input.mode);
+  } else if (kind === 'material.ensureGeneric') {
+    candidate = ensureStudioV5GenericMaterials(candidate);
+  } else if (kind === 'material.assignBody') {
+    candidate = assignStudioV5BodyMaterial(candidate,
+      resolveReference(input.partId, aliases, 'operation.input.partId'),
+      resolveReference(input.bodyId, aliases, 'operation.input.bodyId'),
+      resolveReference(input.materialId, aliases, 'operation.input.materialId'));
+  } else if (kind === 'appearance.assignOccurrence') {
+    candidate = assignStudioV5OccurrenceAppearance(candidate,
+      resolveReference(input.occurrenceId, aliases, 'operation.input.occurrenceId'),
+      assertId(input.appearanceId, 'operation.input.appearanceId'));
+  } else if (kind === 'stage.create') {
+    const id = assertId(input.id, 'operation.input.id');
+    candidate = createStudioV5AxialStageGroup(candidate, {
+      ...clone(input), id,
+      occurrenceIds: resolveReferenceArray(input.occurrenceIds, aliases, 'operation.input.occurrenceIds'),
+      distanceMateIds: resolveReferenceArray(input.distanceMateIds, aliases, 'operation.input.distanceMateIds'),
+    });
+    resultRef = { kind: 'stage-group', id, name: input.name };
+  } else if (kind === 'stage.update') {
+    const groupId = resolveReference(input.groupId, aliases, 'operation.input.groupId');
+    candidate = updateStudioV5AxialStageGroup(candidate, groupId, clone(input.patch));
+    resultRef = { kind: 'stage-group', id: groupId };
+  } else if (kind === 'stage.delete') {
+    candidate = deleteStudioV5AxialStageGroup(candidate, resolveReference(input.groupId, aliases, 'operation.input.groupId'));
   } else if (kind === 'pattern.linear' || kind === 'pattern.circular' || kind === 'pattern.dissolve') {
     const featureId = resolveReference(input.featureId, aliases, 'operation.input.featureId');
     const feature = clone(findFeature(candidate, featureId));
@@ -603,6 +1025,16 @@ function applyOperation(project, operation, aliases) {
     }
     candidate = replaceFeature(candidate, feature);
     resultRef = { kind: 'feature', id: feature.id, name: feature.name };
+  } else if (kind === 'boolean.split') {
+    const targetBodyId = resolveReference(input.targetBodyId, aliases, 'operation.input.targetBodyId');
+    const toolSource = input.toolBodyId ?? input.toolBodyIds?.[0];
+    const toolBodyId = resolveReference(toolSource, aliases, 'operation.input.toolBodyId');
+    const id = input.id ? assertId(input.id, 'operation.input.id') : nextStableId(candidate, 'feature-boolean-split');
+    candidate = createStudioV5BooleanSplit(candidate, {
+      id, name: input.name, targetBodyId, toolBodyId, keepTools: input.keepTools !== false,
+      outsideName: input.bodyNames?.[0], insideName: input.bodyNames?.[1],
+    });
+    resultRef = { kind: 'feature', id: id + '-outside', name: input.name || 'Boolean Split' };
   } else if (kind.startsWith('boolean.')) {
     const operationName = kind.slice('boolean.'.length);
     const targetBodyId = resolveReference(input.targetBodyId, aliases, 'operation.input.targetBodyId');
@@ -633,7 +1065,7 @@ function applyOperation(project, operation, aliases) {
 }
 
 export function applyCadTransaction(project, transaction) {
-  if (!isStudioV5Project(project)) fail('UNSUPPORTED_DOCUMENT', 'Agent protocol v1 currently accepts schema-5 part projects only.');
+  if (!isStudioV5Project(project)) fail('UNSUPPORTED_DOCUMENT', 'Agent protocol v1 requires a schema-5 CAD project.');
   const tx = assertRecord(transaction, 'transaction');
   assertText(tx.transactionId, 'transaction.transactionId');
   assertText(tx.label, 'transaction.label');
@@ -669,13 +1101,26 @@ function paginate(items, request = {}) {
 }
 
 function dependencyGraph(project) {
-  const part = studioV5RootPart(project);
   const edges = [];
-  for (const feature of part.features) {
-    for (const ref of feature.inputRefs || []) edges.push({ from: { kind: ref.ownerKind, id: ref.ownerId }, to: { kind: 'feature', id: feature.id }, relation: 'input' });
-    for (const bodyId of feature.resultPolicy?.targetBodyIds || []) edges.push({ from: { kind: 'feature', id: feature.id }, to: { kind: 'body', id: bodyId }, relation: 'modifies' });
-    if (feature.createdBodyId) edges.push({ from: { kind: 'feature', id: feature.id }, to: { kind: 'body', id: feature.createdBodyId }, relation: 'creates' });
-    for (const bodyId of feature.toolBodyIds || []) edges.push({ from: { kind: 'body', id: bodyId }, to: { kind: 'feature', id: feature.id }, relation: 'tool' });
+  for (const part of project.partDefinitions || []) {
+    for (const feature of part.features) {
+      for (const ref of feature.inputRefs || []) edges.push({ from: { kind: ref.ownerKind, id: ref.ownerId }, to: { kind: 'feature', id: feature.id }, relation: 'input' });
+      for (const bodyId of feature.resultPolicy?.targetBodyIds || []) edges.push({ from: { kind: 'feature', id: feature.id }, to: { kind: 'body', id: bodyId }, relation: 'modifies' });
+      if (feature.createdBodyId) edges.push({ from: { kind: 'feature', id: feature.id }, to: { kind: 'body', id: feature.createdBodyId }, relation: 'creates' });
+      for (const bodyId of feature.toolBodyIds || []) edges.push({ from: { kind: 'body', id: bodyId }, to: { kind: 'feature', id: feature.id }, relation: 'tool' });
+    }
+    for (const pattern of part.bodyPatterns || []) edges.push({ from: { kind: 'body', id: pattern.sourceBodyId }, to: { kind: 'body-pattern', id: pattern.id }, relation: 'patterns' });
+  }
+  for (const assembly of project.assemblyDefinitions || []) {
+    for (const occurrence of assembly.occurrences || []) edges.push({
+      from: occurrence.definition.kind === 'part'
+        ? { kind: 'part', id: occurrence.definition.partId }
+        : { kind: 'assembly', id: occurrence.definition.assemblyId },
+      to: { kind: 'occurrence', id: occurrence.id }, relation: 'instantiates',
+    });
+    for (const mate of assembly.mates || []) for (const occurrenceId of mate.occurrenceIds || []) {
+      edges.push({ from: { kind: 'occurrence', id: occurrenceId }, to: { kind: 'mate', id: mate.id }, relation: 'constrains' });
+    }
   }
   return edges;
 }
@@ -724,7 +1169,12 @@ export class CadCommandService {
   inspect(request = {}) {
     const kind = request.kind || 'project.summary';
     const project = this.project;
-    const part = studioV5RootPart(project);
+    const activePart = project.rootDocument.kind === 'part' ? studioV5RootPart(project) : null;
+    const activeAssembly = project.rootDocument.kind === 'assembly' ? studioV5RootAssembly(project) : null;
+    const allFeatures = project.partDefinitions.flatMap((part) => part.features || []);
+    const allBodies = project.partDefinitions.flatMap((part) => part.bodies || []);
+    const allOccurrences = project.assemblyDefinitions.flatMap((assembly) => assembly.occurrences || []);
+    const allMates = project.assemblyDefinitions.flatMap((assembly) => assembly.mates || []);
     if (kind === 'project.summary') {
       return {
         projectId: project.projectId,
@@ -736,20 +1186,39 @@ export class CadCommandService {
         counts: {
           parameters: project.parameters.length,
           parts: project.partDefinitions.length,
-          features: part.features.length,
-          bodies: part.bodies.length,
+          assemblies: project.assemblyDefinitions.length,
+          features: allFeatures.length,
+          bodies: allBodies.length,
+          occurrences: allOccurrences.length,
+          mates: allMates.length,
         },
-        activeBodyId: part.metadata?.activeBodyId || null,
+        activeBodyId: activePart?.metadata?.activeBodyId || null,
+        activeAssemblyId: activeAssembly?.id || null,
         documentHash: studioV5CanonicalHash(project),
       };
     }
     if (kind === 'project.tree') {
       const nodes = [
         { kind: 'project', id: project.projectId, name: project.name, parent: null },
-        { kind: 'part', id: part.id, name: part.name, parent: { kind: 'project', id: project.projectId } },
         ...project.parameters.map((entry) => ({ kind: 'parameter', id: entry.id, name: entry.name, parent: { kind: 'project', id: project.projectId } })),
-        ...part.bodies.map((entry) => ({ kind: 'body', id: entry.id, name: entry.name, visible: entry.visible, suppressed: entry.suppressed, parent: { kind: 'part', id: part.id } })),
-        ...part.features.map((entry) => ({ kind: 'feature', id: entry.id, name: entry.name, featureType: entry.type, suppressed: entry.suppressed, parent: { kind: 'part', id: part.id } })),
+        ...project.partDefinitions.flatMap((part) => [
+          { kind: 'part', id: part.id, name: part.name, parent: { kind: 'project', id: project.projectId } },
+          ...part.referenceGeometry.map((entry) => ({ kind: 'datum', id: entry.id, name: entry.name, datumKind: entry.kind, parent: { kind: 'part', id: part.id } })),
+          ...part.sketches.map((entry) => ({ kind: 'sketch', id: entry.id, name: entry.name, role: entry.extensions?.studioRole, parent: { kind: 'part', id: part.id } })),
+          ...part.bodies.map((entry) => ({ kind: 'body', id: entry.id, name: entry.name, visible: entry.visible, suppressed: entry.suppressed, parent: { kind: 'part', id: part.id } })),
+          ...part.features.map((entry) => ({ kind: 'feature', id: entry.id, name: entry.name, featureType: entry.type, suppressed: entry.suppressed, parent: { kind: 'part', id: part.id } })),
+          ...(part.bodyPatterns || []).map((entry) => ({ kind: 'body-pattern', id: entry.id, name: entry.name, patternKind: entry.kind, parent: { kind: 'part', id: part.id } })),
+        ]),
+        ...project.assemblyDefinitions.flatMap((assembly) => [
+          { kind: 'assembly', id: assembly.id, name: assembly.name, parent: { kind: 'project', id: project.projectId } },
+          ...assembly.occurrences.map((entry) => ({ kind: 'occurrence', id: entry.id, name: entry.name, definition: clone(entry.definition), visible: entry.visible, suppressed: entry.suppressed, parent: { kind: 'assembly', id: assembly.id } })),
+          ...assembly.mates.map((entry) => ({ kind: 'mate', id: entry.id, name: entry.name, mateKind: entry.kind, suppressed: entry.suppressed, parent: { kind: 'assembly', id: assembly.id } })),
+          ...(assembly.occurrencePatterns || []).map((entry) => ({ kind: 'occurrence-pattern', id: entry.id, name: entry.name, patternKind: entry.kind, parent: { kind: 'assembly', id: assembly.id } })),
+          ...(assembly.sectionViews || []).map((entry) => ({ kind: 'section', id: entry.id, name: entry.name, sectionKind: entry.kind, parent: { kind: 'assembly', id: assembly.id } })),
+          ...(assembly.explodedViews || []).map((entry) => ({ kind: 'exploded-view', id: entry.id, name: entry.name, parent: { kind: 'assembly', id: assembly.id } })),
+          ...(assembly.metadata?.measurements || []).map((entry) => ({ kind: 'measurement', id: entry.id, name: entry.name, measurementKind: entry.kind, parent: { kind: 'assembly', id: assembly.id } })),
+          ...(assembly.metadata?.axialStageGroups || []).map((entry) => ({ kind: 'stage-group', id: entry.id, name: entry.name, parent: { kind: 'assembly', id: assembly.id } })),
+        ]),
       ];
       return paginate(nodes, request);
     }

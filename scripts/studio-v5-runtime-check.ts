@@ -101,7 +101,21 @@ async function documentChecks(): Promise<void> {
     title: 'Legacy V3 body', units: 'mm', params: [],
     features: [{ id: 'legacy-v3-extrude', type: 'extrude', sketch: { shapes: [{ kind: 'rect', x: 0, y: 0, w: 4, h: 4 }], z: 0 }, h: 2 }],
   };
-  const legacy4 = { ...legacy3, schemaVersion: 4, title: 'Legacy V4 body', features: [{ ...legacy3.features[0], id: 'legacy-v4-extrude' }] };
+  const legacy4 = {
+    schemaVersion: 4, title: 'Legacy V4 body', units: 'mm',
+    params: [{ id: 'parameter-v4-radius', name: 'v4_radius', expression: '2' }],
+    features: [{
+      id: 'legacy-v4-extrude', type: 'extrude', name: 'V4 constrained cylinder', suppressed: false,
+      plane: { kind: 'base', plane: 'XY' },
+      sketch: {
+        id: 'sketch-v4-circle',
+        entities: [{ id: 'entity-v4-circle', kind: 'circle', center: [0, 0], radius: 2 }],
+        groups: [],
+        constraints: [{ id: 'constraint-v4-radius', kind: 'radius', refs: [{ entityId: 'entity-v4-circle' }], expression: 'v4_radius', driving: true }],
+      },
+      extent: { kind: 'distance', expression: '2', reversed: false, symmetric: false },
+    }],
+  };
   const migrated3 = migrateStudioDocumentToV5(legacy3, { projectId: 'project-legacy-3' });
   const migrated4 = migrateStudioDocumentToV5(legacy4, { projectId: 'project-legacy-4' });
   check('document schema-3 migration preserves body ownership',
@@ -246,7 +260,91 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
     bodyById(failedRebuild, RUNTIME_BODY_IDS.housing).mesh &&
     bodyById(failedRebuild, RUNTIME_BODY_IDS.shaft).geometry.solidCount === 1 &&
     bodyById(failedRebuild, RUNTIME_BODY_IDS.tool).geometry.solidCount === 1);
-  await workerRequest(page, { kind: 'release', revision: 10, document: edited });
+
+  const exactV4 = {
+    schemaVersion: 4, title: 'V4 exact capsule', units: 'mm', params: [],
+    features: [{
+      id: 'feature-v4-capsule', type: 'extrude', name: 'Symmetric capsule with bore', suppressed: false,
+      plane: { kind: 'base', plane: 'XY' },
+      sketch: {
+        id: 'sketch-v4-capsule',
+        entities: [
+          { id: 'entity-v4-top', kind: 'line', a: [-4, 2], b: [4, 2] },
+          { id: 'entity-v4-right', kind: 'arc', center: [4, 0], start: [4, 2], end: [4, -2], clockwise: true },
+          { id: 'entity-v4-bottom', kind: 'line', a: [4, -2], b: [-4, -2] },
+          { id: 'entity-v4-left', kind: 'arc', center: [-4, 0], start: [-4, -2], end: [-4, 2], clockwise: true },
+          { id: 'entity-v4-bore', kind: 'circle', center: [0, 0], radius: 1 },
+        ],
+        groups: [{
+          id: 'group-v4-capsule', kind: 'offset-loop',
+          entityIds: ['entity-v4-top', 'entity-v4-right', 'entity-v4-bottom', 'entity-v4-left'],
+        }],
+        constraints: [],
+      },
+      extent: { kind: 'distance', expression: '3', reversed: false, symmetric: true },
+    }],
+  };
+  const migratedV4 = migrateStudioDocumentToV5(exactV4, { projectId: 'project-v4-exact-capsule' });
+  const rebuiltV4 = await workerRequest(page, { kind: 'rebuild', revision: 10, document: migratedV4 });
+  const v4Geometry = rebuiltV4.bodies[0]?.geometry;
+  const expectedV4Volume = (8 * 4 + Math.PI * 2 ** 2 - Math.PI * 1 ** 2) * 3;
+  check('kernel schema-4 migration preserves exact arcs, nested-loop voids, and symmetric extent',
+    rebuiltV4.errors.length === 0 &&
+    v4Geometry?.solidCount === 1 && v4Geometry.valid === true &&
+    close(v4Geometry.volume, expectedV4Volume, 1e-5) &&
+    close(v4Geometry.bounds[0][0], -6) && close(v4Geometry.bounds[1][0], 6) &&
+    close(v4Geometry.bounds[0][2], -1.5) && close(v4Geometry.bounds[1][2], 1.5),
+    { geometry: v4Geometry, expectedV4Volume, errors: rebuiltV4.errors });
+  const editedV4 = copy(migratedV4);
+  const editedV4Part = studioV5RootPart(editedV4);
+  editedV4Part.sketches[0].entities.find((entity: any) => entity.id === 'entity-v4-bore').radius = 1.5;
+  const rebuiltEditedV4 = await workerRequest(page, { kind: 'rebuild', revision: 11, document: editedV4 });
+  const expectedEditedV4Volume = (8 * 4 + Math.PI * 2 ** 2 - Math.PI * 1.5 ** 2) * 3;
+  check('kernel migrated feature rebuilds from the editable part-owned schema-4 sketch',
+    rebuiltEditedV4.evaluation.evaluatedBodyIds.length === 1 &&
+    close(rebuiltEditedV4.bodies[0].geometry.volume, expectedEditedV4Volume, 1e-5),
+    { evaluation: rebuiltEditedV4.evaluation, geometry: rebuiltEditedV4.bodies[0]?.geometry });
+  const boxEdge = (id: string, point: [number, number, number]) => ({
+    ownerFeatureId: 'feature-v4-box', semanticPath: id, curve: 'line', length: 5,
+    endpoints: [[point[0], point[1], 0], [point[0], point[1], 5]], adjacentFaces: [],
+  });
+  const topologyV4 = {
+    schemaVersion: 4, title: 'V4 owner-aware topology', units: 'mm', params: [],
+    features: [
+      {
+        id: 'feature-v4-box', type: 'extrude', name: 'Box', suppressed: false,
+        plane: { kind: 'base', plane: 'XY' },
+        sketch: {
+          id: 'sketch-v4-box',
+          entities: [
+            { id: 'entity-v4-box-1', kind: 'line', a: [-5, -5], b: [5, -5] },
+            { id: 'entity-v4-box-2', kind: 'line', a: [5, -5], b: [5, 5] },
+            { id: 'entity-v4-box-3', kind: 'line', a: [5, 5], b: [-5, 5] },
+            { id: 'entity-v4-box-4', kind: 'line', a: [-5, 5], b: [-5, -5] },
+          ],
+          groups: [{ id: 'group-v4-box', kind: 'rectangle', entityIds: ['entity-v4-box-1', 'entity-v4-box-2', 'entity-v4-box-3', 'entity-v4-box-4'] }],
+          constraints: [],
+        },
+        extent: { kind: 'distance', expression: '5', reversed: false, symmetric: false },
+      },
+      {
+        id: 'feature-v4-fillet', type: 'fillet', name: 'Owner-aware vertical fillets', suppressed: false, r: '1',
+        edges: [
+          boxEdge('vertical-nn', [-5, -5, 0]), boxEdge('vertical-pn', [5, -5, 0]),
+          boxEdge('vertical-pp', [5, 5, 0]), boxEdge('vertical-np', [-5, 5, 0]),
+        ],
+      },
+    ],
+  };
+  const migratedTopologyV4 = migrateStudioDocumentToV5(topologyV4, { projectId: 'project-v4-owner-topology' });
+  const rebuiltTopologyV4 = await workerRequest(page, { kind: 'rebuild', revision: 12, document: migratedTopologyV4 });
+  check('kernel schema-4 migration resolves owner-aware topology for downstream editable history',
+    rebuiltTopologyV4.errors.length === 0 &&
+    rebuiltTopologyV4.bodies[0].geometry.valid === true &&
+    rebuiltTopologyV4.bodies[0].geometry.volume < 500 && rebuiltTopologyV4.bodies[0].geometry.volume > 450 &&
+    rebuiltTopologyV4.evaluation.evaluatedFeatureIds.includes('feature-v4-fillet'),
+    { geometry: rebuiltTopologyV4.bodies[0]?.geometry, errors: rebuiltTopologyV4.errors });
+  await workerRequest(page, { kind: 'release', revision: 13, document: migratedTopologyV4 });
   await page.close();
 }
 
@@ -261,10 +359,18 @@ async function waitForStudio(page: Page, options: { bodyCount?: number; revision
   }, { timeout, polling: 250 }, options);
 }
 
+async function activateControl(page: Page, selector: string): Promise<void> {
+  await page.evaluate((value) => {
+    const element = document.querySelector(value) as HTMLElement | null;
+    if (!element) throw new Error(`Slice 5A browser control is missing: ${value}`);
+    element.focus(); element.click();
+  }, selector);
+}
+
 async function drawExactBody(page: Page, name: string, dimensions: { w?: number; h?: number; d?: number; x: number; y: number; depth: number }): Promise<void> {
-  await page.click('#bw-body-new');
+  await activateControl(page, '#bw-body-new');
   await page.waitForSelector('#bw-sketch:not([hidden])');
-  if (dimensions.d != null) await page.click('[data-sktool="circle"]');
+  if (dimensions.d != null) await activateControl(page, '[data-sktool="circle"]');
   await page.evaluate((circle) => {
     const canvas = document.getElementById('bw-sketch-canvas')!;
     const bounds = canvas.getBoundingClientRect();
@@ -291,7 +397,7 @@ async function drawExactBody(page: Page, name: string, dimensions: { w?: number;
     set('#bw-sk-body-name', name);
   }, { name, dimensions });
   const before = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
-  await page.click('#bw-sk-apply');
+  await activateControl(page, '#bw-sk-apply');
   await waitForStudio(page, { revisionAfter: before });
 }
 
@@ -363,7 +469,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
 
   const beforeParameterHash = await page.evaluate(() => (window as any).__bwStudio.canonicalHash());
   const beforeParameterRevision = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
-  await page.click('#bw-param-add');
+  await activateControl(page, '#bw-param-add');
   await waitForStudio(page, { revisionAfter: beforeParameterRevision });
   check('browser schema-5 parameter commands create stable canonical IDs',
     await page.evaluate(() => JSON.parse((window as any).__bwStudio.docJson()).parameters.at(-1)?.id?.startsWith('parameter-')));
@@ -379,7 +485,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   check('browser Boolean command identifies active Housing and selected Tool',
     booleanSelection.active === ids.Housing && booleanSelection.selected === ids.Tool && booleanSelection.controls.includes('subtract'), booleanSelection);
   const beforeBooleanRevision = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
-  await page.click('#bw-context [data-body-context="subtract"]');
+  await activateControl(page, '#bw-context [data-body-context="subtract"]');
   await page.waitForFunction(() => JSON.parse((window as any).__bwStudio.docJson()).partDefinitions[0].features.some((feature: any) => feature.type === 'boolean'), { timeout: 60_000, polling: 250 });
   await waitForStudio(page, { revisionAfter: beforeBooleanRevision });
   const afterBoolean = await page.evaluate(() => ({ doc: JSON.parse((window as any).__bwStudio.docJson()), bodies: (window as any).__bwStudio.bodyResults() }));
@@ -422,14 +528,14 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   }
 
   const housingCreator = createdPart.bodies.find((body: any) => body.id === ids.Housing).createdByFeatureId;
-  await page.click(`#bw-history [data-edit="${housingCreator}"]`);
+  await activateControl(page, `#bw-history [data-edit="${housingCreator}"]`);
   await page.waitForSelector('#bw-sketch:not([hidden])');
   await page.$eval('[data-dim="w"]', (input) => {
     (input as HTMLInputElement).value = '44';
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
   const beforeDimensionRevision = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
-  await page.click('#bw-sk-apply');
+  await activateControl(page, '#bw-sk-apply');
   await waitForStudio(page, { revisionAfter: beforeDimensionRevision });
   const trace = await page.evaluate(() => (window as any).__bwStudio.evaluationTrace());
   check('browser 6/10 early dimension rebuild evaluates only the affected dependency chain',
@@ -449,7 +555,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
       geometry: studio.bodyResults().map((body: any) => ({ bodyId: body.bodyId, geometry: body.geometry })),
     };
   });
-  await page.click('#bw-save-file');
+  await activateControl(page, '#bw-save-file');
   await page.waitForFunction(() => Boolean((window as any).__slice5aSavedText), { polling: 250 });
   const savedText = await page.evaluate(() => (window as any).__slice5aSavedText as string);
   const fixtureDir = mkdtempSync(join(tmpdir(), 'bomwiki-slice-5a-'));
@@ -513,7 +619,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
       visible: studio.visibleBodyIds(), geometry: studio.bodyResults().map((body: any) => ({ bodyId: body.bodyId, geometry: body.geometry })),
     };
   });
-  await page.click('#bw-context [data-body-context="subtract"]');
+  await activateControl(page, '#bw-context [data-body-context="subtract"]');
   await page.waitForFunction(() => document.getElementById('bw-studio-msg')?.textContent?.includes('does not intersect'), { timeout: 60_000, polling: 250 });
   const afterFailure = await page.evaluate(() => {
     const studio = (window as any).__bwStudio;
@@ -539,7 +645,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   await keyCommand(page, 'z');
   check('browser dependency-aware body deletion survives redo and restores again', await page.evaluate(() => (window as any).__bwStudio.canonicalHash()) === beforeDeleteHash);
   await page.setViewport({ width: 375, height: 812, deviceScaleFactor: 1 });
-  await page.click('#bw-mtab-history');
+  await activateControl(page, '#bw-mtab-history');
   await page.waitForSelector('#bw-bodies .body-row', { visible: true });
   const mobileBodies = await page.evaluate(() => {
     const tree = document.getElementById('bw-bodies')!;

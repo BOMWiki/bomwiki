@@ -27,6 +27,7 @@
     "studio:agent:multibody": "node --experimental-strip-types scripts/studio-agent-check.ts multibody",
     "studio:agent:core": "node --experimental-strip-types scripts/studio-agent-check.ts all",
     "studio:agent:turbofan": "node --experimental-strip-types scripts/studio-agent-turbofan-check.ts",
+    "studio:agent:advanced": "node --experimental-strip-types scripts/studio-agent-check.ts advanced",
     "studio:agent:release-check": "node --experimental-strip-types scripts/studio-agent-release-check.ts",
     "studio:v5:datums:document": "node --experimental-strip-types scripts/studio-v5-datums-check.ts document",
     "studio:v5:datums:kernel": "node --experimental-strip-types scripts/studio-v5-datums-check.ts kernel",
@@ -55,7 +56,16 @@
     "studio:v5:capabilities:document": "node --experimental-strip-types scripts/studio-v5-ten-capability-check.ts document",
     "studio:v5:capabilities:kernel": "node --experimental-strip-types scripts/studio-v5-ten-capability-check.ts kernel",
     "studio:v5:capabilities:browser": "node --experimental-strip-types scripts/studio-v5-ten-capability-check.ts browser",
-    "studio:v5:capabilities": "node --experimental-strip-types scripts/studio-v5-ten-capability-check.ts all"
+    "studio:v5:capabilities": "node --experimental-strip-types scripts/studio-v5-ten-capability-check.ts all",
+    "studio:v5:benchmarks:write": "node --experimental-strip-types scripts/write-studio-v5-release-fixtures.ts",
+    "studio:v5:benchmarks:document": "node --experimental-strip-types scripts/studio-v5-benchmarks-check.ts document",
+    "studio:v5:benchmarks:kernel": "node --experimental-strip-types scripts/studio-v5-benchmarks-check.ts kernel",
+    "studio:v5:benchmarks:browser": "node --experimental-strip-types scripts/studio-v5-benchmarks-check.ts browser",
+    "studio:v5:benchmarks": "node --experimental-strip-types scripts/studio-v5-benchmarks-check.ts all",
+    "studio:v5:visual": "node --experimental-strip-types scripts/studio-v5-visual-check.ts",
+    "studio:v5:accessibility": "node --experimental-strip-types scripts/studio-v5-accessibility-check.ts",
+    "studio:v5:performance": "node --experimental-strip-types scripts/studio-v5-performance-check.ts",
+    "studio:v5:release-check": "node --experimental-strip-types scripts/studio-v5-release-check.ts"
   },
   "dependencies": {
     "marked": "^18.0.5",

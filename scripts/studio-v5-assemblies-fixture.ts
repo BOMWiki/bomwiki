@@ -29,6 +29,10 @@ function createModulePart(prefix: string, name: string, radius: number, length: 
     resultPolicy: { kind: 'new-body', bodyName: name },
     createdBodyId: `body-${prefix}`,
   }, { resultPolicy: { kind: 'new-body', bodyName: name }, bodyName: name });
+  project.partDefinitions[0].parameters.push({
+    id: `parameter-${prefix}-length`, name: 'moduleLength', value: length, unit: 'length',
+  });
+  project.partDefinitions[0].features.find((feature: any) => feature.id === `feature-${prefix}-solid`).h = 'moduleLength';
   project = createStudioV5Datum(project, {
     id: `datum-${prefix}-axis`, name: `${name} axis`, kind: 'axis',
     definition: { mode: 'principal', origin: [0, 0, 0], direction: [0, 0, 1] },

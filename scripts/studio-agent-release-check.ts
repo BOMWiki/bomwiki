@@ -16,6 +16,8 @@ const checks = [
   ['headless', 'scripts/studio-agent-headless-check.ts'],
   ['mcp', 'scripts/studio-agent-mcp-check.ts'],
   ['live-parity', 'scripts/studio-agent-browser-check.ts'],
+  ['public-turbofan-replay', 'scripts/studio-agent-turbofan-check.ts'],
+  ['v5-benchmarks', 'scripts/studio-v5-benchmarks-check.ts', 'all'],
 ] as const;
 
 function runNode(script: string, mode?: string) {
@@ -36,7 +38,7 @@ function runNode(script: string, mode?: string) {
 const results = Object.fromEntries(checks.map(([name, script, mode]) => [name, runNode(script, mode)]));
 const capabilities = cadCapabilityManifest({ exactKernel: false });
 const capabilityJson = JSON.stringify(capabilities);
-const requiredTurbofanOperations = ['datum.createPlane', 'body.transform', 'feature.loft', 'feature.sweep', 'pattern.circular', 'component.insert', 'mate.create', 'section.create'];
+const requiredTurbofanOperations = ['datum.create', 'body.transform', 'feature.loft', 'feature.sweep', 'pattern.create', 'component.createPart', 'component.insert', 'component.pattern', 'mate.create', 'section.create'];
 const byOperation = new Map(capabilities.operations.map((entry: any) => [entry.kind, entry]));
 const turbofanBlockedBy = requiredTurbofanOperations.flatMap((kind) => {
   const capability: any = byOperation.get(kind);
@@ -55,14 +57,16 @@ const manifest = {
   checks: results,
   gates: {
     agentFoundation: foundationPass ? 'pass' : 'fail',
-    agentTurbofan: turbofanBlockedBy.length ? 'blocked' : 'ready-for-replay',
+    agentTurbofan: results['public-turbofan-replay'].status === 'pass' && turbofanBlockedBy.length === 0 ? 'pass' : 'fail',
+    turbofanAndGeneralityAutomated: results['v5-benchmarks'].status,
+    humanVisualReview: 'required-before-v5-release-signoff',
     liveDeployment: 'not-run-by-local-release-check',
   },
   turbofanBlockedBy,
-  status: foundationPass && turbofanBlockedBy.length === 0 ? 'pass' : foundationPass ? 'blocked' : 'fail',
+  status: foundationPass && turbofanBlockedBy.length === 0 ? 'automated-candidate-pass' : 'fail',
 };
 
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, JSON.stringify(manifest, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
 console.log(JSON.stringify({ ...manifest, manifestPath: outputPath }, null, 2));
-if (manifest.status !== 'pass') process.exitCode = manifest.status === 'blocked' ? 2 : 1;
+if (manifest.status !== 'automated-candidate-pass') process.exitCode = 1;

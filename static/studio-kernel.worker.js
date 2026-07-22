@@ -20,6 +20,7 @@ import {
   studioV5RigidInverse,
   studioV5TransformBounds,
   studioV5TransformPoint,
+  studioV5TransformVector,
 } from '/static/studio-v5-assembly.js';
 import { prepareStudioV5Project, STUDIO_V5_PROJECT_LIMITS } from '/static/studio-project-v5.js';
 
@@ -181,6 +182,214 @@ function shapeToDrawing(shape, N) {
   throw new Error('unknown shape');
 }
 
+const sameV4Point = (left, right) => Math.abs(left[0] - right[0]) <= 1e-9 && Math.abs(left[1] - right[1]) <= 1e-9;
+
+function v4EntityEnds(entity) {
+  if (entity.kind === 'line') return [entity.a, entity.b];
+  if (entity.kind === 'arc') return [entity.start, entity.end];
+  return null;
+}
+
+function traceV4EntityLoop(entities) {
+  if (!entities.length) throw new Error('schema-4 profile loop is empty');
+  const remaining = [...entities];
+  const first = remaining.shift();
+  const firstEnds = v4EntityEnds(first);
+  if (!firstEnds) throw new Error('schema-4 profile contains a non-chain entity');
+  const traced = [{ entity: first, reversed: false }];
+  let current = firstEnds[1];
+  while (remaining.length) {
+    const index = remaining.findIndex((entity) => {
+      const ends = v4EntityEnds(entity);
+      return ends && (sameV4Point(ends[0], current) || sameV4Point(ends[1], current));
+    });
+    if (index < 0) throw new Error('schema-4 profile does not form one connected loop');
+    const entity = remaining.splice(index, 1)[0];
+    const ends = v4EntityEnds(entity);
+    const reversed = sameV4Point(ends[1], current);
+    traced.push({ entity, reversed });
+    current = reversed ? ends[0] : ends[1];
+  }
+  if (!sameV4Point(current, firstEnds[0])) throw new Error('schema-4 profile loop is open');
+  return traced;
+}
+
+function v4ArcPoints(entity, reversed, N, count = 48) {
+  const start = reversed ? entity.end : entity.start;
+  const end = reversed ? entity.start : entity.end;
+  const clockwise = reversed ? entity.clockwise !== true : entity.clockwise === true;
+  const center = entity.center.map(N);
+  const evaluatedStart = start.map(N);
+  const evaluatedEnd = end.map(N);
+  const startAngle = Math.atan2(evaluatedStart[1] - center[1], evaluatedStart[0] - center[0]);
+  const endAngle = Math.atan2(evaluatedEnd[1] - center[1], evaluatedEnd[0] - center[0]);
+  let delta = endAngle - startAngle;
+  if (clockwise) while (delta >= 0) delta -= Math.PI * 2;
+  else while (delta <= 0) delta += Math.PI * 2;
+  const radius = Math.hypot(evaluatedStart[0] - center[0], evaluatedStart[1] - center[1]);
+  return Array.from({ length: count + 1 }, (_, index) => {
+    const angle = startAngle + delta * index / count;
+    return [center[0] + Math.cos(angle) * radius, center[1] + Math.sin(angle) * radius];
+  });
+}
+
+function v4TracePolygon(traced, N) {
+  const points = [];
+  for (const { entity, reversed } of traced) {
+    if (entity.kind === 'line') {
+      const ends = v4EntityEnds(entity);
+      const start = (reversed ? ends[1] : ends[0]).map(N);
+      const end = (reversed ? ends[0] : ends[1]).map(N);
+      if (!points.length) points.push(start);
+      points.push(end);
+    } else {
+      const arc = v4ArcPoints(entity, reversed, N);
+      if (!points.length) points.push(arc[0]);
+      points.push(...arc.slice(1));
+    }
+  }
+  if (points.length > 1 && sameV4Point(points[0], points.at(-1))) points.pop();
+  return points;
+}
+
+function v4TraceDrawing(traced, N) {
+  const first = traced[0];
+  const firstEnds = v4EntityEnds(first.entity);
+  const start = (first.reversed ? firstEnds[1] : firstEnds[0]).map(N);
+  let pen = rc.draw(start);
+  for (const { entity, reversed } of traced) {
+    const ends = v4EntityEnds(entity);
+    const end = (reversed ? ends[0] : ends[1]).map(N);
+    if (entity.kind === 'line') pen = pen.lineTo(end);
+    else pen = pen.threePointsArcTo(end, v4ArcPoints(entity, reversed, N, 2)[1]);
+  }
+  return pen.close();
+}
+
+function polygonCentroid(points) {
+  let twiceArea = 0;
+  let x = 0;
+  let y = 0;
+  for (let index = 0; index < points.length; index++) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    const cross = current[0] * next[1] - next[0] * current[1];
+    twiceArea += cross;
+    x += (current[0] + next[0]) * cross;
+    y += (current[1] + next[1]) * cross;
+  }
+  if (Math.abs(twiceArea) <= 1e-12) {
+    return points.reduce((sum, point) => [sum[0] + point[0] / points.length, sum[1] + point[1] / points.length], [0, 0]);
+  }
+  return [x / (3 * twiceArea), y / (3 * twiceArea)];
+}
+
+function pointInPolygon(point, polygon) {
+  let inside = false;
+  for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
+    const a = polygon[current];
+    const b = polygon[previous];
+    if (((a[1] > point[1]) !== (b[1] > point[1])) &&
+      point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+
+function polygonInteriorProbe(polygon) {
+  let signedArea = 0;
+  let scale = 0;
+  for (let index = 0; index < polygon.length; index++) {
+    const current = polygon[index];
+    const next = polygon[(index + 1) % polygon.length];
+    signedArea += current[0] * next[1] - next[0] * current[1];
+    scale = Math.max(scale, Math.abs(current[0]), Math.abs(current[1]));
+  }
+  for (let index = 0; index < polygon.length; index++) {
+    const current = polygon[index];
+    const next = polygon[(index + 1) % polygon.length];
+    const dx = next[0] - current[0];
+    const dy = next[1] - current[1];
+    const length = Math.hypot(dx, dy);
+    if (length <= 1e-12) continue;
+    const direction = signedArea >= 0 ? 1 : -1;
+    const offset = Math.max(1, scale) * 1e-7;
+    return [
+      (current[0] + next[0]) / 2 - direction * dy / length * offset,
+      (current[1] + next[1]) / 2 + direction * dx / length * offset,
+    ];
+  }
+  return polygonCentroid(polygon);
+}
+
+function exactV4SketchDrawings(sketch, N) {
+  const entities = sketch.entities.filter((entity) => entity.construction !== true);
+  const byId = new Map(entities.map((entity) => [entity.id, entity]));
+  const used = new Set();
+  const loops = [];
+  for (const entity of entities) {
+    if (entity.kind !== 'circle') continue;
+    const center = entity.center.map(N);
+    const radius = N(entity.radius);
+    const polygon = Array.from({ length: 64 }, (_, index) => {
+      const angle = Math.PI * 2 * index / 64;
+      return [center[0] + Math.cos(angle) * radius, center[1] + Math.sin(angle) * radius];
+    });
+    loops.push({ drawing: rc.drawCircle(radius).translate(center), polygon });
+    used.add(entity.id);
+  }
+  for (const group of sketch.groups || []) {
+    const grouped = group.entityIds.map((id) => byId.get(id)).filter(Boolean);
+    if (!grouped.length || grouped.some((entity) => entity.kind === 'circle')) continue;
+    const traced = traceV4EntityLoop(grouped);
+    loops.push({ drawing: v4TraceDrawing(traced, N), polygon: v4TracePolygon(traced, N) });
+    grouped.forEach((entity) => used.add(entity.id));
+  }
+  const remaining = entities.filter((entity) => !used.has(entity.id));
+  while (remaining.length) {
+    const chain = [remaining.shift()];
+    const firstEnds = v4EntityEnds(chain[0]);
+    let current = firstEnds[1];
+    while (!sameV4Point(current, firstEnds[0])) {
+      const index = remaining.findIndex((entity) => {
+        const ends = v4EntityEnds(entity);
+        return ends && (sameV4Point(ends[0], current) || sameV4Point(ends[1], current));
+      });
+      if (index < 0) throw new Error('schema-4 profile contains an open loop');
+      const entity = remaining.splice(index, 1)[0];
+      const ends = v4EntityEnds(entity);
+      current = sameV4Point(ends[0], current) ? ends[1] : ends[0];
+      chain.push(entity);
+    }
+    const traced = traceV4EntityLoop(chain);
+    loops.push({ drawing: v4TraceDrawing(traced, N), polygon: v4TracePolygon(traced, N) });
+  }
+  if (!loops.length) throw new Error('schema-4 sketch contains no closed non-construction profile');
+  loops.forEach((loop) => {
+    const point = polygonInteriorProbe(loop.polygon);
+    loop.depth = loops.filter((candidate) => candidate !== loop && pointInPolygon(point, candidate.polygon)).length;
+  });
+  return loops.filter((loop) => loop.depth % 2 === 0).map((outer) => {
+    let drawing = outer.drawing;
+    for (const hole of loops.filter((loop) => loop.depth === outer.depth + 1 && pointInPolygon(polygonInteriorProbe(loop.polygon), outer.polygon))) {
+      drawing = drawing.cut(hole.drawing);
+    }
+    return drawing;
+  });
+}
+
+function featureProfileDrawings(feature, N, NS) {
+  if (feature.extensions?.exactSketchEntities && Array.isArray(feature.sketch?.entities)) {
+    return exactV4SketchDrawings(feature.sketch, N).map((drawing) => patternedDrawing(drawing, feature.pattern, N, NS));
+  }
+  return feature.sketch.shapes.map((shape) => patternedDrawing(shapeToDrawing(shape, N), feature.pattern, N, NS));
+}
+
+function basePlaneNormal(plane) {
+  if (plane === 'YZ') return [1, 0, 0];
+  if (plane === 'ZX') return [0, 1, 0];
+  return [0, 0, 1];
+}
+
 function topOf(shape) {
   try {
     const bounds = shape.boundingBox?.bounds;
@@ -194,10 +403,23 @@ const quantize = (value) => Math.round(value * 100) / 100;
 
 function edgeSignature(edge) {
   const point = edge.pointAt(0.5);
-  return {
+  const signature = {
     p: [point.x ?? point[0], point.y ?? point[1], point.z ?? point[2]].map(quantize),
     l: quantize(edge.length),
+    curveType: edge.geomType,
   };
+  if (edge.geomType === 'CIRCLE') {
+    let adaptor = null; let circle = null; let location = null;
+    try {
+      adaptor = edge._geomAdaptor();
+      circle = adaptor.Circle();
+      location = circle.Location();
+      signature.r = quantize(circle.Radius());
+      signature.c = [location.X(), location.Y(), location.Z()].map(quantize);
+    } catch {}
+    finally { safeDelete(location); safeDelete(circle); safeDelete(adaptor); }
+  }
+  return signature;
 }
 
 function edgeMatches(signature, edge) {
@@ -253,25 +475,44 @@ function featureSolid(feature, zTop, accumulated, N, NS) {
     facePlane = rc.makePlaneFromFace(face);
   }
   const solids = [];
-  for (const shape of feature.sketch.shapes) {
-    const drawing = patternedDrawing(shapeToDrawing(shape, N), feature.pattern, N, NS);
+  for (const drawing of featureProfileDrawings(feature, N, NS)) {
     if (feature.type === 'revolve') {
-      solids.push(drawing.sketchOnPlane('XZ').revolve());
+      const plane = feature.plane?.kind === 'base' ? feature.plane.plane : 'XZ';
+      const angle = Math.max(0.01, Math.min(360, Math.abs(N(feature.angle ?? feature.h ?? 360))));
+      solids.push(drawing.sketchOnPlane(plane).revolve(undefined, { angle: feature.reversed ? -angle : angle }));
     } else if (feature.type === 'cut') {
       const depth = feature.through ? 0 : Math.max(0.1, N(feature.h));
       if (facePlane) {
-        solids.push(drawing.sketchOnPlane(facePlane).extrude(-(feature.through ? 10000 : depth)));
+        const distance = feature.through ? 10000 : depth;
+        solids.push(drawing.sketchOnPlane(facePlane).extrude(feature.reversed ? distance : -distance));
       } else {
-        const sketch = feature.through
-          ? drawing.sketchOnPlane('XY', -5000)
-          : drawing.sketchOnPlane('XY', (zTop ?? 0) - depth);
-        solids.push(sketch.extrude(feature.through ? 10000 : depth + 1000));
+        const plane = feature.plane?.kind === 'base' ? feature.plane.plane : 'XY';
+        if (feature.extensions?.exactSketchEntities) {
+          const signedDepth = feature.reversed ? -depth : depth;
+          const normal = basePlaneNormal(plane);
+          const originDistance = feature.through ? -5000 : feature.symmetric ? -depth / 2 : 0;
+          const origin = normal.map((value) => value * originDistance);
+          solids.push(drawing.sketchOnPlane(plane, origin).extrude(feature.through ? 10000 : feature.symmetric ? depth : signedDepth));
+        } else {
+          const sketch = feature.through
+            ? drawing.sketchOnPlane('XY', -5000)
+            : drawing.sketchOnPlane('XY', (zTop ?? 0) - depth);
+          solids.push(sketch.extrude(feature.through ? 10000 : depth + 1000));
+        }
       }
     } else {
-      const sketch = facePlane
-        ? drawing.sketchOnPlane(facePlane)
-        : drawing.sketchOnPlane('XY', feature.sketch.z || 0);
-      solids.push(sketch.extrude(Math.max(0.1, N(feature.h))));
+      const depth = Math.max(0.1, N(feature.h));
+      if (facePlane) {
+        solids.push(drawing.sketchOnPlane(facePlane).extrude(feature.reversed ? -depth : depth));
+      } else if (feature.extensions?.exactSketchEntities) {
+        const plane = feature.plane?.kind === 'base' ? feature.plane.plane : 'XY';
+        const normal = basePlaneNormal(plane);
+        const originDistance = feature.symmetric ? -depth / 2 : 0;
+        const origin = normal.map((value) => value * originDistance);
+        solids.push(drawing.sketchOnPlane(plane, origin).extrude(feature.symmetric ? depth : feature.reversed ? -depth : depth));
+      } else {
+        solids.push(drawing.sketchOnPlane('XY', feature.sketch.z || 0).extrude(depth));
+      }
     }
   }
   let result = solids[0];
@@ -438,24 +679,438 @@ function boundsOverlap(left, right, tolerance = 1e-7) {
   return [0, 1, 2].every((axis) => a[0][axis] <= b[1][axis] + tolerance && b[0][axis] <= a[1][axis] + tolerance);
 }
 
+function orientedBounds(shape, matrix, tolerance = 1e-7) {
+  const bounds = shape?.boundingBox?.bounds;
+  if (!Array.isArray(bounds) || bounds.length !== 2) return null;
+  const center = [0, 1, 2].map((axis) => (bounds[0][axis] + bounds[1][axis]) / 2);
+  const localExtents = [0, 1, 2].map((axis) => Math.max(0, (bounds[1][axis] - bounds[0][axis]) / 2));
+  const columns = [[matrix[0], matrix[1], matrix[2]], [matrix[4], matrix[5], matrix[6]], [matrix[8], matrix[9], matrix[10]]];
+  const axes = [];
+  const extents = [];
+  for (let index = 0; index < 3; index++) {
+    const length = Math.hypot(...columns[index]);
+    if (!(length > 1e-12)) return null;
+    axes.push(columns[index].map((value) => value / length));
+    extents.push(localExtents[index] * length + tolerance);
+  }
+  return { center: studioV5TransformPoint(matrix, center), axes, extents };
+}
+
+// Full 15-axis separating-axis test for two rigidly transformed local AABBs.
+// These OBBs conservatively contain the exact B-reps, so a separating axis is
+// a safe proof of non-interference before any expensive OCC extrema/Boolean.
+function orientedBoundsOverlap(left, right) {
+  if (!left || !right) return true;
+  const R = Array.from({ length: 3 }, () => [0, 0, 0]);
+  const absR = Array.from({ length: 3 }, () => [0, 0, 0]);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+    R[i][j] = left.axes[i][0] * right.axes[j][0] + left.axes[i][1] * right.axes[j][1] + left.axes[i][2] * right.axes[j][2];
+    absR[i][j] = Math.abs(R[i][j]) + 1e-10;
+  }
+  const delta = right.center.map((value, axis) => value - left.center[axis]);
+  const t = left.axes.map((axis) => delta[0] * axis[0] + delta[1] * axis[1] + delta[2] * axis[2]);
+  for (let i = 0; i < 3; i++) {
+    const rb = right.extents[0] * absR[i][0] + right.extents[1] * absR[i][1] + right.extents[2] * absR[i][2];
+    if (Math.abs(t[i]) > left.extents[i] + rb) return false;
+  }
+  for (let j = 0; j < 3; j++) {
+    const projected = Math.abs(t[0] * R[0][j] + t[1] * R[1][j] + t[2] * R[2][j]);
+    const ra = left.extents[0] * absR[0][j] + left.extents[1] * absR[1][j] + left.extents[2] * absR[2][j];
+    if (projected > ra + right.extents[j]) return false;
+  }
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+    const i1 = (i + 1) % 3; const i2 = (i + 2) % 3;
+    const j1 = (j + 1) % 3; const j2 = (j + 2) % 3;
+    const projected = Math.abs(t[i2] * R[i1][j] - t[i1] * R[i2][j]);
+    const ra = left.extents[i1] * absR[i2][j] + left.extents[i2] * absR[i1][j];
+    const rb = right.extents[j1] * absR[i][j2] + right.extents[j2] * absR[i][j1];
+    if (projected > ra + rb) return false;
+  }
+  return true;
+}
+
+const INTERFERENCE_MESH_TOLERANCE_MM = 0.5;
+const INTERFERENCE_CELL_MM = 2;
+
+function collisionMesh(shape) {
+  return shape.mesh({ tolerance: INTERFERENCE_MESH_TOLERANCE_MM, angularTolerance: 0.3 });
+}
+
+function collisionEnvelope(mesh, transform = assemblyIdentityMatrix()) {
+  const cells = new Set();
+  const padding = INTERFERENCE_MESH_TOLERANCE_MM * 2;
+  const vertices = [];
+  const lower = [Infinity, Infinity, Infinity];
+  const upper = [-Infinity, -Infinity, -Infinity];
+  for (let index = 0; index < mesh.vertices.length; index += 3) {
+    const point = studioV5TransformPoint(transform, [mesh.vertices[index], mesh.vertices[index + 1], mesh.vertices[index + 2]]);
+    vertices.push(...point);
+    for (let axis = 0; axis < 3; axis++) {
+      lower[axis] = Math.min(lower[axis], point[axis]);
+      upper[axis] = Math.max(upper[axis], point[axis]);
+    }
+  }
+  const triangles = mesh.triangles;
+  const triangleBounds = [];
+  for (let index = 0; index < triangles.length; index += 3) {
+    const points = [triangles[index], triangles[index + 1], triangles[index + 2]].map((vertexIndex) => [
+      vertices[vertexIndex * 3], vertices[vertexIndex * 3 + 1], vertices[vertexIndex * 3 + 2],
+    ]);
+    const triangleLow = [0, 1, 2].map((axis) => Math.min(...points.map((point) => point[axis])));
+    const triangleHigh = [0, 1, 2].map((axis) => Math.max(...points.map((point) => point[axis])));
+    triangleBounds.push([triangleLow, triangleHigh]);
+    const low = triangleLow.map((value) => Math.floor((value - padding) / INTERFERENCE_CELL_MM));
+    const high = triangleHigh.map((value) => Math.floor((value + padding) / INTERFERENCE_CELL_MM));
+    for (let x = low[0]; x <= high[0]; x++) for (let y = low[1]; y <= high[1]; y++) for (let z = low[2]; z <= high[2]; z++) {
+      cells.add(x + ',' + y + ',' + z);
+    }
+  }
+  const bounds = [
+    lower.map((value) => value - padding),
+    upper.map((value) => value + padding),
+  ];
+  return { cells, vertices, triangles, triangleBounds, triangleCells: null, point: vertices.slice(0, 3), bounds };
+}
+
+function boundsContain(outer, inner, tolerance = 1e-7) {
+  if (!Array.isArray(outer) || !Array.isArray(inner)) return false;
+  return [0, 1, 2].every((axis) => outer[0][axis] <= inner[0][axis] + tolerance && outer[1][axis] >= inner[1][axis] - tolerance);
+}
+
+function rayTriangleHit(origin, direction, a, b, c) {
+  const edge1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const edge2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const p = [
+    direction[1] * edge2[2] - direction[2] * edge2[1],
+    direction[2] * edge2[0] - direction[0] * edge2[2],
+    direction[0] * edge2[1] - direction[1] * edge2[0],
+  ];
+  const determinant = edge1[0] * p[0] + edge1[1] * p[1] + edge1[2] * p[2];
+  if (Math.abs(determinant) < 1e-10) return false;
+  const inverse = 1 / determinant;
+  const t = [origin[0] - a[0], origin[1] - a[1], origin[2] - a[2]];
+  const u = (t[0] * p[0] + t[1] * p[1] + t[2] * p[2]) * inverse;
+  if (!(u > 1e-8 && u < 1 - 1e-8)) return false;
+  const q = [
+    t[1] * edge1[2] - t[2] * edge1[1],
+    t[2] * edge1[0] - t[0] * edge1[2],
+    t[0] * edge1[1] - t[1] * edge1[0],
+  ];
+  const v = (direction[0] * q[0] + direction[1] * q[1] + direction[2] * q[2]) * inverse;
+  if (!(v > 1e-8 && u + v < 1 - 1e-8)) return false;
+  const distance = (edge2[0] * q[0] + edge2[1] * q[1] + edge2[2] * q[2]) * inverse;
+  return distance > 1e-7;
+}
+
+function meshContainsPoint(envelope, point) {
+  if (!point?.length) return true;
+  const directions = [[1, 0.371, 0.127], [0.217, 1, 0.433], [0.319, 0.173, 1]];
+  let insideVotes = 0;
+  for (const direction of directions) {
+    let hits = 0;
+    for (let index = 0; index < envelope.triangles.length; index += 3) {
+      const points = [envelope.triangles[index], envelope.triangles[index + 1], envelope.triangles[index + 2]].map((vertexIndex) => [
+        envelope.vertices[vertexIndex * 3], envelope.vertices[vertexIndex * 3 + 1], envelope.vertices[vertexIndex * 3 + 2],
+      ]);
+      if (rayTriangleHit(point, direction, points[0], points[1], points[2])) hits++;
+    }
+    if (hits % 2 === 1) insideVotes++;
+  }
+  return insideVotes >= 2;
+}
+
+// Tessellation deflection bounds the exact surface to 0.5 mm on each body.
+// If no transformed triangle AABBs approach within the combined 1 mm
+// envelope, the exact B-rep surfaces cannot cross and no OCC distance query
+// or Boolean is needed. Containment remains a separate check below.
+function ensureTriangleCells(envelope) {
+  if (envelope.triangleCells) return envelope.triangleCells;
+  const cells = new Map();
+  for (let triangleIndex = 0; triangleIndex < envelope.triangleBounds.length; triangleIndex++) {
+    const bounds = envelope.triangleBounds[triangleIndex];
+    const low = bounds[0].map((value) => Math.floor(value / INTERFERENCE_CELL_MM));
+    const high = bounds[1].map((value) => Math.floor(value / INTERFERENCE_CELL_MM));
+    for (let x = low[0]; x <= high[0]; x++) for (let y = low[1]; y <= high[1]; y++) for (let z = low[2]; z <= high[2]; z++) {
+      const key = x + ',' + y + ',' + z;
+      const entries = cells.get(key) || [];
+      entries.push(triangleIndex); cells.set(key, entries);
+    }
+  }
+  envelope.triangleCells = cells;
+  return cells;
+}
+
+function vectorSubtract(a, b) {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function vectorDot(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function vectorCross(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+function pointTriangleDistanceSquared(point, a, b, c) {
+  const ab = vectorSubtract(b, a); const ac = vectorSubtract(c, a); const ap = vectorSubtract(point, a);
+  const d1 = vectorDot(ab, ap); const d2 = vectorDot(ac, ap);
+  if (d1 <= 0 && d2 <= 0) return vectorDot(ap, ap);
+  const bp = vectorSubtract(point, b); const d3 = vectorDot(ab, bp); const d4 = vectorDot(ac, bp);
+  if (d3 >= 0 && d4 <= d3) return vectorDot(bp, bp);
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+    const v = d1 / (d1 - d3); const projected = [a[0] + v * ab[0], a[1] + v * ab[1], a[2] + v * ab[2]];
+    const delta = vectorSubtract(point, projected); return vectorDot(delta, delta);
+  }
+  const cp = vectorSubtract(point, c); const d5 = vectorDot(ab, cp); const d6 = vectorDot(ac, cp);
+  if (d6 >= 0 && d5 <= d6) return vectorDot(cp, cp);
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+    const w = d2 / (d2 - d6); const projected = [a[0] + w * ac[0], a[1] + w * ac[1], a[2] + w * ac[2]];
+    const delta = vectorSubtract(point, projected); return vectorDot(delta, delta);
+  }
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) {
+    const edge = vectorSubtract(c, b); const w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+    const projected = [b[0] + w * edge[0], b[1] + w * edge[1], b[2] + w * edge[2]];
+    const delta = vectorSubtract(point, projected); return vectorDot(delta, delta);
+  }
+  const denominator = 1 / (va + vb + vc); const v = vb * denominator; const w = vc * denominator;
+  const projected = [a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w];
+  const delta = vectorSubtract(point, projected); return vectorDot(delta, delta);
+}
+
+function segmentSegmentDistanceSquared(p1, q1, p2, q2) {
+  const d1 = vectorSubtract(q1, p1); const d2 = vectorSubtract(q2, p2); const r = vectorSubtract(p1, p2);
+  const a = vectorDot(d1, d1); const e = vectorDot(d2, d2); const f = vectorDot(d2, r);
+  let s = 0; let t = 0;
+  if (a <= 1e-18 && e <= 1e-18) return vectorDot(r, r);
+  if (a <= 1e-18) t = Math.max(0, Math.min(1, f / e));
+  else {
+    const c = vectorDot(d1, r);
+    if (e <= 1e-18) s = Math.max(0, Math.min(1, -c / a));
+    else {
+      const b = vectorDot(d1, d2); const denominator = a * e - b * b;
+      if (denominator !== 0) s = Math.max(0, Math.min(1, (b * f - c * e) / denominator));
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = Math.max(0, Math.min(1, -c / a)); }
+      else if (t > 1) { t = 1; s = Math.max(0, Math.min(1, (b - c) / a)); }
+    }
+  }
+  const closest1 = [p1[0] + d1[0] * s, p1[1] + d1[1] * s, p1[2] + d1[2] * s];
+  const closest2 = [p2[0] + d2[0] * t, p2[1] + d2[1] * t, p2[2] + d2[2] * t];
+  const delta = vectorSubtract(closest1, closest2); return vectorDot(delta, delta);
+}
+
+function segmentIntersectsTriangle(start, end, a, b, c) {
+  const direction = vectorSubtract(end, start); const edge1 = vectorSubtract(b, a); const edge2 = vectorSubtract(c, a);
+  const h = vectorCross(direction, edge2); const determinant = vectorDot(edge1, h);
+  if (Math.abs(determinant) < 1e-12) return false;
+  const inverse = 1 / determinant; const s = vectorSubtract(start, a); const u = inverse * vectorDot(s, h);
+  if (u < 0 || u > 1) return false;
+  const q = vectorCross(s, edge1); const v = inverse * vectorDot(direction, q);
+  if (v < 0 || u + v > 1) return false;
+  const along = inverse * vectorDot(edge2, q);
+  return along >= 0 && along <= 1;
+}
+
+function triangleDistanceSquared(left, right) {
+  const leftEdges = [[left[0], left[1]], [left[1], left[2]], [left[2], left[0]]];
+  const rightEdges = [[right[0], right[1]], [right[1], right[2]], [right[2], right[0]]];
+  let minimum = Infinity;
+  for (const [start, end] of leftEdges) {
+    if (segmentIntersectsTriangle(start, end, right[0], right[1], right[2])) return 0;
+    minimum = Math.min(minimum, pointTriangleDistanceSquared(start, right[0], right[1], right[2]));
+  }
+  for (const [start, end] of rightEdges) {
+    if (segmentIntersectsTriangle(start, end, left[0], left[1], left[2])) return 0;
+    minimum = Math.min(minimum, pointTriangleDistanceSquared(start, left[0], left[1], left[2]));
+  }
+  for (const leftEdge of leftEdges) for (const rightEdge of rightEdges) {
+    minimum = Math.min(minimum, segmentSegmentDistanceSquared(leftEdge[0], leftEdge[1], rightEdge[0], rightEdge[1]));
+  }
+  return minimum;
+}
+
+function envelopeTriangle(envelope, triangleIndex) {
+  return [0, 1, 2].map((offset) => {
+    const vertexIndex = envelope.triangles[triangleIndex * 3 + offset] * 3;
+    return envelope.vertices.slice(vertexIndex, vertexIndex + 3);
+  });
+}
+
+function meshSurfacesMayMeet(left, right) {
+  if (!left?.triangleBounds || !right?.triangleBounds) return true;
+  const tolerance = INTERFERENCE_MESH_TOLERANCE_MM * 2;
+  const toleranceSquared = tolerance * tolerance;
+  const [probe, indexed] = left.triangleBounds.length <= right.triangleBounds.length ? [left, right] : [right, left];
+  const indexedCells = ensureTriangleCells(indexed);
+  for (let probeIndex = 0; probeIndex < probe.triangleBounds.length; probeIndex++) {
+    const bounds = probe.triangleBounds[probeIndex];
+    const low = bounds[0].map((value) => Math.floor((value - tolerance) / INTERFERENCE_CELL_MM));
+    const high = bounds[1].map((value) => Math.floor((value + tolerance) / INTERFERENCE_CELL_MM));
+    const tested = new Set();
+    for (let x = low[0]; x <= high[0]; x++) for (let y = low[1]; y <= high[1]; y++) for (let z = low[2]; z <= high[2]; z++) {
+      for (const triangleIndex of indexedCells.get(x + ',' + y + ',' + z) || []) {
+        if (tested.has(triangleIndex)) continue;
+        tested.add(triangleIndex);
+        const candidate = indexed.triangleBounds[triangleIndex];
+        if ([0, 1, 2].every((axis) => bounds[0][axis] <= candidate[1][axis] + tolerance && candidate[0][axis] <= bounds[1][axis] + tolerance)
+          && triangleDistanceSquared(envelopeTriangle(probe, probeIndex), envelopeTriangle(indexed, triangleIndex)) <= toleranceSquared) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Conservative surface-cell broad phase. Exact B-rep Booleans still produce
+// every reported volume; tessellation only proves obviously separated
+// surfaces. The expanded cells cover mesh deflection, while a containment
+// vote retains swallowed-solid cases whose boundaries do not cross.
+function collisionEnvelopesOverlap(left, right) {
+  if (!left || !right) return true;
+  const smaller = left.cells.size <= right.cells.size ? left.cells : right.cells;
+  const larger = smaller === left.cells ? right.cells : left.cells;
+  let sharedSurfaceCell = false;
+  for (const key of smaller) if (larger.has(key)) { sharedSurfaceCell = true; break; }
+  if (sharedSurfaceCell && meshSurfacesMayMeet(left, right)) return true;
+  if (boundsContain(left.bounds, right.bounds) && meshContainsPoint(left, right.point)) return true;
+  if (boundsContain(right.bounds, left.bounds) && meshContainsPoint(right, left.point)) return true;
+  return false;
+}
+
+function roundedRigidMatrix(matrix) {
+  return matrix.map((value) => Math.abs(value) < 1e-10 ? 0 : Math.round(value * 1e8) / 1e8);
+}
+
+function interferenceEquivalenceKey(left, right) {
+  const leftKey = left.runtime.sourceKey;
+  const rightKey = right.runtime.sourceKey;
+  const leftMatrix = left.runtime.renderTransform || left.runtime.exactPlacement;
+  const rightMatrix = right.runtime.renderTransform || right.runtime.exactPlacement;
+  if (!leftKey || !rightKey || !leftMatrix || !rightMatrix) return null;
+  if (leftKey < rightKey) {
+    return leftKey + '|' + rightKey + '|' + stableHash(roundedRigidMatrix(studioV5MultiplyMatrices(studioV5RigidInverse(leftMatrix), rightMatrix)));
+  }
+  if (rightKey < leftKey) {
+    return rightKey + '|' + leftKey + '|' + stableHash(roundedRigidMatrix(studioV5MultiplyMatrices(studioV5RigidInverse(rightMatrix), leftMatrix)));
+  }
+  const relative = roundedRigidMatrix(studioV5MultiplyMatrices(studioV5RigidInverse(leftMatrix), rightMatrix));
+  const inverse = roundedRigidMatrix(studioV5RigidInverse(relative));
+  const forwardHash = stableHash(relative); const inverseHash = stableHash(inverse);
+  return leftKey + '|' + rightKey + '|' + (forwardHash < inverseHash ? forwardHash : inverseHash);
+}
+
+// Inspection only needs the exact common volume, not a simplified result B-rep.
+// Running OCC's common builder directly avoids the expensive post-Boolean
+// topology simplification performed by Shape.intersect on complex lofts.
+function exactIntersectionVolume(left, right) {
+  let intersection = null;
+  let intersector = null;
+  let progress = null;
+  try {
+    const oc = rc.getOC();
+    progress = new oc.Message_ProgressRange_1();
+    intersector = new oc.BRepAlgoAPI_Common_3(left.shape.wrapped, right.shape.wrapped, progress);
+    intersector.SetUseOBB?.(true);
+    intersector.SetFuzzyValue?.(1e-4);
+    intersector.Build(progress);
+    intersection = rc.cast(intersector.Shape());
+    return shapeVolume(intersection);
+  } catch {
+    return 0;
+  } finally {
+    safeDelete(intersection);
+    try { intersector?.delete(); } catch {}
+    try { progress?.delete(); } catch {}
+  }
+}
+
+function batchInterferenceVolumes(left, candidates, tolerance = 0) {
+  const volumes = new Map(candidates.map((entry) => [entry.index, 0]));
+  if (!candidates.length) return volumes;
+  // A positive exact shape distance proves that two solids cannot have a
+  // volumetric intersection. Use that exact predicate after the conservative
+  // mesh/cell broad phase so nearby surfaces do not force a Boolean Common.
+  let exactCandidates = candidates;
+  let distanceQuery = null;
+  try {
+    distanceQuery = new rc.DistanceQuery(left.shape);
+    const contactTolerance = Math.max(1e-7, Number(tolerance) || 0);
+    exactCandidates = candidates.filter(({ entry }) => {
+      const leftEnvelope = left.collisionEnvelope;
+      const rightEnvelope = entry.collisionEnvelope;
+      const containmentPossible = leftEnvelope && rightEnvelope && (
+        (boundsContain(leftEnvelope.bounds, rightEnvelope.bounds) && meshContainsPoint(leftEnvelope, rightEnvelope.point))
+        || (boundsContain(rightEnvelope.bounds, leftEnvelope.bounds) && meshContainsPoint(rightEnvelope, leftEnvelope.point))
+      );
+      // Boundary distance remains positive when one solid is wholly inside
+      // another, so contained candidates must still reach Boolean Common.
+      if (containmentPossible) return true;
+      try { return distanceQuery.distanceTo(entry.shape) <= contactTolerance; }
+      catch { return true; }
+    });
+  } catch {
+    exactCandidates = candidates;
+  } finally {
+    distanceQuery?.delete();
+  }
+  if (!exactCandidates.length) return volumes;
+  for (const candidate of exactCandidates) {
+    // Keep attribution exact per pair. A compound common is slower for complex
+    // lofts and can assign a valid solid to the wrong overlapping bounds.
+    volumes.set(candidate.index, exactIntersectionVolume(left, candidate.entry));
+  }
+  return volumes;
+}
+
 function safeDelete(shape) {
   try { shape?.delete(); } catch {}
 }
 
-function applyBodyModifier(feature, shape, N) {
+function datumPlaneForFeature(document, part, datumId) {
+  const frame = resolveStudioV5Datums(document, part.id).resolve(datumId);
+  if (frame.kind !== 'plane') throw new Error('the selected neutral reference is not a plane');
+  return new rc.Plane(frame.origin, frame.xDirection, frame.normal);
+}
+
+function applyBodyModifier(document, part, feature, shape, N) {
   if (feature.type === 'fillet' || feature.type === 'chamfer') {
     let hits = 0;
     const radius = Math.max(0.1, N(feature.r));
     const next = shape[feature.type]((edge) => {
-      const selected = feature.edges.some((signature) => edgeMatches(signature, edge));
-      if (selected) hits++;
-      return selected ? radius : 0;
+      const selected = feature.edges.find((signature) => edgeMatches(signature, edge));
+      if (!selected) return 0;
+      hits++;
+      if (feature.type === 'fillet') {
+        const variable = feature.variableRadii?.find((entry) => edgeMatches(entry.edge, edge));
+        if (variable) {
+          const start = N(variable.startRadius);
+          const end = N(variable.endRadius);
+          if (!(start > 0 && end > 0)) throw new Error('variable fillet radii must stay above zero');
+          return [start, end];
+        }
+      }
+      return radius;
     });
     if (!hits) {
       safeDelete(next);
       throw new Error('the picked edges no longer exist — edit or delete this feature');
     }
     return next;
+  }
+  if (feature.type === 'draft') {
+    const matchingFaces = shape.faces.filter((face) => feature.faces.some((signature) => faceMatches(signature, face)));
+    if (!matchingFaces.length) throw new Error('the picked draft faces no longer exist — repair this feature');
+    const angle = N(feature.angle) * (feature.flip ? -1 : 1);
+    if (!(Math.abs(angle) > 1e-6 && Math.abs(angle) < 89)) throw new Error('draft angle must stay between -89 and 89 degrees and not be zero');
+    const neutralPlane = datumPlaneForFeature(document, part, feature.neutralPlaneDatumId);
+    try {
+      return shape.draft(angle, (finder) => finder.when(({ element }) => feature.faces.some((signature) => faceMatches(signature, element))), neutralPlane);
+    } finally {
+      neutralPlane.delete();
+    }
   }
   if (feature.type === 'shell') {
     let hits = 0;
@@ -473,6 +1128,27 @@ function applyBodyModifier(feature, shape, N) {
     return next;
   }
   return null;
+}
+
+function thickenStudioV5Face(feature, sourceShape, N) {
+  const face = sourceShape.faces.find((candidate) => feature.faces.some((signature) => faceMatches(signature, candidate)));
+  if (!face) throw new Error('the selected Thicken face no longer exists — repair this feature');
+  if (face.geomType !== 'PLANE') throw new Error('this Thicken increment requires a planar source face');
+  const thickness = N(feature.thickness);
+  if (!(thickness > 0)) throw new Error('Thicken distance must stay above zero');
+  const normalValue = face.normalAt();
+  const direction = [normalValue.x, normalValue.y, normalValue.z].map((value) => value * (feature.flip ? -1 : 1));
+  normalValue.delete?.();
+  const startFace = feature.symmetric
+    ? face.translate(direction.map((value) => -value * thickness / 2))
+    : face.clone();
+  const vector = new rc.Vector(direction.map((value) => value * thickness));
+  try {
+    return rc.basicFaceExtrusion(startFace, vector);
+  } finally {
+    startFace.delete();
+    vector.delete();
+  }
 }
 
 function transformDirection(frame) {
@@ -749,13 +1425,22 @@ function buildStudioV5Loft(document, part, feature, N) {
       }
     } else {
       const oc = rc.getOC();
-      const builder = new oc.BRepOffsetAPI_ThruSections(true, feature.ruled === true, 1e-6);
+      // Schema-5 dimensions are stored in millimetres; a 1e-4 mm Loft
+      // approximation is already well below display, export, and inspection
+      // tolerances. The previous 1e-6 mm solver target made every ordinary
+      // three-section blade rebuild pay for nanometre-scale fitting.
+      const builder = new oc.BRepOffsetAPI_ThruSections(true, feature.ruled === true, 1e-4);
       const progress = new oc.Message_ProgressRange_1();
       try {
+        const continuity = loftContinuity(oc, feature);
         builder.CheckCompatibility(false);
-        builder.SetSmoothing(feature.ruled !== true);
-        builder.SetMaxDegree(8);
-        builder.SetContinuity(loftContinuity(oc, feature));
+        // C0 multi-section geometry does not request tangent/curvature
+        // smoothing. Asking OCC to run its smoothing optimizer anyway added
+        // substantial rebuild time to ordinary editable blade Lofts without
+        // strengthening the feature's declared continuity contract.
+        builder.SetSmoothing(feature.ruled !== true && continuity !== oc.GeomAbs_Shape.GeomAbs_C0);
+        builder.SetMaxDegree(4);
+        builder.SetContinuity(continuity);
         sections.forEach((section) => builder.AddWire(section.wire.wrapped));
         builder.Build(progress);
         shape = rc.cast(builder.Shape());
@@ -797,6 +1482,24 @@ function buildStudioV5Sweep(document, part, feature, N) {
   }
 }
 
+function buildStudioV5Revolve(document, part, feature, N) {
+  const sketch = part.sketches.find((entry) => entry.id === feature.profileSketchId);
+  if (!sketch) throw new Error('Revolve profile sketch is missing');
+  const frame = resolveStudioV5Datums(document, part.id).resolve(feature.axisDatumId);
+  if (frame.kind !== 'axis') throw new Error('Revolve requires an axis datum');
+  const angle = N(feature.angle);
+  const startAngle = N(feature.startAngle ?? (feature.symmetric ? -angle / 2 : 0));
+  if (!(angle > 0 && angle <= 360)) throw new Error('Revolve angle must stay above zero and at most 360 degrees');
+  const profile = profileSketch3d(document, part, sketch, {}, N);
+  let shape = profile.revolve(frame.direction, { origin: frame.origin, angle });
+  if (Math.abs(startAngle) > 1e-9) {
+    const rotated = shape.rotate(startAngle, frame.origin, frame.direction);
+    safeDelete(shape);
+    shape = rotated;
+  }
+  return shape;
+}
+
 function studioV5FeatureSolid(document, part, feature, zTop, accumulated, N, NS) {
   if (feature.type === 'imported-step') {
     const resourceId = feature.extensions?.studioImportedStep?.resourceId;
@@ -809,6 +1512,12 @@ function studioV5FeatureSolid(document, part, feature, zTop, accumulated, N, NS)
   }
   if (feature.type === 'loft') return buildStudioV5Loft(document, part, feature, N);
   if (feature.type === 'sweep') return buildStudioV5Sweep(document, part, feature, N);
+  if (feature.type === 'revolve' && feature.profileSketchId) return buildStudioV5Revolve(document, part, feature, N);
+  if (feature.extensions?.exactSketchEntities && feature.sketchId) {
+    const sketch = part.sketches.find((entry) => entry.id === feature.sketchId);
+    if (!sketch) throw new Error('migrated schema-4 feature sketch is missing');
+    return featureSolid({ ...feature, sketch: { ...feature.sketch, ...sketch } }, zTop, accumulated, N, NS);
+  }
   return featureSolid(feature, zTop, accumulated, N, NS);
 }
 
@@ -1033,7 +1742,29 @@ async function buildV5Document(document, options = {}) {
   const reusedFeatureIds = [];
   const evaluatedPatternInstanceIds = [];
   const reusedPatternInstanceIds = [];
-  const parameterState = [document.parameters || [], part.parameters || []];
+  // A project-scoped parameter invalidates only parts whose editable records
+  // actually reference it. Hashing the complete project parameter table into
+  // every body made one fan-blade twist rebuild all unrelated engine parts.
+  const referencedParameterNames = new Set();
+  const collectIdentifiers = (value) => {
+    if (typeof value === 'string') for (const match of value.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) referencedParameterNames.add(match[0]);
+    else if (Array.isArray(value)) for (const entry of value) collectIdentifiers(entry);
+    else if (value && typeof value === 'object') for (const entry of Object.values(value)) collectIdentifiers(entry);
+  };
+  collectIdentifiers(part);
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const parameter of document.parameters || []) if (referencedParameterNames.has(parameter.name)) {
+      const before = referencedParameterNames.size;
+      collectIdentifiers(parameter.value);
+      if (referencedParameterNames.size !== before) expanded = true;
+    }
+  }
+  const parameterState = [
+    (document.parameters || []).filter((parameter) => referencedParameterNames.has(parameter.name)),
+    part.parameters || [],
+  ];
   const datumById = new Map((part.referenceGeometry || []).map((datum) => [datum.id, datum]));
   const sketchById = new Map((part.sketches || []).map((sketch) => [sketch.id, sketch]));
   const datumSignatures = new Map();
@@ -1106,7 +1837,6 @@ async function buildV5Document(document, options = {}) {
       evaluating.delete(bodyId);
       return result;
     }
-
     let shape = null;
     let failure = null;
     let currentFeature = null;
@@ -1126,6 +1856,33 @@ async function buildV5Document(document, options = {}) {
                 if (!source.shape || source.error) throw new Error('source body "' + feature.sourceBodyId + '" has no valid solid');
                 return applyStudioV5Transform(document, part, feature, source.shape);
               })()
+            : feature.type === 'thicken'
+              ? (() => {
+                  const source = evaluateBody(feature.sourceBodyId);
+                  if (!source.shape || source.error) throw new Error('source body "' + feature.sourceBodyId + '" has no valid face to thicken');
+                  return thickenStudioV5Face(feature, source.shape, N);
+                })()
+            : feature.type === 'boolean-split-side'
+              ? (() => {
+                  const source = evaluateBody(feature.sourceBodyId);
+                  const toolBodyId = (feature.toolBodyIds || []).find((bodyId) => bodyId !== feature.sourceBodyId);
+                  const tool = evaluateBody(toolBodyId);
+                  if (!source.shape || source.error || !tool?.shape || tool.error) throw new Error('Boolean Split source or tool has no valid exact solid');
+                  if (!boundsOverlap(source.shape, tool.shape)) throw new Error('the splitting tool does not intersect the target body');
+                  // A split evaluates two sibling results from the same source
+                  // and tool. Cached Replicad wrappers must stay immutable:
+                  // OCC Boolean builders may attach mutable operation state to
+                  // their operands even though they return a new shape. Give
+                  // each side private inputs so evaluating Outside can never
+                  // poison the subsequent Inside result or the body cache.
+                  // Shape.clone() is a TopoDS partner, not a deep B-rep copy.
+                  // Round-trip the bounded exact operands so OCC cannot share
+                  // mutable topology between the two sibling Boolean builders.
+                  const sourceInput = rc.deserializeShape(source.shape.serialize());
+                  const toolInput = rc.deserializeShape(tool.shape.serialize());
+                  try { return feature.side === 'inside' ? sourceInput.intersect(toolInput) : sourceInput.cut(toolInput); }
+                  finally { safeDelete(sourceInput); safeDelete(toolInput); }
+                })()
             : studioV5FeatureSolid(document, part, feature, 0, null, N, NS);
           if (!next) throw new Error('the feature produced no solid');
           safeDelete(shape);
@@ -1177,7 +1934,7 @@ async function buildV5Document(document, options = {}) {
             shape = transformed;
             continue;
           }
-          const modified = applyBodyModifier(feature, shape, N);
+          const modified = applyBodyModifier(document, part, feature, shape, N);
           if (modified) {
             safeDelete(shape);
             shape = modified;
@@ -1239,6 +1996,18 @@ async function buildV5Document(document, options = {}) {
   }
 
   for (const body of part.bodies) evaluateBody(body.id);
+  // Boolean tool bodies remain addressable dependencies so suppression,
+  // repair, and undo can recover them, but `keepTools: false` must not leave
+  // the consumed solid rendered or exported as an independent body.
+  const consumedBodyIds = new Map();
+  for (const feature of part.features || []) {
+    if (feature.suppressed || !enabledFeatureIds.has(feature.id) || feature.type !== 'boolean' || feature.resultPolicy?.keepTools !== false) continue;
+    for (const toolBodyId of feature.toolBodyIds || []) consumedBodyIds.set(toolBodyId, feature.id);
+  }
+  for (const [bodyId, featureId] of consumedBodyIds) {
+    const result = results.get(bodyId);
+    if (result) result.body = { ...result.body, visible: false, extensions: { ...(result.body.extensions || {}), consumedByFeatureId: featureId } };
+  }
   const patternResults = new Map();
   for (const pattern of part.bodyPatterns || []) {
     if (pattern.suppressed) continue;
@@ -1317,6 +2086,45 @@ async function buildV5Document(document, options = {}) {
         patternResults.set(bodyId, previous?.shape
           ? { ...previous, body, error: failure, reused: false, lastValid: true }
           : { signature, shape: null, geometry: null, body, error: failure, reused: false, lastValid: false });
+      }
+    }
+    if (pattern.outputMode === 'union') {
+      const generated = [...patternResults.values()].filter((entry) => entry.body.patternInstance?.patternId === pattern.id && !entry.error && entry.shape);
+      // Keep the retained source/occurrence cache immutable. A TopoDS clone
+      // is only a shared partner, so Boolean builders can otherwise leak
+      // operation state into the linked bodies that must remain editable.
+      let fused = rc.deserializeShape(source.shape.serialize());
+      try {
+        for (const entry of generated) {
+          const operand = rc.deserializeShape(entry.shape.serialize());
+          try {
+            const next = fused.fuse(operand);
+            safeDelete(fused);
+            fused = next;
+          } finally {
+            safeDelete(operand);
+          }
+        }
+        const geometry = bodyGeometry(fused);
+        if (!geometry.valid || geometry.solidCount !== 1) throw new Error('pattern fusion must produce exactly one connected valid solid');
+        for (const entry of generated) entry.body.visible = false;
+        const bodyId = pattern.id + '-fused';
+        const body = {
+          id: bodyId, name: pattern.name + ' fused result', kind: source.body.kind,
+          visible: pattern.visible !== false && source.body.visible !== false, suppressed: false,
+          patternInstance: { patternId: pattern.id, index: 0, sourceBodyId: pattern.sourceBodyId, fused: true },
+        };
+        patternResults.set(bodyId, {
+          signature: stableHash({ pattern, source: source.signature, fused: true }), shape: fused, geometry, body,
+          renderTransform: identityMatrix(), sharesSourceGeometry: false, error: null, reused: false, lastValid: false,
+        });
+        fused = null;
+        evaluatedPatternInstanceIds.push(bodyId);
+      } catch (error) {
+        const failure = { bodyId: pattern.id + '-fused', featureId: pattern.id, featureType: 'pattern', message: String(error?.message || error) };
+        errors.push(failure);
+      } finally {
+        safeDelete(fused);
       }
     }
   }
@@ -1423,6 +2231,19 @@ function setOcLabelName(oc, label, name) {
   wrapped.delete();
 }
 
+function setOcLabelColor(oc, colorTool, label, color) {
+  const source = String(color || '#a7b8c9').replace(/^#/, '');
+  const hex = source.length === 3 ? source.replace(/(.)/g, '$1$1') : source.padEnd(6, '0').slice(0, 6);
+  const rgba = new oc.Quantity_ColorRGBA_5(
+    Number.parseInt(hex.slice(0, 2), 16) / 255,
+    Number.parseInt(hex.slice(2, 4), 16) / 255,
+    Number.parseInt(hex.slice(4, 6), 16) / 255,
+    1,
+  );
+  colorTool.SetColor_3(label, rgba, oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf);
+  rgba.delete();
+}
+
 function writeXcafStep(oc, document) {
   // The default writer owns its work session. Keeping that lifetime inside a
   // single wrapper avoids dangling Handle_XSControl_WorkSession instances in
@@ -1436,7 +2257,9 @@ function writeXcafStep(oc, document) {
   oc.Interface_Static.SetIVal('write.surfacecurve.mode', true);
   oc.Interface_Static.SetIVal('write.precision.mode', 0);
   oc.Interface_Static.SetIVal('write.step.assembly', 2);
-  oc.Interface_Static.SetIVal('write.step.schema', 5);
+  // AP214 preserves names, colors, and hierarchy while remaining stable in
+  // the browser STEPControl reader across repeated import/re-export cycles.
+  oc.Interface_Static.SetIVal('write.step.schema', 4);
   const progress = new oc.Message_ProgressRange_1();
   const documentHandle = new oc.Handle_TDocStd_Document_2(document);
   writer.Transfer_1(documentHandle, oc.STEPControl_StepModelType.STEPControl_AsIs, null, progress);
@@ -1469,7 +2292,9 @@ function createStructuredAssemblyStep(document, built, selected) {
   const mainLabel = xcafDocument.Main();
   const shapeToolHandle = oc.XCAFDoc_DocumentTool.ShapeTool(mainLabel);
   const shapeTool = shapeToolHandle.get();
-  const selectedKeys = new Set(selected.map((runtime) => runtime.occurrenceInstance.definition.partId + ':' + runtime.localBodyId));
+  const colorToolHandle = oc.XCAFDoc_DocumentTool.ColorTool(mainLabel);
+  const colorTool = colorToolHandle.get();
+  const selectedKeys = new Set(selected.map((runtime) => runtime.sourceKey));
   const bodyLabels = new Map();
   const partLabels = new Map();
   const assemblyLabels = new Map();
@@ -1500,28 +2325,37 @@ function createStructuredAssemblyStep(document, built, selected) {
   }
 
   try {
-    for (const [partId, partBuild] of built.partBuilds) {
+    for (const [variantKey, partBuild] of built.partBuilds) {
       const part = partBuild.part;
       const localResults = [
         ...part.bodies.map((body) => ({ body, result: partBuild.results.get(body.id) })),
         ...[...partBuild.patternResults.values()].map((result) => ({ body: result.body, result })),
-      ].filter(({ body, result }) => selectedKeys.has(partId + ':' + body.id) && result?.shape && result.geometry?.valid);
+      ].filter(({ body, result }) => selectedKeys.has(variantKey + ':' + body.id) && result?.shape && result.geometry?.valid);
       if (!localResults.length) continue;
       const partLabel = shapeTool.NewShape();
       setOcLabelName(oc, partLabel, part.name);
-      partLabels.set(partId, partLabel);
+      partLabels.set(variantKey, partLabel);
       const manifestBodies = [];
       for (const { body, result } of localResults) {
         const definitionLabel = shapeTool.AddShape(result.shape.wrapped, false, false);
         setOcLabelName(oc, definitionLabel, body.name);
-        bodyLabels.set(partId + ':' + body.id, definitionLabel);
+        const material = body.materialId ? document.materials?.find((entry) => entry.id === body.materialId) : null;
+        const appearance = document.materials?.find((entry) => entry.appearanceId === (body.appearanceId || material?.appearanceId))?.extensions?.studioAppearance;
+        setOcLabelColor(oc, colorTool, definitionLabel, appearance?.baseColor || '#a7b8c9');
+        bodyLabels.set(variantKey + ':' + body.id, definitionLabel);
         const location = ocLocationFromMatrix(oc, assemblyIdentityMatrix());
         const componentLabel = shapeTool.AddComponent_1(partLabel, definitionLabel, location);
         setOcLabelName(oc, componentLabel, body.name);
         location.delete();
-        manifestBodies.push({ id: body.id, name: body.name, kind: body.kind, visible: body.visible !== false, appearanceId: body.appearanceId || null });
+        manifestBodies.push({ id: body.id, name: body.name, kind: body.kind, visible: body.visible !== false, materialId: body.materialId || null, appearanceId: body.appearanceId || null });
       }
-      if (manifestBodies.length) manifestParts.push({ id: partId, name: part.name, bodies: manifestBodies });
+      if (manifestBodies.length) manifestParts.push({
+        id: variantKey,
+        definitionPartId: partBuild.sourcePartId,
+        name: part.name,
+        parameterOverrides: partBuild.parameterOverrides,
+        bodies: manifestBodies,
+      });
     }
 
     for (const assembly of document.assemblyDefinitions || []) {
@@ -1541,7 +2375,7 @@ function createStructuredAssemblyStep(document, built, selected) {
         if (occurrence.suppressed) continue;
         if (!contexts.some((prefix) => selectedPaths.some((path) => pathStartsWith(path, [...prefix, occurrence.id])))) continue;
         const definitionLabel = occurrence.definition.kind === 'part'
-          ? partLabels.get(occurrence.definition.partId)
+          ? partLabels.get(occurrence.definition.partId + ':variant:' + stableHash(occurrence.parameterOverrides || {}))
           : assemblyLabels.get(occurrence.definition.assemblyId);
         if (!definitionLabel) continue;
         const transform = solution.transforms.get(occurrence.id);
@@ -1550,7 +2384,10 @@ function createStructuredAssemblyStep(document, built, selected) {
         setOcLabelName(oc, componentLabel, occurrence.name);
         location.delete();
         occurrences.push({
-          id: occurrence.id, name: occurrence.name, definition: occurrence.definition,
+          id: occurrence.id, name: occurrence.name,
+          definition: occurrence.definition.kind === 'part'
+            ? { kind: 'part', partId: occurrence.definition.partId + ':variant:' + stableHash(occurrence.parameterOverrides || {}) }
+            : occurrence.definition,
           transform, visible: occurrence.visible !== false, extensions: { importedFromStep: true },
         });
       }
@@ -1562,7 +2399,7 @@ function createStructuredAssemblyStep(document, built, selected) {
         generatedTopIds.add(topId);
         const source = assembly.occurrences.find((entry) => entry.id === leaf.sourceOccurrenceId);
         const definitionLabel = source?.definition.kind === 'part'
-          ? partLabels.get(source.definition.partId)
+          ? partLabels.get(source.definition.partId + ':variant:' + stableHash(source.parameterOverrides || {}))
           : assemblyLabels.get(source?.definition.assemblyId);
         if (!source || !definitionLabel) continue;
         const transform = source.definition.kind === 'part' ? leaf.transform : sourcePatternOccurrenceTransform(solution, leaf);
@@ -1572,7 +2409,11 @@ function createStructuredAssemblyStep(document, built, selected) {
         setOcLabelName(oc, componentLabel, name);
         location.delete();
         occurrences.push({
-          id: topId, name, definition: source.definition, transform,
+          id: topId, name,
+          definition: source.definition.kind === 'part'
+            ? { kind: 'part', partId: source.definition.partId + ':variant:' + stableHash(source.parameterOverrides || {}) }
+            : source.definition,
+          transform,
           visible: source.visible !== false, extensions: { importedFromStep: true, sourcePatternId: leaf.patternInstance.patternId },
         });
       }
@@ -1582,7 +2423,8 @@ function createStructuredAssemblyStep(document, built, selected) {
     const blob = writeXcafStep(oc, xcafDocument);
     const bodyInstances = selected.map((runtime) => ({
       bodyId: runtime.bodyId,
-      partId: runtime.occurrenceInstance.definition.partId,
+      partId: runtime.occurrenceInstance.variantKey,
+      definitionPartId: runtime.occurrenceInstance.definition.partId,
       localBodyId: runtime.localBodyId,
       name: runtime.bodyName,
       occurrencePath: runtime.occurrenceInstance.occurrencePath,
@@ -1593,13 +2435,14 @@ function createStructuredAssemblyStep(document, built, selected) {
     return {
       blob,
       manifest: {
-        format: 'bomwiki-v5-step-assembly-1', schemaVersion: 5, units: 'mm',
+        format: 'bomwiki-v5-step-assembly-1', schemaVersion: 5, units: 'mm', sourceUnits: document.units,
         projectName: document.name, rootAssemblyId: built.solution.assembly.id,
-        parts: manifestParts, assemblies: manifestAssemblies, bodyInstances,
+        parts: manifestParts, assemblies: manifestAssemblies, bodyInstances, materials: structuredClone(document.materials || []),
         limitations: ['exact-brep-and-solved-hierarchy-only', 'no-parametric-feature-history', 'no-mate-recovery'],
       },
     };
   } finally {
+    safeDelete(colorToolHandle);
     safeDelete(shapeToolHandle);
     safeDelete(xcafDocument);
   }
@@ -1616,16 +2459,52 @@ async function buildV5Assembly(document, options = {}) {
   if (document.rootDocument?.kind !== 'assembly') throw new Error('This worker request requires a schema-5 assembly document.');
   const solution = solveStudioV5Assembly(document, document.rootDocument.assemblyId, { previousByAssembly: options.previousSolutions || new Map() });
   const partBuilds = new Map();
+  const variantKeyFor = (occurrence) => occurrence.definition.partId + ':variant:' + stableHash(occurrence.parameterOverrides || {});
+  const cacheView = (cache, variantKey) => {
+    const view = new Map();
+    const prefix = variantKey + ':';
+    for (const [key, value] of cache || []) if (String(key).startsWith(prefix)) view.set(String(key).slice(prefix.length), value);
+    return view;
+  };
   for (const occurrence of solution.leafOccurrences) {
     const partId = occurrence.definition.partId;
-    if (!partBuilds.has(partId)) partBuilds.set(partId, await buildV5Document(document, { ...options, partId }));
+    const variantKey = variantKeyFor(occurrence);
+    occurrence.variantKey = variantKey;
+    if (partBuilds.has(variantKey)) continue;
+    const parameterOverrides = occurrence.parameterOverrides || {};
+    // The canonical assembly has many reusable definitions but only a small
+    // number of actual parameter variants. Cloning the complete project once
+    // per ordinary (non-overridden) definition added avoidable latency to
+    // every edit. Exact document evaluation is read-only, so share the
+    // canonical document unless this variant genuinely needs an isolated
+    // parameter patch.
+    const variantDocument = Object.keys(parameterOverrides).length ? structuredClone(document) : document;
+    if (variantDocument !== document) {
+      const variantPart = variantDocument.partDefinitions.find((entry) => entry.id === partId);
+      for (const [name, value] of Object.entries(parameterOverrides)) {
+        const parameter = variantPart?.parameters?.find((entry) => entry.name === name);
+        if (!parameter) throw new Error('Component variant parameter "' + name + '" no longer exists in part "' + partId + '".');
+        parameter.value = value;
+      }
+    }
+    const built = await buildV5Document(variantDocument, {
+      ...options,
+      partId,
+      cache: cacheView(options.cache, variantKey),
+      previousCache: cacheView(options.previousCache, variantKey),
+    });
+    built.variantKey = variantKey;
+    built.sourcePartId = partId;
+    built.parameterOverrides = structuredClone(parameterOverrides);
+    partBuilds.set(variantKey, built);
   }
   const runtimeBodies = [];
   const errors = solution.errors.map((error) => ({ ...error, featureType: 'mate' }));
   for (const occurrence of solution.leafOccurrences) {
-    const built = partBuilds.get(occurrence.definition.partId);
+    const built = partBuilds.get(occurrence.variantKey);
     for (const body of built.part.bodies) {
       const result = built.results.get(body.id);
+      const runtimeBody = result?.body || body;
       const bodyId = occurrence.id + ':' + body.id;
       const geometry = result?.geometry ? {
         ...result.geometry,
@@ -1637,32 +2516,39 @@ async function buildV5Assembly(document, options = {}) {
       runtimeBodies.push({
         bodyId,
         localBodyId: body.id,
-        bodyName: occurrence.name + ' / ' + body.name,
-        kind: body.kind,
-        visible: occurrence.visible && body.visible,
-        suppressed: occurrence.suppressed || body.suppressed,
+        bodyName: occurrence.name + ' / ' + runtimeBody.name,
+        kind: runtimeBody.kind,
+        visible: occurrence.visible && runtimeBody.visible,
+        suppressed: occurrence.suppressed || runtimeBody.suppressed,
+        consumed: Boolean(runtimeBody.extensions?.consumedByFeatureId),
         occurrenceInstance: {
           occurrenceId: occurrence.id,
           occurrencePath: occurrence.occurrencePath,
           definition: occurrence.definition,
+          parameterOverrides: occurrence.parameterOverrides || {},
+          variantKey: occurrence.variantKey,
           sourceOccurrenceId: occurrence.sourceOccurrenceId,
           patternInstance: occurrence.patternInstance || null,
         },
         sourceBodyId: body.id,
-        sourceKey: occurrence.definition.partId + ':' + body.id,
+        sourceKey: occurrence.variantKey + ':' + body.id,
         exactShape: result?.shape || null,
         renderShape: result?.shape || null,
         exactPlacement: occurrence.transform,
         renderTransform: occurrence.transform,
         geometry,
         error,
+        reused: result?.reused === true,
         lastValid: Boolean(result?.lastValid || solution.usedLastValid),
       });
     }
     for (const result of built.patternResults.values()) {
       const source = built.results.get(result.body.patternInstance.sourceBodyId);
       const bodyId = occurrence.id + ':' + result.body.id;
-      const placement = studioV5MultiplyMatrices(occurrence.transform, result.renderTransform || assemblyIdentityMatrix());
+      const fused = result.body.patternInstance?.fused === true;
+      const placement = fused
+        ? occurrence.transform
+        : studioV5MultiplyMatrices(occurrence.transform, result.renderTransform || assemblyIdentityMatrix());
       const geometry = result.geometry ? {
         ...result.geometry,
         bounds: studioV5TransformBounds(result.geometry.bounds, occurrence.transform),
@@ -1681,18 +2567,21 @@ async function buildV5Assembly(document, options = {}) {
           occurrenceId: occurrence.id,
           occurrencePath: occurrence.occurrencePath,
           definition: occurrence.definition,
+          parameterOverrides: occurrence.parameterOverrides || {},
+          variantKey: occurrence.variantKey,
           sourceOccurrenceId: occurrence.sourceOccurrenceId,
           patternInstance: occurrence.patternInstance || null,
         },
         patternInstance: result.body.patternInstance,
         sourceBodyId: result.body.patternInstance.sourceBodyId,
-        sourceKey: occurrence.definition.partId + ':' + result.body.patternInstance.sourceBodyId,
+        sourceKey: occurrence.variantKey + ':' + (fused ? result.body.id : result.body.patternInstance.sourceBodyId),
         exactShape: result.shape,
-        renderShape: source?.shape || null,
+        renderShape: fused ? result.shape : source?.shape || null,
         exactPlacement: occurrence.transform,
         renderTransform: placement,
         geometry,
         error,
+        reused: result.reused === true,
         lastValid: Boolean(result.lastValid || solution.usedLastValid),
       });
     }
@@ -1708,10 +2597,14 @@ async function buildV5Assembly(document, options = {}) {
       degreesOfFreedom: Object.fromEntries(solution.degreesOfFreedom),
       conflicts: solution.conflicts,
       redundantMateIds: solution.redundantMateIds,
+      mateResiduals: solution.residuals,
       usedLastValid: solution.usedLastValid,
-      evaluatedPartIds: [...partBuilds.keys()],
+      evaluatedPartIds: [...new Set([...partBuilds.values()].map((built) => built.sourcePartId))],
+      evaluatedVariantKeys: [...partBuilds.keys()],
       reusedBodyIds: [...partBuilds.values()].flatMap((built) => built.trace.reusedBodyIds),
       evaluatedBodyIds: [...partBuilds.values()].flatMap((built) => built.trace.evaluatedBodyIds),
+      reusedVariantBodyIds: [...partBuilds.values()].flatMap((built) => built.trace.reusedBodyIds.map((bodyId) => built.variantKey + ':' + bodyId)),
+      evaluatedVariantBodyIds: [...partBuilds.values()].flatMap((built) => built.trace.evaluatedBodyIds.map((bodyId) => built.variantKey + ':' + bodyId)),
     },
   };
 }
@@ -1798,6 +2691,8 @@ async function rebuildV5(request) {
       bodyId: body.id,
       bodyName: body.name,
       sourceBodyId: body.id,
+      sourceKey: built.part.id + ':' + body.id,
+      renderSourceKey: built.part.id + ':' + body.id,
       kind: body.kind,
       visible: body.visible,
       suppressed: body.suppressed,
@@ -1811,18 +2706,23 @@ async function rebuildV5(request) {
     const body = result.body;
     if (result?.shape && !result.error) nextCache.set(body.id, result);
     else if (result?.shape && result.lastValid) nextCache.set(body.id, previousCache.get(body.id));
+    const fused = body.patternInstance?.fused === true;
+    const shared = result.sharesSourceGeometry === true;
+    const serialized = fused && !body.suppressed && result?.shape ? serializeShape(result.shape) : { mesh: null, transfer: [] };
+    transfer.push(...serialized.transfer);
     bodies.push({
       bodyId: body.id,
       bodyName: body.name,
       sourceBodyId: body.patternInstance.sourceBodyId,
+      sourceKey: built.part.id + ':' + (fused ? body.id : body.patternInstance.sourceBodyId),
+      renderSourceKey: built.part.id + ':' + (fused ? body.id : body.patternInstance.sourceBodyId),
       kind: body.kind,
       visible: body.visible,
       suppressed: body.suppressed,
       patternInstance: body.patternInstance,
-      mesh: null,
-      renderSourceBodyId: body.patternInstance.sourceBodyId,
-      renderTransform: sceneRenderMatrix(result.renderTransform || identityMatrix()),
-      sharesSourceGeometry: result.sharesSourceGeometry === true,
+      mesh: serialized.mesh,
+      ...(!fused ? { renderSourceBodyId: body.patternInstance.sourceBodyId, renderTransform: sceneRenderMatrix(result.renderTransform || identityMatrix()) } : {}),
+      sharesSourceGeometry: shared,
       geometry: result?.geometry || null,
       error: result?.error || null,
       lastValid: Boolean(result?.lastValid),
@@ -1854,12 +2754,14 @@ async function rebuildV5Assembly(request) {
   for (const partBuild of built.partBuilds.values()) {
     for (const body of partBuild.part.bodies) {
       const result = partBuild.results.get(body.id);
-      if (result?.shape && !result.error) nextCache.set(body.id, result);
-      else if (result?.shape && result.lastValid) nextCache.set(body.id, previousCache.get(body.id));
+      const cacheKey = partBuild.variantKey + ':' + body.id;
+      if (result?.shape && !result.error) nextCache.set(cacheKey, result);
+      else if (result?.shape && result.lastValid) nextCache.set(cacheKey, previousCache.get(cacheKey));
     }
     for (const result of partBuild.patternResults.values()) {
-      if (result?.shape && !result.error) nextCache.set(result.body.id, result);
-      else if (result?.shape && result.lastValid) nextCache.set(result.body.id, previousCache.get(result.body.id));
+      const cacheKey = partBuild.variantKey + ':' + result.body.id;
+      if (result?.shape && !result.error) nextCache.set(cacheKey, result);
+      else if (result?.shape && result.lastValid) nextCache.set(cacheKey, previousCache.get(cacheKey));
     }
   }
   const templateBodyIds = new Map();
@@ -1868,11 +2770,11 @@ async function rebuildV5Assembly(request) {
   for (const runtime of built.runtimeBodies) {
     const templateBodyId = templateBodyIds.get(runtime.sourceKey);
     let serialized = { mesh: null, transfer: [] };
-    if (!templateBodyId && runtime.renderShape) {
+    if (!templateBodyId && runtime.renderShape && (currentRevision < 0 || !runtime.reused)) {
       serialized = serializeShape(runtime.renderShape);
-      templateBodyIds.set(runtime.sourceKey, runtime.bodyId);
       transfer.push(...serialized.transfer);
     }
+    if (!templateBodyId) templateBodyIds.set(runtime.sourceKey, runtime.bodyId);
     bodies.push({
       bodyId: runtime.bodyId,
       bodyName: runtime.bodyName,
@@ -1883,6 +2785,7 @@ async function rebuildV5Assembly(request) {
       patternInstance: runtime.patternInstance || null,
       sourceBodyId: runtime.sourceBodyId,
       sourceKey: runtime.sourceKey,
+      renderSourceKey: runtime.sourceKey,
       mesh: serialized.mesh,
       ...(templateBodyId ? { renderSourceBodyId: templateBodyId, sharesSourceGeometry: true } : {}),
       renderTransform: sceneRenderMatrix(runtime.renderTransform || identityMatrix()),
@@ -1911,7 +2814,7 @@ async function rebuildV5Assembly(request) {
 
 async function validateV5(request) {
   if (request.document.rootDocument?.kind === 'assembly') return validateV5Assembly(request);
-  const built = await buildV5Document(request.document, { cache: new Map(), previousCache: new Map() });
+  const built = await buildV5Document(request.document, { cache: currentBodyCache, previousCache: currentBodyCache });
   const bodies = built.part.bodies.map((body) => {
     const result = built.results.get(body.id);
     return {
@@ -1932,13 +2835,7 @@ async function validateV5(request) {
       error: result.error || null,
     });
   }
-  const disposed = new Set();
-  for (const result of [...built.results.values(), ...built.patternResults.values()]) {
-    if (result.shape && !disposed.has(result.shape)) {
-      disposed.add(result.shape);
-      safeDelete(result.shape);
-    }
-  }
+  disposeV5Build(built);
   if (request.delayMs) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, Math.max(0, request.delayMs))));
   self.postMessage({
     kind: 'validation-result',
@@ -1952,7 +2849,11 @@ async function validateV5(request) {
 }
 
 async function validateV5Assembly(request) {
-  const built = await buildV5Assembly(request.document, { cache: new Map(), previousCache: new Map(), previousSolutions: new Map() });
+  const built = await buildV5Assembly(request.document, {
+    cache: currentBodyCache,
+    previousCache: currentBodyCache,
+    previousSolutions: currentAssemblySolutions,
+  });
   const bodies = built.runtimeBodies.map((runtime) => ({
     bodyId: runtime.bodyId,
     bodyName: runtime.bodyName,
@@ -1962,10 +2863,7 @@ async function validateV5Assembly(request) {
     geometry: runtime.geometry,
     error: runtime.error,
   }));
-  const disposed = new Set();
-  for (const partBuild of built.partBuilds.values()) for (const result of [...partBuild.results.values(), ...partBuild.patternResults.values()]) {
-    if (result.shape && !disposed.has(result.shape)) { disposed.add(result.shape); safeDelete(result.shape); }
-  }
+  disposeV5Build(built);
   if (request.delayMs) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, Math.max(0, request.delayMs))));
   self.postMessage({
     kind: 'validation-result', requestId: request.requestId, projectId: request.projectId, revision: request.revision,
@@ -1981,11 +2879,67 @@ function inspectionMaterial(document, runtime) {
   return { part, body, material };
 }
 
+function evaluateSavedMeasurement(measurement, placedByBodyId) {
+  const definition = measurement.definition || {};
+  const body = (bodyId) => {
+    const entry = placedByBodyId.get(bodyId);
+    if (!entry) throw new Error('Referenced measurement body "' + bodyId + '" no longer exists.');
+    return entry;
+  };
+  const referencePoint = (reference) => {
+    const local = reference?.signature?.p;
+    if (!Array.isArray(local) || local.length !== 3 || local.some((value) => !Number.isFinite(Number(value)))) throw new Error('Measurement point signature is invalid.');
+    return reference.bodyId ? studioV5TransformPoint(body(reference.bodyId).runtime.exactPlacement || assemblyIdentityMatrix(), local.map(Number)) : local.map(Number);
+  };
+  const referenceNormal = (reference) => {
+    const local = reference?.signature?.n;
+    if (!Array.isArray(local) || local.length !== 3) throw new Error('Measurement face normal is invalid.');
+    const transformed = reference.bodyId ? studioV5TransformVector(body(reference.bodyId).runtime.exactPlacement || assemblyIdentityMatrix(), local.map(Number)) : local.map(Number);
+    const magnitude = Math.hypot(...transformed);
+    if (!(magnitude > 1e-12)) throw new Error('Measurement direction is zero length.');
+    return transformed.map((value) => value / magnitude);
+  };
+  const result = { id: measurement.id, name: measurement.name, kind: measurement.kind, valid: true };
+  const references = definition.references || [];
+  if (measurement.kind === 'coordinate') return { ...result, value: referencePoint(references[0]), unit: 'mm' };
+  if (measurement.kind === 'point-distance') {
+    const left = referencePoint(references[0]); const right = referencePoint(references[1]);
+    return { ...result, value: Math.hypot(...left.map((value, index) => value - right[index])), unit: 'mm' };
+  }
+  if (measurement.kind === 'edge-length') return { ...result, value: Number(references[0]?.signature?.l), unit: 'mm' };
+  if (measurement.kind === 'radius' || measurement.kind === 'diameter') {
+    const radius = Number(references[0]?.signature?.r);
+    if (!(radius > 0)) throw new Error('Referenced circular edge no longer has a valid radius.');
+    return { ...result, value: measurement.kind === 'diameter' ? radius * 2 : radius, unit: 'mm' };
+  }
+  if (measurement.kind === 'face-angle') {
+    const left = referenceNormal(references[0]); const right = referenceNormal(references[1]);
+    const cosine = Math.max(-1, Math.min(1, left.reduce((total, value, index) => total + value * right[index], 0)));
+    return { ...result, value: Math.acos(cosine) * 180 / Math.PI, unit: 'deg' };
+  }
+  if (measurement.kind === 'wall-thickness') {
+    const left = referencePoint(references[0]); const right = referencePoint(references[1]); const normal = referenceNormal(references[0]);
+    const delta = right.map((value, index) => value - left[index]);
+    return { ...result, value: Math.abs(delta.reduce((total, value, index) => total + value * normal[index], 0)), unit: 'mm' };
+  }
+  if (measurement.kind === 'bounding-box') {
+    const bounds = body(definition.bodyIds[0]).properties.bounds;
+    return { ...result, value: bounds[0].map((value, axis) => bounds[1][axis] - value), coordinates: bounds, unit: 'mm' };
+  }
+  if (measurement.kind === 'minimum-clearance') {
+    const left = body(definition.bodyIds[0]); const right = body(definition.bodyIds[1]);
+    const distanceTool = new rc.DistanceTool();
+    try { return { ...result, value: distanceTool.distanceBetween(left.shape, right.shape), unit: 'mm' }; }
+    finally { distanceTool.delete(); }
+  }
+  throw new Error('Measurement kind is unsupported.');
+}
+
 function disposeV5Build(built) {
   const disposed = new Set();
   const builds = built.partBuilds ? [...built.partBuilds.values()] : [built];
   for (const partBuild of builds) for (const result of [...partBuild.results.values(), ...partBuild.patternResults.values()]) {
-    if (result.shape && !disposed.has(result.shape)) { disposed.add(result.shape); safeDelete(result.shape); }
+    if (result.shape && !result.reused && !result.lastValid && !disposed.has(result.shape)) { disposed.add(result.shape); safeDelete(result.shape); }
   }
 }
 
@@ -1995,23 +2949,31 @@ async function inspectV5(request) {
   let built;
   let runtimes;
   if (request.document.rootDocument?.kind === 'assembly') {
-    built = await buildV5Assembly(request.document, { cache: new Map(), previousCache: new Map(), previousSolutions: new Map() });
+    built = await buildV5Assembly(request.document, {
+      cache: currentBodyCache,
+      previousCache: currentBodyCache,
+      previousSolutions: currentAssemblySolutions,
+    });
     runtimes = built.runtimeBodies;
   } else {
-    built = await buildV5Document(request.document, { cache: new Map(), previousCache: new Map() });
+    built = await buildV5Document(request.document, { cache: currentBodyCache, previousCache: currentBodyCache });
     runtimes = [
       ...built.part.bodies.map((body) => {
         const result = built.results.get(body.id);
-        return { bodyId: body.id, bodyName: body.name, sourceBodyId: body.id, visible: body.visible, suppressed: body.suppressed, exactShape: result?.shape, exactPlacement: assemblyIdentityMatrix(), geometry: result?.geometry, error: result?.error };
+        return { bodyId: body.id, bodyName: body.name, sourceBodyId: body.id, sourceKey: built.part.id + ':' + body.id, visible: result?.body?.visible ?? body.visible, suppressed: body.suppressed, consumed: Boolean(result?.body?.extensions?.consumedByFeatureId), exactShape: result?.shape, exactPlacement: assemblyIdentityMatrix(), renderShape: result?.shape, renderTransform: assemblyIdentityMatrix(), geometry: result?.geometry, error: result?.error };
       }),
       ...[...built.patternResults.values()].map((result) => ({
         bodyId: result.body.id, bodyName: result.body.name, sourceBodyId: result.body.patternInstance.sourceBodyId,
-        visible: result.body.visible, suppressed: result.body.suppressed, exactShape: result.shape, exactPlacement: assemblyIdentityMatrix(), geometry: result.geometry, error: result.error,
+        sourceKey: built.part.id + ':' + (result.body.patternInstance?.fused ? result.body.id : result.body.patternInstance.sourceBodyId),
+        visible: result.body.visible, suppressed: result.body.suppressed, exactShape: result.shape, exactPlacement: assemblyIdentityMatrix(),
+        renderShape: result.body.patternInstance?.fused ? result.shape : built.results.get(result.body.patternInstance.sourceBodyId)?.shape,
+        renderTransform: result.body.patternInstance?.fused ? assemblyIdentityMatrix() : result.renderTransform || assemblyIdentityMatrix(),
+        geometry: result.geometry, error: result.error,
       })),
     ];
   }
   const requested = Array.isArray(request.bodyIds) && request.bodyIds.length ? new Set(request.bodyIds) : null;
-  const candidates = runtimes.filter((runtime) => (!requested || requested.has(runtime.bodyId)) && !runtime.suppressed);
+  const candidates = runtimes.filter((runtime) => (!requested || requested.has(runtime.bodyId)) && !runtime.suppressed && !runtime.consumed);
   const selected = candidates.filter((runtime) => runtime.exactShape);
   const errors = [...(built.errors || [])]
     .filter((error) => !requested || !error.bodyId || requested.has(error.bodyId));
@@ -2021,14 +2983,31 @@ async function inspectV5(request) {
     errors.push({ bodyId: runtime.bodyId, featureType: 'inspection', message: 'Selected body has no exact geometry to inspect.' });
   }
   const placed = [];
+  const collisionMeshes = new Map();
   try {
     for (const runtime of selected) {
       const shape = applyRigidMatrix(runtime.exactShape, runtime.exactPlacement || assemblyIdentityMatrix());
       const physical = shapePhysicalProperties(shape);
       const { part, body, material } = inspectionMaterial(request.document, runtime);
       const densityKgM3 = material?.densityKgM3 ?? null;
+      let envelope = null;
+      if (request.mode === 'interference') {
+        const collisionKey = runtime.sourceKey || runtime.sourceBodyId || runtime.bodyId;
+        let mesh = collisionMeshes.get(collisionKey);
+        if (!mesh) {
+          mesh = collisionMesh(runtime.renderShape || runtime.exactShape);
+          collisionMeshes.set(collisionKey, mesh);
+        }
+        envelope = collisionEnvelope(mesh, runtime.renderTransform || runtime.exactPlacement || assemblyIdentityMatrix());
+      }
       placed.push({
         runtime, shape,
+        orientedBounds: orientedBounds(
+          runtime.renderShape || runtime.exactShape,
+          runtime.renderTransform || runtime.exactPlacement || assemblyIdentityMatrix(),
+          Number(request.tolerance) || 1e-7,
+        ),
+        collisionEnvelope: envelope,
         properties: {
           bodyId: runtime.bodyId,
           bodyName: runtime.bodyName,
@@ -2071,34 +3050,74 @@ async function inspectV5(request) {
     const centerOfMassMm = missingMaterialBodyIds.length ? [null, null, null] : centerOfKnownMassMm;
     const pairs = [];
     let broadPhasePairs = 0;
+    const exactPairCache = new Map();
+    const broadPhaseClassKeys = new Set();
     if (request.mode === 'interference' || request.mode === 'clearance') {
       const pairFilter = Array.isArray(request.pairBodyIds) && request.pairBodyIds.length === 2 ? new Set(request.pairBodyIds) : null;
-      for (let leftIndex = 0; leftIndex < placed.length; leftIndex++) for (let rightIndex = leftIndex + 1; rightIndex < placed.length; rightIndex++) {
-        const left = placed[leftIndex]; const right = placed[rightIndex];
-        if (pairFilter && (!pairFilter.has(left.runtime.bodyId) || !pairFilter.has(right.runtime.bodyId))) continue;
-        const overlaps = boundsOverlap(left.shape, right.shape, Number(request.tolerance) || 0);
-        if (overlaps) broadPhasePairs++;
-        let interferenceVolumeMm3 = 0;
-        if (overlaps) {
-          let intersection = null;
-          try {
-            intersection = left.shape.intersect(right.shape);
-            interferenceVolumeMm3 = shapeVolume(intersection);
-          } catch {}
-          finally { safeDelete(intersection); }
+      for (let leftIndex = 0; leftIndex < placed.length; leftIndex++) {
+        const left = placed[leftIndex];
+        const candidates = [];
+        for (let rightIndex = leftIndex + 1; rightIndex < placed.length; rightIndex++) {
+          const right = placed[rightIndex];
+          if (pairFilter && (!pairFilter.has(left.runtime.bodyId) || !pairFilter.has(right.runtime.bodyId))) continue;
+          const overlaps = boundsOverlap(left.shape, right.shape, Number(request.tolerance) || 0)
+            && orientedBoundsOverlap(left.orientedBounds, right.orientedBounds)
+            && collisionEnvelopesOverlap(left.collisionEnvelope, right.collisionEnvelope);
+          const equivalenceKey = overlaps ? interferenceEquivalenceKey(left, right) : null;
+          if (overlaps) {
+            broadPhasePairs++;
+            if (equivalenceKey) broadPhaseClassKeys.add(equivalenceKey);
+            candidates.push({ index: rightIndex, entry: right, equivalenceKey });
+          }
+          if (request.mode === 'clearance' && !overlaps) candidates.push({ index: rightIndex, entry: right, equivalenceKey: null });
         }
-        let minimumClearanceMm = 0;
-        if (!(interferenceVolumeMm3 > 1e-8)) {
-          const distanceTool = new rc.DistanceTool();
-          try { minimumClearanceMm = distanceTool.distanceBetween(left.shape, right.shape); }
-          catch { minimumClearanceMm = null; }
-          finally { distanceTool.delete(); }
+        if (request.mode === 'interference') {
+          const uncached = candidates.filter((candidate) => !candidate.equivalenceKey || !exactPairCache.has(candidate.equivalenceKey));
+          const batchVolumes = batchInterferenceVolumes(left, uncached, Number(request.tolerance) || 0);
+          for (const candidate of uncached) if (candidate.equivalenceKey) {
+            exactPairCache.set(candidate.equivalenceKey, { interferenceVolumeMm3: batchVolumes.get(candidate.index) || 0 });
+          }
+          for (const candidate of candidates) {
+            const interferenceVolumeMm3 = candidate.equivalenceKey && exactPairCache.has(candidate.equivalenceKey)
+              ? exactPairCache.get(candidate.equivalenceKey).interferenceVolumeMm3
+              : batchVolumes.get(candidate.index) || 0;
+            pairs.push({
+              leftBodyId: left.runtime.bodyId, rightBodyId: candidate.entry.runtime.bodyId,
+              leftOccurrencePath: left.runtime.occurrenceInstance?.occurrencePath || [], rightOccurrencePath: candidate.entry.runtime.occurrenceInstance?.occurrencePath || [],
+              interferenceVolumeMm3, minimumClearanceMm: 0,
+            });
+          }
+          continue;
         }
-        pairs.push({
-          leftBodyId: left.runtime.bodyId, rightBodyId: right.runtime.bodyId,
-          leftOccurrencePath: left.runtime.occurrenceInstance?.occurrencePath || [], rightOccurrencePath: right.runtime.occurrenceInstance?.occurrencePath || [],
-          interferenceVolumeMm3, minimumClearanceMm,
-        });
+        const distanceQuery = new rc.DistanceQuery(left.shape);
+        try {
+          for (const candidate of candidates) {
+            let minimumClearanceMm = null;
+            try { minimumClearanceMm = distanceQuery.distanceTo(candidate.entry.shape); } catch {}
+            let interferenceVolumeMm3 = 0;
+            if (candidate.equivalenceKey && minimumClearanceMm != null && minimumClearanceMm <= Math.max(1e-7, Number(request.tolerance) || 0)) {
+              interferenceVolumeMm3 = exactIntersectionVolume(left, candidate.entry);
+            }
+            pairs.push({
+              leftBodyId: left.runtime.bodyId, rightBodyId: candidate.entry.runtime.bodyId,
+              leftOccurrencePath: left.runtime.occurrenceInstance?.occurrencePath || [], rightOccurrencePath: candidate.entry.runtime.occurrenceInstance?.occurrencePath || [],
+              interferenceVolumeMm3, minimumClearanceMm,
+            });
+          }
+        } finally {
+          distanceQuery.delete();
+        }
+      }
+    }
+    const measurementResults = [];
+    if (request.mode === 'measurements') {
+      const saved = request.document.rootDocument?.kind === 'assembly'
+        ? request.document.assemblyDefinitions.find((entry) => entry.id === request.document.rootDocument.assemblyId)?.metadata?.measurements || []
+        : [];
+      const placedByBodyId = new Map(placed.map((entry) => [entry.runtime.bodyId, entry]));
+      for (const measurement of saved.filter((entry) => entry.visible !== false)) {
+        try { measurementResults.push(evaluateSavedMeasurement(measurement, placedByBodyId)); }
+        catch (error) { measurementResults.push({ id: measurement.id, name: measurement.name, kind: measurement.kind, valid: false, error: String(error?.message || error) }); }
       }
     }
     self.postMessage({
@@ -2121,7 +3140,10 @@ async function inspectV5(request) {
           valid: errors.length === 0 && properties.every((entry) => entry.health.valid),
         },
         broadPhasePairs,
+        broadPhaseClassCount: broadPhaseClassKeys.size,
+        exactPairClassCount: exactPairCache.size,
         pairs,
+        measurementResults,
       },
     });
   } finally {
@@ -2223,6 +3245,44 @@ async function exportV5Document(request) {
     errors,
     blob,
     manifest,
+  });
+}
+
+async function freezePatternOccurrences(request) {
+  if (request.document?.rootDocument?.kind !== 'part') throw new Error('Pattern materialization requires a part document');
+  const built = await buildV5Document(request.document, { cache: new Map(), previousCache: new Map() });
+  const requestedIds = new Set(request.bodyIds || []);
+  const selected = [...built.patternResults.values()].filter((result) => requestedIds.has(result.body.id));
+  const errors = [
+    ...built.errors.filter((error) => requestedIds.has(error.bodyId)),
+    ...[...requestedIds].filter((bodyId) => !selected.some((result) => result.body.id === bodyId))
+      .map((bodyId) => ({ bodyId, featureType: 'pattern', message: 'selected pattern occurrence does not exist' })),
+  ];
+  if (!selected.length) errors.push({ featureType: 'pattern', message: 'select at least one generated pattern occurrence' });
+  if (selected.some((result) => !result.shape || !result.geometry?.valid)) errors.push({ featureType: 'pattern', message: 'one or more selected occurrences have no valid exact solid' });
+  const prefix = String(request.freezePrefix || 'materialized-pattern').replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 120);
+  const records = errors.length ? [] : selected.map((result, index) => {
+    const ids = {
+      resourceId: prefix + '-resource-' + (index + 1),
+      featureId: prefix + '-feature-' + (index + 1),
+      bodyId: prefix + '-body-' + (index + 1),
+    };
+    const record = importedBodyRecord(ids, 'Independent ' + result.body.name, result.shape.serialize(), result.body);
+    return {
+      ...record,
+      patternId: result.body.patternInstance.patternId,
+      patternIndex: result.body.patternInstance.index,
+      sourceBodyId: result.body.patternInstance.sourceBodyId,
+      geometry: result.geometry,
+    };
+  });
+  const disposed = new Set();
+  for (const result of [...built.results.values(), ...built.patternResults.values()]) {
+    if (result.shape && !disposed.has(result.shape)) { disposed.add(result.shape); safeDelete(result.shape); }
+  }
+  self.postMessage({
+    kind: 'freeze-pattern-result', requestId: request.requestId, projectId: request.projectId,
+    revision: request.revision, errors, records,
   });
 }
 
@@ -2330,6 +3390,123 @@ function importedBodyRecord(ids, name, serialized, originalBody) {
       id: ids.bodyId, name, kind: originalBody?.kind || 'solid', createdByFeatureId: ids.featureId,
       featureIds: [ids.featureId], visible: originalBody?.visible !== false, suppressed: false,
       ...(originalBody?.appearanceId ? { appearanceId: originalBody.appearanceId } : {}),
+      ...(originalBody?.materialId ? { materialId: originalBody.materialId } : {}),
+    },
+  };
+}
+
+function externalStepMetadata(text) {
+  const unit = /SI_UNIT\(\.MILLI\.,\s*\.METRE\.\)/i.test(text) ? { sourceUnits: 'mm', scaleToMm: 1 }
+    : /SI_UNIT\(\.CENTI\.,\s*\.METRE\.\)/i.test(text) ? { sourceUnits: 'cm', scaleToMm: 10 }
+      : /SI_UNIT\(\$,\s*\.METRE\.\)/i.test(text) ? { sourceUnits: 'm', scaleToMm: 1000 }
+        : /CONVERSION_BASED_UNIT\(\s*'INCH'/i.test(text) ? { sourceUnits: 'in', scaleToMm: 25.4 }
+          : { sourceUnits: 'unknown', scaleToMm: null };
+  const colors = [];
+  for (const match of text.matchAll(/COLOUR_RGB\(\s*'([^']*)'\s*,\s*([\d.+-Ee]+)\s*,\s*([\d.+-Ee]+)\s*,\s*([\d.+-Ee]+)\s*\)/gi)) {
+    const rgb = match.slice(2, 5).map(Number);
+    if (rgb.every(Number.isFinite)) colors.push({ name: match[1] || 'STEP color', rgb });
+  }
+  return { ...unit, colors };
+}
+
+function externalStepProductGraph(text) {
+  const entities = new Map();
+  for (const match of text.matchAll(/#(\d+)\s*=\s*([\s\S]*?);/g)) entities.set(Number(match[1]), match[2].trim());
+  const refs = (source) => [...String(source || '').matchAll(/#(\d+)/g)].map((match) => Number(match[1]));
+  const strings = (source) => [...String(source || '').matchAll(/'((?:''|[^'])*)'/g)].map((match) => match[1].replaceAll("''", "'"));
+  const products = new Map();
+  const formations = new Map();
+  const definitions = new Map();
+  const relations = [];
+  for (const [id, source] of entities) {
+    if (/^PRODUCT\(/i.test(source)) products.set(id, strings(source)[0] || 'Imported product');
+    else if (/^PRODUCT_DEFINITION_FORMATION(?:_WITH_SPECIFIED_SOURCE)?\(/i.test(source)) formations.set(id, refs(source).at(-1));
+    else if (/^PRODUCT_DEFINITION\(/i.test(source)) definitions.set(id, refs(source)[0]);
+    else if (/^NEXT_ASSEMBLY_USAGE_OCCURRENCE\(/i.test(source)) {
+      const relationRefs = refs(source); const values = strings(source);
+      if (relationRefs.length >= 2) relations.push({ id, name: values[1] || values[0] || 'Imported occurrence', parent: relationRefs.at(-2), child: relationRefs.at(-1) });
+    }
+  }
+  const nameForDefinition = (definitionId) => products.get(formations.get(definitions.get(definitionId))) || 'Imported product';
+  const children = new Map();
+  for (const relation of relations) {
+    if (!children.has(relation.parent)) children.set(relation.parent, []);
+    children.get(relation.parent).push(relation);
+  }
+  const childIds = new Set(relations.map((relation) => relation.child));
+  const roots = [...children.keys()].filter((id) => !childIds.has(id));
+  return { relations, children, roots, nameForDefinition };
+}
+
+function createExternalStructuredProject(filename, text, solids) {
+  const graph = externalStepProductGraph(text);
+  if (graph.roots.length !== 1 || !graph.relations.length) throw new Error('external STEP has no unambiguous product root');
+  const metadata = externalStepMetadata(text);
+  const resources = []; const parts = []; const assemblies = []; let solidIndex = 0; let sequence = 0;
+  const safeId = (prefix, value) => prefix + '-' + String(value || '').replace(/[^A-Za-z0-9._:-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) + '-' + (++sequence).toString(36);
+  const materials = metadata.colors.map((color, index) => {
+    const hex = '#' + color.rgb.map((value) => Math.max(0, Math.min(255, Math.round(value * 255))).toString(16).padStart(2, '0')).join('');
+    return {
+      id: 'material-step-color-' + (index + 1), name: color.name || 'STEP color ' + (index + 1),
+      appearanceId: 'appearance-step-color-' + (index + 1), source: 'Imported STEP presentation style',
+      extensions: { studioAppearance: { baseColor: hex, metallic: 0.1, roughness: 0.55, opacity: 1, edgeColor: '#263746' }, sourceRgb: color.rgb },
+    };
+  });
+  const isPartWrapper = (definitionId) => {
+    const childRelations = graph.children.get(definitionId) || [];
+    return childRelations.length > 0 && childRelations.every((relation) => !(graph.children.get(relation.child)?.length));
+  };
+  const buildPart = (definitionId, occurrenceName) => {
+    const bodyRelations = graph.children.get(definitionId) || [];
+    const bodyRecords = [];
+    for (const relation of bodyRelations) {
+      const solid = solids[solidIndex++];
+      if (!solid) throw new Error('external STEP product hierarchy has more leaf bodies than exact solids');
+      const suffix = solidIndex.toString(36); const bodyName = graph.nameForDefinition(relation.child) || relation.name || 'Imported body ' + solidIndex;
+      const material = materials[(solidIndex - 1) % Math.max(1, materials.length)];
+      const record = importedBodyRecord({ bodyId: 'body-step-' + suffix, featureId: 'feature-step-' + suffix, resourceId: 'resource-step-' + suffix }, bodyName, solid.serialize(), {
+        kind: 'solid', visible: true, ...(material ? { materialId: material.id, appearanceId: material.appearanceId } : {}),
+      });
+      resources.push(record.resource); bodyRecords.push(record);
+    }
+    const partId = safeId('part-step', occurrenceName || graph.nameForDefinition(definitionId));
+    const part = importedPartRecord(partId, graph.nameForDefinition(definitionId) || occurrenceName, bodyRecords);
+    part.metadata.sourceProductDefinitionId = definitionId;
+    parts.push(part);
+    return partId;
+  };
+  const buildAssembly = (definitionId, occurrenceName) => {
+    const assemblyId = safeId('assembly-step', occurrenceName || graph.nameForDefinition(definitionId));
+    const occurrences = [];
+    for (const relation of graph.children.get(definitionId) || []) {
+      if (!(graph.children.get(relation.child)?.length)) continue;
+      const definition = isPartWrapper(relation.child)
+        ? { kind: 'part', partId: buildPart(relation.child, relation.name) }
+        : { kind: 'assembly', assemblyId: buildAssembly(relation.child, relation.name) };
+      occurrences.push({
+        id: safeId('occurrence-step', relation.name), name: relation.name || graph.nameForDefinition(relation.child), definition,
+        baseTransform: assemblyIdentityMatrix(), fixed: true, suppressed: false, visible: true,
+        extensions: { studioImportedStep: { sourceUsageId: relation.id, worldPlacedGeometry: true } },
+      });
+    }
+    assemblies.push({
+      id: assemblyId, name: graph.nameForDefinition(definitionId) || occurrenceName, parameters: [], occurrences,
+      mates: [], occurrencePatterns: [], explodedViews: [], sectionViews: [],
+      metadata: { importedFromStep: true, sourceProductDefinitionId: definitionId },
+      extensions: { studioImportedStep: { externalProductHierarchy: true, worldPlacedGeometry: true } },
+    });
+    return assemblyId;
+  };
+  const rootAssemblyId = buildAssembly(graph.roots[0], filename.replace(/\.(step|stp)$/i, ''));
+  if (solidIndex !== solids.length || !parts.length || !assemblies.length) throw new Error('external STEP product hierarchy does not cover every exact solid');
+  assertImportedResourceBudget(resources);
+  return {
+    schemaVersion: 5, projectId: 'project-step-' + crypto.randomUUID(), name: graph.nameForDefinition(graph.roots[0]) || filename.replace(/\.(step|stp)$/i, ''), units: 'mm',
+    parameters: [], materials, partDefinitions: parts, assemblyDefinitions: assemblies,
+    rootDocument: { kind: 'assembly', assemblyId: rootAssemblyId }, resources,
+    metadata: {
+      importedFromStep: true, importMode: 'external-product-hierarchy', sourceUnits: metadata.sourceUnits, sourceUnitScaleToMm: metadata.scaleToMm,
+      importLimitations: ['world-placed-imported-geometry', 'no-parametric-feature-history', 'no-mate-recovery', ...(materials.length ? ['external-material-density-unavailable'] : ['external-material-assignment-unavailable'])],
     },
   };
 }
@@ -2425,10 +3602,10 @@ function createStructuredImportedProject(filename, manifest, solids, solidGeomet
     schemaVersion: 5,
     projectId: 'project-step-' + crypto.randomUUID(),
     name: manifest.projectName || filename.replace(/\.(step|stp)$/i, '') || 'Imported STEP assembly',
-    units: 'mm', parameters: [], materials: [], partDefinitions: parts, assemblyDefinitions: assemblies,
+    units: 'mm', parameters: [], materials: structuredClone(manifest.materials || []), partDefinitions: parts, assemblyDefinitions: assemblies,
     rootDocument: { kind: 'assembly', assemblyId: manifest.rootAssemblyId }, resources,
     metadata: {
-      importedFromStep: true, importMode: 'bomwiki-solved-hierarchy',
+      importedFromStep: true, importMode: 'bomwiki-solved-hierarchy', sourceUnits: manifest.sourceUnits || manifest.units,
       importLimitations: ['no-parametric-feature-history', 'no-mate-recovery'],
     },
   };
@@ -2480,10 +3657,17 @@ async function importV5Step(request) {
   if (!/\.(step|stp)$/i.test(filename)) throw new Error('Only .step and .stp files can be imported');
   const text = await request.blob.text();
   const manifest = stepManifestFromText(text);
+  const oc = rc.getOC();
+  oc.Interface_Static.SetCVal('xstep.cascade.unit', 'MM');
+  oc.Interface_Static.SetCVal('read.step.unit', 'MM');
   let stage = 'reading STEP geometry';
   let imported;
-  try { imported = await rc.importSTEP(request.blob); }
-  catch (error) { throw new Error(stage + ': ' + String(error?.message || error)); }
+  let readError = null;
+  for (let attempt = 0; attempt < 2 && !imported; attempt++) {
+    try { imported = await rc.importSTEP(request.blob); }
+    catch (error) { readError = error; }
+  }
+  if (!imported) throw new Error(stage + ': ' + String(readError?.message || readError));
   const solids = [];
   try {
     stage = 'separating exact solids';
@@ -2496,9 +3680,13 @@ async function importV5Step(request) {
     if (!solids.length) throw new Error('STEP file contains no exact solid bodies');
     const solidGeometry = solids.map((solid) => ({ bounds: solid.boundingBox?.bounds ?? null, volume: shapeVolume(solid) }));
     stage = 'reconstructing the imported document';
-    const project = prepareStudioV5Project(manifest
-      ? createStructuredImportedProject(filename, manifest, solids, solidGeometry)
-      : createFlatImportedProject(filename, solids));
+    let importedProject;
+    if (manifest) importedProject = createStructuredImportedProject(filename, manifest, solids, solidGeometry);
+    else {
+      try { importedProject = createExternalStructuredProject(filename, text, solids); }
+      catch { importedProject = createFlatImportedProject(filename, solids); }
+    }
+    const project = prepareStudioV5Project(importedProject);
     if (request.delayMs) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, Math.max(0, request.delayMs))));
     self.postMessage({
       kind: 'import-result', requestId: request.requestId, projectId: request.projectId, revision: request.revision,
@@ -2534,6 +3722,21 @@ function releaseShape(request) {
   });
 }
 
+async function reportMemoryStats(request) {
+  await loadKernel();
+  const oc = rc?.getOC?.();
+  const heapBuffer = oc?.HEAP8?.buffer || oc?.wasmMemory?.buffer || oc?.asm?.memory?.buffer || null;
+  self.postMessage({
+    kind: 'memory-stats-result', requestId: request.requestId, projectId: request.projectId, revision: request.revision,
+    memory: {
+      wasmHeapBytes: heapBuffer?.byteLength || 0,
+      retainedShapeEntries: currentBodyCache.size,
+      retainedAssemblySolutions: currentAssemblySolutions.size,
+      hasLegacyShape: Boolean(currentShape),
+    },
+  });
+}
+
 self.addEventListener('message', (event) => {
   const request = event.data;
   if (!request || typeof request !== 'object') return;
@@ -2543,12 +3746,16 @@ self.addEventListener('message', (event) => {
       ? validateV5(request)
     : request.kind === 'export-step' || request.kind === 'export-stl'
       ? exportDocument(request)
+      : request.kind === 'freeze-pattern-v5'
+        ? freezePatternOccurrences(request)
       : request.kind === 'import-step-v5'
         ? importV5Step(request)
       : request.kind === 'inspect-v5'
         ? inspectV5(request)
       : request.kind === 'release'
         ? Promise.resolve(releaseShape(request))
+      : request.kind === 'memory-stats'
+        ? reportMemoryStats(request)
         : Promise.resolve();
   run.catch((error) => {
     self.postMessage({

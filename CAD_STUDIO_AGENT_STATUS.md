@@ -1,93 +1,67 @@
 # CAD Studio agent-operability status
 
-Last updated: 2026-07-21
-
-Production source: `wiki/engine@fbf5f65e220d06f3e360b63c2fafdb8875d00fd8`
-
-Merged changes: PR #113 (`5a060244e`) plus the protected-CI fix in PR #115 (`fbf5f65e2`)
-
-Specification: `CAD_STUDIO_AGENT_OPERABILITY_SPEC.md`
+Last updated: 2026-07-22
 
 Protocol: `bomwiki.cad.agent/v1`
 
-Status: The agent foundation required to operate the released Slice 5A feature set is merged and deployed. It covers the applicable A0–A4 command, inspection, headless, MCP, live-pairing, and multi-body contracts, but it does not claim every A0–A4 release requirement. Protected CI passed before the production workflow published the exact reviewed engine SHA, and the live Studio asset hash, Help action, and public protocol module were verified after deployment. The final `v5-agent` gate remains open because exact headless kernel parity, long-job progress/cancellation, advanced V5 operations, performance evidence, and the canonical turbofan replay do not exist yet.
+Candidate branch: `codex/cad-v5-completion`
 
-## What this candidate implements
+Status: The V5 candidate exposes the advanced document surface through the shared typed command/query service and passes local direct, headless, MCP, visible-session, and canonical public-command replay gates. This is local candidate evidence only. Protected CI, human visual review, merge, deployment, live verification, and final `v5-agent` release signoff remain pending.
 
-- one transport-independent `CadCommandService` for typed inspection, preview, validation, commit, undo, redo, revision conflicts, idempotent protocol requests, semantic change sets, and exact-kernel evidence;
-- normal Studio parameter, feature, body, Boolean, and project actions routed through the same typed transaction boundary while preserving legacy pattern behavior;
-- schema-versioned capability discovery with per-operation JSON input schemas and explicit disabled-reason codes;
-- stable project, part, parameter, feature, and body identities plus paginated tree, entity, dependency, search, validity, geometry, and history queries;
-- detached expiring previews, atomic transactions, transaction-local aliases, permission scopes, expected revisions, commit budgets, and structured diagnostics;
-- a headless `bomcad` CLI for capability inspection, project inspection, validation, preview, apply, and deterministic replay inside an approved project root;
-- an MCP 2025-11-25 stdio server exposing exactly `cad_capabilities`, `cad_session`, `cad_inspect`, `cad_query`, `cad_preview`, `cad_commit`, `cad_history`, and `cad_artifact`;
-- filesystem root confinement, symlink/traversal refusal, explicit read/edit/save/export permissions, session close, and no fabricated exact geometry in a headless session without a kernel adapter;
-- a real loopback-only live Studio bridge: MCP returns an expiring pairing URL, the user opens it from Studio Help, Studio displays the client/scopes/mode, and no project data is shared before approval;
-- live `read-only`, `preview-required`, and explicitly approved `scoped-auto-commit` modes;
-- visible agent activity, per-commit approval in the default mode, Pause, Resume, Revoke, project-change invalidation, and normal undoable History entries;
-- exact visible-Studio preview validation through the production OpenCascade worker, plus project/STEP/STL live artifact transfer up to the declared loopback budget;
-- direct-library, headless, MCP, visible Studio, loopback, human-agent handoff, and multi-body regression suites.
+## Available operation families
 
-## Available typed operations
+- project and unit edits;
+- parameters and expressions;
+- datum planes, axes, points, and coordinate systems;
+- profile/path sketches;
+- Extrude, Cut, Revolve, Loft, Sweep, Draft, Thicken, Fillet, Chamfer, Shell, feature edit/suppress/delete, and history reorder/rollback;
+- body activation, rename, visibility, suppression, deletion, transform/copy/mirror/align/scale, repair, and linked patterns;
+- body-aware Union, Subtract, Intersect, and Split;
+- part and assembly creation, component insertion/update/delete/replace/copy, variants, nested assemblies, component patterns, and mate create/update/delete;
+- sections, exploded views, axial stages, measurements, materials, appearances, and display modes;
+- structured project inspection, semantic tree/entity/dependency/history queries, preview, commit, undo/redo, and bounded artifacts.
 
-- `project.rename`, `project.setUnits`;
-- `parameter.create`, `parameter.update`, `parameter.delete`;
-- `feature.extrude`, `feature.cut`, `feature.revolve`, `feature.fillet`, `feature.chamfer`, `feature.shell`, `feature.update`, `feature.suppress`, `feature.delete`;
-- `body.activate`, `body.rename`, `body.setVisibility`, `body.suppress`, `body.delete`;
-- `boolean.union`, `boolean.subtract`, `boolean.intersect`.
+All mutations use expected revisions, detached previews, atomic transactions, semantic change sets, stable IDs, structured diagnostics, and normal undoable document history. The visible Studio uses exact worker preflight; headless sessions refuse to fabricate exact B-rep/render evidence when an exact adapter is unavailable.
 
-Every available operation is previewable and atomic. Agent-created geometry appears as ordinary editable features and bodies in the same Studio tree used by human edits.
+## Adapter and safety evidence
 
-## Deliberately disabled and truthfully reported
+- direct library, CLI, MCP stdio, and visible Studio share the same operation manifest and transaction service;
+- MCP exposes the eight stable CAD tools and confines file access to the approved root;
+- live pairing is loopback-only, expiring, no-store, permission-scoped, visibly approved, pausable, revocable, and project/revision bound;
+- stale previews, expired scopes, unknown operations, cross-project edits, traversal, permission enlargement, and mid-transaction failures fail closed without mutation;
+- exact preview/commit results appear as ordinary editable features, bodies, components, mates, and history entries;
+- advanced V5 replay does not use private JSON mutation, a turbofan-only operation, DOM automation, Computer Use, or imported finished geometry.
 
-- datum planes/axes and body transforms;
-- Loft, Sweep, and twisted multi-section blade construction;
-- source-linked feature/body/component patterns;
-- Boolean Split;
-- components, assemblies, occurrences, and mates;
-- section/cutaway views;
-- headless exact STEP/STL/render without an exact-kernel adapter;
-- live PNG render transfer;
-- artifacts larger than the 1 MiB live-loopback transfer budget;
-- asynchronous long-job IDs, progress events, and active kernel cancellation;
-- exact headless B-rep/render/export parity without an installed exact-kernel adapter.
+## Canonical public-command replay
 
-The legacy profile pattern UI remains usable for existing Studio projects, but it is not advertised to agents as a V5 linked-pattern operation.
+`npm run studio:agent:turbofan` rebuilds the canonical project through 27 transactions containing 363 advertised operations:
 
-## Release truth
+- 22 parts;
+- 25 source bodies;
+- 159 solved occurrences;
+- 9 linked patterns;
+- 62 mates;
+- fully constrained, with no solver errors;
+- no unadvertised or forbidden operation kind.
 
-The following statement is accurate for the deployed Slice 5A foundation:
+The same release gate also runs exact/browser turbofan benchmarks plus gearbox and robot-joint generality fixtures.
 
-> BOMwiki CAD has a structured agent foundation: local agents can discover the operations currently implemented, inspect projects, preview and commit permission-scoped multi-body edits through MCP/headless tools, and pair with a visible Studio session without screen automation.
+## Last local evidence
 
-The following statements are **not** yet allowed:
+- `npm run studio:agent:core` — 50/50.
+- `npm run studio:agent:headless` — 11/11.
+- `npm run studio:agent:mcp` — 24/24.
+- `npm run studio:agent:parity` — 28/28.
+- `npm run studio:agent:turbofan` — `public-command-replay-pass`.
+- `npm run studio:agent:release-check` — `automated-candidate-pass` with core, headless, MCP, live parity, public turbofan replay, and V5 benchmark subchecks passing.
 
-- “all CAD features are agent operable”;
-- “an agent can build the canonical turbofan”;
-- “the V5 agent gate is closed.”
+## Remaining boundaries
 
-`npm run studio:agent:turbofan` and `npm run studio:agent:release-check` intentionally return a blocked status until the generic advanced capabilities exist. They must never pass through a turbofan-specific generator, imported finished geometry, private project mutation, DOM automation, or Computer Use.
+- no release claim until protected CI reproduces the evidence for the reviewed commit;
+- no live claim until merge, CI-only deployment, and fresh-profile production verification;
+- no visual signoff until a human accepts the six captured views;
+- headless operation without an exact-kernel adapter remains document-semantic only and truthfully refuses exact render/STEP assertions;
+- imported third-party STEP is exact geometry plus supported hierarchy/metadata, not reconstructed native parametric history, mates, or PMI;
+- the canonical turbofan is a generic CAD operability benchmark, not an engineering simulation or certification artifact.
 
-## Last verified evidence
-
-- `npm run typecheck` — pass;
-- `npm run studio:v5:migration` — 118/118;
-- `npm run studio:v5:runtime` — 81/81;
-- `npm run studio:check` — 277/277;
-- `npm run studio:agent:core` — 46/46, including same-transaction body-alias targeting and fail-closed permission expiry;
-- `npm run studio:agent:headless` — 10/10;
-- `npm run studio:agent:mcp` — 23/23, including transport-level duplicate-request replay;
-- `npm run studio:agent:parity` — 28/28, including real localhost pairing, visible preview approval, pause/resume/revoke, MCP-side disconnect propagation, exact multi-body preview, and revision-conflict handoff;
-- `git diff --check` — pass.
-
-Protected and live evidence:
-
-- PR #115 `studio` gate — pass, including the full 583-check engine sweep;
-- `deploy-engine` run `29834685253` — pass in 1m22s for exact SHA `fbf5f65e220d06f3e360b63c2fafdb8875d00fd8`;
-- live `/cad/studio` static asset version — `9e99d2002812`, equal to the reviewed tree;
-- live `/static/studio-agent-service.js` — HTTP 200 and protocol `bomwiki.cad.agent/v1` present;
-- live Help — `Connect local agent` present.
-
-## Next gate
-
-Agent Slice A5 must add command/query parity in the same PR as each datum, transform, Loft, Sweep, linked-pattern, assembly, mate, section, inspection, and interchange capability. Agent Slice A6 then constructs and verifies the canonical turbofan exclusively through those generic public tools. Do not close `v5-agent` until the exact-headless, long-job, advanced-operation, performance, artifact, and live turbofan gates in the specification pass.
+The `v5-agent` implementation candidate is locally green. The release gate remains open until protected evidence, human review, and live verification are complete.

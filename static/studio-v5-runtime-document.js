@@ -233,6 +233,35 @@ export function createStudioV5BooleanFeature(project, options) {
   return decorateStudioV5Project(prepareStudioV5Project(candidate));
 }
 
+export function createStudioV5BooleanSplit(project, options) {
+  const candidate = canonicalStudioV5Project(project);
+  const part = studioV5RootPart(candidate);
+  const source = part.bodies.find((body) => body.id === options.targetBodyId);
+  const tool = part.bodies.find((body) => body.id === options.toolBodyId);
+  if (!source || !tool || source.id === tool.id) throw new Error('Choose different existing target and splitting-tool bodies.');
+  const operationId = options.id;
+  const sides = [
+    { side: 'outside', suffix: 'outside', name: options.outsideName || source.name + ' outside split' },
+    { side: 'inside', suffix: 'inside', name: options.insideName || source.name + ' inside split' },
+  ];
+  for (const entry of sides) requireUniquePartId(part, operationId + '-' + entry.suffix, 'Boolean Split feature');
+  for (const entry of sides) {
+    part.features.push({
+      id: operationId + '-' + entry.suffix,
+      name: String((options.name || 'Split ' + source.name) + ' · ' + entry.suffix).trim(),
+      type: 'boolean-split-side', operationId, side: entry.side,
+      sourceBodyId: source.id, toolBodyIds: [source.id, tool.id], keepTools: options.keepTools !== false,
+      suppressed: false,
+      inputRefs: [bodyInputReference(source.id, 'target'), bodyInputReference(tool.id, 'tool')],
+      resultPolicy: { kind: 'new-body', bodyName: entry.name },
+    });
+  }
+  source.visible = options.keepOriginal === true;
+  if (options.keepTools === false) tool.visible = false;
+  reconcileStudioV5Bodies(part);
+  return decorateStudioV5Project(prepareStudioV5Project(candidate));
+}
+
 function requireUniquePartId(part, id, label) {
   const used = new Set([
     ...part.referenceGeometry.map((entry) => entry.id),
@@ -518,8 +547,11 @@ export function createStudioV5SweepFeature(project, options) {
 export function updateStudioV5AdvancedFeature(project, featureId, patch) {
   const candidate = canonicalStudioV5Project(project);
   const part = studioV5RootPart(candidate);
-  const feature = part.features.find((entry) => entry.id === featureId && (entry.type === 'loft' || entry.type === 'sweep'));
-  if (!feature) throw new Error('That Loft or Sweep feature no longer exists.');
+  const feature = part.features.find((entry) => entry.id === featureId && (
+    entry.type === 'loft' || entry.type === 'sweep' || entry.type === 'revolve' || entry.type === 'draft' ||
+    entry.type === 'thicken' || (entry.type === 'fillet' && Array.isArray(entry.variableRadii))
+  ));
+  if (!feature) throw new Error('That advanced shape feature no longer exists.');
   const body = part.bodies.find((entry) => entry.createdByFeatureId === feature.id);
   const featureIndex = part.features.indexOf(feature);
   const targetBodyId = feature.resultPolicy.kind === 'new-body' ? null : feature.resultPolicy.targetBodyIds[0];
@@ -540,7 +572,7 @@ export function updateStudioV5AdvancedFeature(project, featureId, patch) {
       closed: patch.closed ?? feature.closed,
       mapping: patch.mapping ?? feature.mapping,
     }, feature.id);
-  } else {
+  } else if (feature.type === 'sweep') {
     part.features[featureIndex] = buildStudioV5SweepFeature(candidate, part, {
       ...shared,
       profileSketchId: patch.profileSketchId ?? feature.profileSketchId,
@@ -552,7 +584,198 @@ export function updateStudioV5AdvancedFeature(project, featureId, patch) {
       scaleEnd: patch.scaleEnd ?? feature.scaleEnd,
       transition: patch.transition ?? feature.transition,
     }, feature.id);
+  } else if (feature.type === 'revolve') {
+    part.features[featureIndex] = buildStudioV5RevolveFeature(candidate, part, {
+      ...shared,
+      profileSketchId: patch.profileSketchId ?? feature.profileSketchId,
+      axisDatumId: patch.axisDatumId ?? feature.axisDatumId,
+      angle: patch.angle ?? feature.angle,
+      startAngle: patch.startAngle ?? feature.startAngle,
+      symmetric: patch.symmetric ?? feature.symmetric,
+    }, feature.id);
+  } else if (feature.type === 'draft') {
+    part.features[featureIndex] = buildStudioV5DraftFeature(candidate, part, {
+      id: feature.id,
+      name: patch.name ?? feature.name,
+      bodyId: patch.bodyId ?? targetBodyId,
+      faces: patch.faces ?? feature.faces,
+      neutralPlaneDatumId: patch.neutralPlaneDatumId ?? feature.neutralPlaneDatumId,
+      angle: patch.angle ?? feature.angle,
+      flip: patch.flip ?? feature.flip,
+      tangentPropagation: patch.tangentPropagation ?? feature.tangentPropagation,
+    }, feature.id);
+  } else if (feature.type === 'thicken') {
+    part.features[featureIndex] = buildStudioV5ThickenFeature(candidate, part, {
+      id: feature.id,
+      name: patch.name ?? feature.name,
+      bodyId: patch.bodyId ?? feature.sourceBodyId,
+      bodyName: body?.name || feature.resultPolicy.bodyName,
+      faces: patch.faces ?? feature.faces,
+      thickness: patch.thickness ?? feature.thickness,
+      symmetric: patch.symmetric ?? feature.symmetric,
+      flip: patch.flip ?? feature.flip,
+    }, feature.id);
+  } else {
+    part.features[featureIndex] = buildStudioV5VariableFilletFeature(candidate, part, {
+      id: feature.id,
+      name: patch.name ?? feature.name,
+      bodyId: patch.bodyId ?? targetBodyId,
+      edges: patch.edges ?? feature.edges,
+      radii: patch.radii,
+      startRadius: patch.startRadius ?? feature.variableRadii[0]?.startRadius,
+      endRadius: patch.endRadius ?? feature.variableRadii[0]?.endRadius,
+      tangentPropagation: patch.tangentPropagation ?? feature.tangentPropagation,
+    }, feature.id);
   }
+  reconcileStudioV5Bodies(part);
+  return decorateStudioV5Project(prepareStudioV5Project(candidate));
+}
+
+const bodyInputReference = (bodyId, role = 'source') => ({
+  ownerKind: 'body', ownerId: bodyId, semanticPath: { role }, signature: { role },
+});
+const datumInputReference = (datumId, role) => ({
+  ownerKind: 'datum', ownerId: datumId, semanticPath: { role }, signature: { role },
+});
+
+function buildStudioV5RevolveFeature(candidate, part, options, updatingId = null) {
+  if (options.id !== updatingId) requireUniquePartId(part, options.id, 'Revolve feature');
+  requireAdvancedSketch(part, options.profileSketchId, 'profile');
+  const axis = resolveStudioV5Datums(candidate, part.id).resolve(options.axisDatumId);
+  if (axis.kind !== 'axis') throw new Error('Revolve requires an axis datum.');
+  const parameters = studioV5ParameterValues(candidate, part);
+  const angle = evaluateStudioV5Expression(options.angle ?? 360, parameters);
+  const startAngle = evaluateStudioV5Expression(options.startAngle ?? (options.symmetric ? -angle / 2 : 0), parameters);
+  if (!(angle > 0 && angle <= 360) || !Number.isFinite(startAngle)) throw new Error('Revolve angle must evaluate above zero and at most 360 degrees.');
+  const feature = {
+    id: options.id,
+    name: String(options.name || 'Revolve').trim(),
+    type: 'revolve',
+    profileSketchId: options.profileSketchId,
+    axisDatumId: options.axisDatumId,
+    angle: options.angle ?? angle,
+    startAngle: options.startAngle ?? (options.symmetric ? -angle / 2 : 0),
+    symmetric: options.symmetric === true,
+    suppressed: false,
+    inputRefs: [sketchReference(options.profileSketchId, 'profile'), datumInputReference(options.axisDatumId, 'axis')],
+    resultPolicy: advancedFeaturePolicy(part, options),
+  };
+  if (!feature.name) throw new Error('Revolve name is required.');
+  return feature;
+}
+
+export function createStudioV5RevolveFeature(project, options) {
+  const candidate = canonicalStudioV5Project(project);
+  const part = studioV5RootPart(candidate);
+  const feature = buildStudioV5RevolveFeature(candidate, part, options);
+  part.features.push(feature);
+  reconcileStudioV5Bodies(part);
+  return decorateStudioV5Project(prepareStudioV5Project(candidate));
+}
+
+function buildStudioV5DraftFeature(candidate, part, options, updatingId = null) {
+  if (options.id !== updatingId) requireUniquePartId(part, options.id, 'Draft feature');
+  const target = part.bodies.find((body) => body.id === options.bodyId);
+  if (!target) throw new Error('Choose a body to draft.');
+  const plane = resolveStudioV5Datums(candidate, part.id).resolve(options.neutralPlaneDatumId);
+  if (plane.kind !== 'plane') throw new Error('Draft requires a neutral plane datum.');
+  const parameters = studioV5ParameterValues(candidate, part);
+  const angle = evaluateStudioV5Expression(options.angle, parameters);
+  if (!(Math.abs(angle) > 1e-6 && Math.abs(angle) < 89)) throw new Error('Draft angle must be non-zero and below 89 degrees.');
+  if (!Array.isArray(options.faces) || !options.faces.length) throw new Error('Draft requires at least one selected face.');
+  const feature = {
+    id: options.id,
+    name: String(options.name || 'Draft ' + target.name).trim(),
+    type: 'draft',
+    faces: clone(options.faces),
+    neutralPlaneDatumId: options.neutralPlaneDatumId,
+    angle: options.angle,
+    flip: options.flip === true,
+    tangentPropagation: options.tangentPropagation !== false,
+    suppressed: false,
+    inputRefs: [bodyInputReference(target.id, 'target'), datumInputReference(options.neutralPlaneDatumId, 'neutral-plane')],
+    resultPolicy: { kind: 'add', targetBodyIds: [target.id] },
+  };
+  if (!feature.name) throw new Error('Draft name is required.');
+  return feature;
+}
+
+export function createStudioV5DraftFeature(project, options) {
+  const candidate = canonicalStudioV5Project(project);
+  const part = studioV5RootPart(candidate);
+  part.features.push(buildStudioV5DraftFeature(candidate, part, options));
+  reconcileStudioV5Bodies(part);
+  return decorateStudioV5Project(prepareStudioV5Project(candidate));
+}
+
+function buildStudioV5ThickenFeature(candidate, part, options, updatingId = null) {
+  if (options.id !== updatingId) requireUniquePartId(part, options.id, 'Thicken feature');
+  const source = part.bodies.find((body) => body.id === options.bodyId);
+  if (!source) throw new Error('Choose a body face to thicken.');
+  const parameters = studioV5ParameterValues(candidate, part);
+  if (!(evaluateStudioV5Expression(options.thickness, parameters) > 0)) throw new Error('Thicken distance must evaluate above zero.');
+  if (!Array.isArray(options.faces) || options.faces.length !== 1) throw new Error('This Thicken increment requires exactly one selected planar face.');
+  const feature = {
+    id: options.id,
+    name: String(options.name || 'Thicken ' + source.name).trim(),
+    type: 'thicken',
+    sourceBodyId: source.id,
+    toolBodyIds: [source.id],
+    linked: true,
+    faces: clone(options.faces),
+    thickness: options.thickness,
+    symmetric: options.symmetric === true,
+    flip: options.flip === true,
+    suppressed: false,
+    inputRefs: [bodyInputReference(source.id)],
+    resultPolicy: { kind: 'new-body', bodyName: options.bodyName || source.name + ' thickened face' },
+  };
+  if (!feature.name) throw new Error('Thicken name is required.');
+  return feature;
+}
+
+export function createStudioV5ThickenFeature(project, options) {
+  const candidate = canonicalStudioV5Project(project);
+  const part = studioV5RootPart(candidate);
+  part.features.push(buildStudioV5ThickenFeature(candidate, part, options));
+  reconcileStudioV5Bodies(part);
+  return decorateStudioV5Project(prepareStudioV5Project(candidate));
+}
+
+function buildStudioV5VariableFilletFeature(candidate, part, options, updatingId = null) {
+  if (options.id !== updatingId) requireUniquePartId(part, options.id, 'Variable Fillet feature');
+  const target = part.bodies.find((body) => body.id === options.bodyId);
+  if (!target) throw new Error('Choose a body to fillet.');
+  const parameters = studioV5ParameterValues(candidate, part);
+  if (!Array.isArray(options.edges) || !options.edges.length) throw new Error('Variable Fillet requires one or more selected edges.');
+  const variableRadii = options.edges.map((edge, index) => {
+    const startRadius = options.radii?.[index]?.startRadius ?? options.startRadius;
+    const endRadius = options.radii?.[index]?.endRadius ?? options.endRadius;
+    if (!(evaluateStudioV5Expression(startRadius, parameters) > 0) || !(evaluateStudioV5Expression(endRadius, parameters) > 0)) {
+      throw new Error('Variable Fillet radii must evaluate above zero.');
+    }
+    return { edge: clone(edge), startRadius, endRadius };
+  });
+  const feature = {
+    id: options.id,
+    name: String(options.name || 'Variable Fillet ' + target.name).trim(),
+    type: 'fillet',
+    r: variableRadii[0].startRadius,
+    edges: options.edges.map(clone),
+    variableRadii,
+    tangentPropagation: options.tangentPropagation === true,
+    suppressed: false,
+    inputRefs: [bodyInputReference(target.id, 'target')],
+    resultPolicy: { kind: 'add', targetBodyIds: [target.id] },
+  };
+  if (!feature.name) throw new Error('Variable Fillet name is required.');
+  return feature;
+}
+
+export function createStudioV5VariableFilletFeature(project, options) {
+  const candidate = canonicalStudioV5Project(project);
+  const part = studioV5RootPart(candidate);
+  part.features.push(buildStudioV5VariableFilletFeature(candidate, part, options));
   reconcileStudioV5Bodies(part);
   return decorateStudioV5Project(prepareStudioV5Project(candidate));
 }
@@ -660,6 +883,7 @@ function buildStudioV5BodyPattern(project, part, input, updatingId = null) {
     sourceBodyId: source.id,
     references,
     definition,
+    outputMode: input.outputMode === 'union' ? 'union' : 'linked',
     skippedIndices,
     suppressed: input.suppressed === true,
     visible: input.visible !== false,
@@ -716,6 +940,7 @@ export function updateStudioV5BodyPattern(project, patternId, patch) {
     radialOffset: patch.radialOffset ?? previous.definition.radialOffset,
     axialOffset: patch.axialOffset ?? previous.definition.axialOffset,
     parameters: patch.parameters ?? previous.definition.parameters,
+    outputMode: patch.outputMode ?? previous.outputMode,
   };
   part.bodyPatterns[index] = buildStudioV5BodyPattern(candidate, part, input, patternId);
   if (!part.bodyPatterns[index].name) throw new Error('Pattern name is required.');
@@ -727,6 +952,46 @@ export function deleteStudioV5BodyPattern(project, patternId) {
   const part = studioV5RootPart(candidate);
   if (!(part.bodyPatterns || []).some((entry) => entry.id === patternId)) throw new Error('That body pattern no longer exists.');
   part.bodyPatterns = part.bodyPatterns.filter((entry) => entry.id !== patternId);
+  return decorateStudioV5Project(prepareStudioV5Project(candidate));
+}
+
+export function materializeStudioV5PatternOccurrences(project, patternId, records, options = {}) {
+  const candidate = canonicalStudioV5Project(project);
+  const part = studioV5RootPart(candidate);
+  const pattern = (part.bodyPatterns || []).find((entry) => entry.id === patternId);
+  if (!pattern) throw new Error('That body pattern no longer exists.');
+  if (!Array.isArray(records) || !records.length) throw new Error('Pattern materialization requires at least one exact occurrence record.');
+  const indices = new Set();
+  for (const [index, record] of records.entries()) {
+    if (record?.patternId !== pattern.id || record.sourceBodyId !== pattern.sourceBodyId) throw new Error('Materialized occurrence ' + (index + 1) + ' does not belong to this pattern.');
+    if (!Number.isInteger(record.patternIndex) || record.patternIndex < 1) throw new Error('Materialized occurrence has an invalid stable index.');
+    if (indices.has(record.patternIndex)) throw new Error('Materialized occurrence index ' + record.patternIndex + ' is duplicated.');
+    indices.add(record.patternIndex);
+    const resource = clone(record.resource);
+    const feature = clone(record.feature);
+    const body = clone(record.body);
+    requireUniquePartId(part, feature.id, 'Materialized feature');
+    requireUniquePartId(part, body.id, 'Materialized body');
+    if (candidate.resources.some((entry) => entry.id === resource.id)) throw new Error('Materialized resource ID "' + resource.id + '" is already in use.');
+    feature.createdBodyId = body.id;
+    feature.resultPolicy = { kind: 'new-body', bodyName: body.name };
+    feature.extensions = {
+      ...(feature.extensions || {}),
+      studioPatternMaterialization: { patternId: pattern.id, patternIndex: record.patternIndex, sourceBodyId: pattern.sourceBodyId, independent: true },
+    };
+    body.createdByFeatureId = feature.id;
+    body.featureIds = [feature.id];
+    body.extensions = {
+      ...(body.extensions || {}),
+      studioPatternMaterialization: { patternId: pattern.id, patternIndex: record.patternIndex, sourceBodyId: pattern.sourceBodyId, independent: true },
+    };
+    candidate.resources.push(resource);
+    part.features.push(feature);
+    part.bodies.push(body);
+  }
+  if (options.dissolve === true) part.bodyPatterns = part.bodyPatterns.filter((entry) => entry.id !== pattern.id);
+  else pattern.skippedIndices = [...new Set([...(pattern.skippedIndices || []), ...indices])].sort((left, right) => left - right);
+  reconcileStudioV5Bodies(part);
   return decorateStudioV5Project(prepareStudioV5Project(candidate));
 }
 
@@ -872,6 +1137,9 @@ export function replaceStudioV5ComponentOccurrence(project, occurrenceId, defini
   const assembly = studioV5RootAssembly(candidate);
   const occurrence = assembly.occurrences.find((entry) => entry.id === occurrenceId);
   if (!occurrence) throw new Error('That component occurrence no longer exists.');
+  const previousDefinition = occurrence.definition.kind === 'part'
+    ? candidate.partDefinitions.find((entry) => entry.id === occurrence.definition.partId)
+    : candidate.assemblyDefinitions.find((entry) => entry.id === occurrence.definition.assemblyId);
   const replacement = definition?.kind === 'part'
     ? candidate.partDefinitions.find((entry) => entry.id === definition.partId)
     : candidate.assemblyDefinitions.find((entry) => entry.id === definition?.assemblyId);
@@ -884,9 +1152,34 @@ export function replaceStudioV5ComponentOccurrence(project, occurrenceId, defini
     else if (value && typeof value === 'object') Object.entries(value).forEach(([childKey, child]) => visit(child, childKey));
   };
   visit(replacement);
-  assembly.mates = assembly.mates.filter((mate) => !mate.occurrenceIds.includes(occurrenceId) || mate.references.every((reference) =>
-    reference.ownerKind === 'occurrence' || !reference.occurrencePath?.includes(occurrenceId) || replacementOwnerIds.has(reference.ownerId),
-  ));
+  const compatibleOwners = new Map();
+  if (previousDefinition && occurrence.definition.kind === 'part') {
+    const ownerCollections = [
+      ['datum', previousDefinition.referenceGeometry || [], replacement.referenceGeometry || []],
+      ['sketch', previousDefinition.sketches || [], replacement.sketches || []],
+      ['body', previousDefinition.bodies || [], replacement.bodies || []],
+    ];
+    const semanticToken = (entry) => String(entry?.name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).at(-1) || '';
+    for (const [ownerKind, previousOwners, nextOwners] of ownerCollections) for (const owner of previousOwners) {
+      const matches = nextOwners.filter((entry) => ownerKind !== 'datum' || entry.kind === owner.kind);
+      const semantic = matches.find((entry) => semanticToken(entry) === semanticToken(owner));
+      const sameMode = matches.find((entry) => entry.definition?.mode === owner.definition?.mode);
+      const resolved = semantic || sameMode || (matches.length === 1 ? matches[0] : null);
+      if (resolved) compatibleOwners.set(ownerKind + ':' + owner.id, resolved.id);
+    }
+  }
+  assembly.mates = assembly.mates.filter((mate) => {
+    if (!mate.occurrenceIds.includes(occurrenceId)) return true;
+    for (const reference of mate.references) {
+      if (reference.ownerKind === 'occurrence' || !reference.occurrencePath?.includes(occurrenceId) || replacementOwnerIds.has(reference.ownerId)) continue;
+      const repaired = compatibleOwners.get(reference.ownerKind + ':' + reference.ownerId);
+      if (!repaired) return false;
+      const previousOwnerId = reference.ownerId;
+      reference.ownerId = repaired;
+      reference.signature = { ...(reference.signature || {}), repairedFromOwnerId: previousOwnerId };
+    }
+    return true;
+  });
   return decorateStudioV5Project(prepareStudioV5Project(candidate));
 }
 
@@ -975,6 +1268,38 @@ export function createStudioV5OccurrencePattern(project, input) {
     definition: clone(input.definition || {}),
     suppressed: input.suppressed === true,
   });
+  return decorateStudioV5Project(prepareStudioV5Project(candidate));
+}
+
+export function updateStudioV5OccurrencePattern(project, patternId, patch) {
+  const candidate = canonicalStudioV5Project(project);
+  const assembly = studioV5RootAssembly(candidate);
+  const index = assembly.occurrencePatterns.findIndex((entry) => entry.id === patternId);
+  if (index < 0) throw new Error('That component pattern no longer exists.');
+  const previous = assembly.occurrencePatterns[index];
+  const sources = [...new Set(patch.sourceOccurrenceIds || previous.sourceOccurrenceIds)];
+  if (!sources.length || sources.some((id) => !assembly.occurrences.some((entry) => entry.id === id))) throw new Error('Choose existing source component occurrences.');
+  const generatedCount = Number(patch.generatedCount ?? previous.generatedCount);
+  if (!Number.isInteger(generatedCount) || generatedCount < 1 || generatedCount > 5000) throw new Error('Generated occurrence count must be an integer from 1 to 5,000.');
+  const name = String(patch.name ?? previous.name).trim();
+  if (!name) throw new Error('Component pattern name is required.');
+  assembly.occurrencePatterns[index] = {
+    ...previous,
+    name,
+    kind: patch.kind ?? previous.kind,
+    sourceOccurrenceIds: sources,
+    generatedCount,
+    definition: clone(patch.definition ?? previous.definition),
+    suppressed: patch.suppressed ?? previous.suppressed,
+  };
+  return decorateStudioV5Project(prepareStudioV5Project(candidate));
+}
+
+export function deleteStudioV5OccurrencePattern(project, patternId) {
+  const candidate = canonicalStudioV5Project(project);
+  const assembly = studioV5RootAssembly(candidate);
+  if (!assembly.occurrencePatterns.some((entry) => entry.id === patternId)) throw new Error('That component pattern no longer exists.');
+  assembly.occurrencePatterns = assembly.occurrencePatterns.filter((entry) => entry.id !== patternId);
   return decorateStudioV5Project(prepareStudioV5Project(candidate));
 }
 

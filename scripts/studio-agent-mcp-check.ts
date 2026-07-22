@@ -132,13 +132,33 @@ check('MCP inspection returns the human-editable body and feature',
   inspected.structuredContent.result.items.some((entry: any) => entry.id === 'body-feature-mcp-housing') &&
   inspected.structuredContent.result.items.some((entry: any) => entry.id === 'feature-mcp-housing'));
 
+const advancedPreview = await tool('cad_preview', {
+  sessionId: session.sessionId,
+  transaction: {
+    transactionId: 'tx-mcp-advanced', label: 'Create MCP advanced assembly', expectedRevision: 1, atomic: true,
+    operations: [
+      { kind: 'datum.create', input: { id: 'datum-mcp-x', name: 'MCP X', datumKind: 'axis', definition: { mode: 'principal', origin: [0, 0, 0], direction: [1, 0, 0] } } },
+      { kind: 'body.transform', input: { id: 'feature-mcp-move', name: 'MCP body move', bodyId: 'body-feature-mcp-housing', moveOriginal: true, transform: { mode: 'move', translation: [15, 0, 0] } } },
+      { kind: 'assembly.create', input: { id: 'assembly-mcp', name: 'MCP assembly', occurrenceId: 'occurrence-mcp-base', fixed: true } },
+      { kind: 'component.duplicate', input: { occurrenceId: 'occurrence-mcp-base', id: 'occurrence-mcp-second', name: 'MCP linked second', baseTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 80, 0, 0, 1] } },
+      { kind: 'section.create', input: { id: 'section-mcp', name: 'MCP cutaway', kind: 'plane', planes: [{ normal: [1, 0, 0], offset: 40 }], cap: true } },
+    ],
+  },
+});
+const advancedCommitted = await tool('cad_commit', { sessionId: session.sessionId, previewId: advancedPreview.structuredContent.previewId, expectedRevision: 1 });
+const advancedTree = await tool('cad_inspect', { sessionId: session.sessionId, query: { kind: 'project.tree', pageSize: 500 } });
+check('MCP adapter previews, commits, and semantically inspects advanced assembly operations',
+  advancedCommitted.structuredContent.revision === 2 &&
+  ['datum-mcp-x', 'feature-mcp-move', 'assembly-mcp', 'occurrence-mcp-second', 'section-mcp']
+    .every((id) => advancedTree.structuredContent.result.items.some((entry: any) => entry.id === id)));
+
 const stale = await tool('cad_preview', { sessionId: session.sessionId, transaction: { ...tx, transactionId: 'tx-mcp-stale' } });
 check('MCP stale revision returns a typed tool error without mutation', stale.isError === true && stale.structuredContent.code === 'REVISION_CONFLICT');
 
 const projectPath = join(root, 'mcp-project.json');
 const saved = await tool('cad_session', { action: 'save', sessionId: session.sessionId, path: projectPath });
 const savedProject = JSON.parse(await readFile(projectPath, 'utf8'));
-check('MCP save writes a checksummed canonical project inside the approved root', saved.structuredContent.sha256.length === 64 && savedProject.projectId === 'project-mcp-check');
+check('MCP save writes a checksummed canonical project inside the approved root', saved.structuredContent.sha256.length === 64 && savedProject.projectId === 'project-mcp-check' && savedProject.rootDocument.kind === 'assembly');
 
 const traversal = await tool('cad_session', { action: 'save', sessionId: session.sessionId, path: join(root, '..', 'escaped-project.json') });
 check('MCP rejects path traversal outside the approved output root', traversal.isError === true && traversal.structuredContent.code === 'PATH_OUTSIDE_SCOPE');

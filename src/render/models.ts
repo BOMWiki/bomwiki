@@ -507,6 +507,7 @@ export function cadStudioPage(): string {
               <button type="button" class="wsr-btn is-compact" data-feat="fillet" aria-pressed="false">${studioIcon('fillet')}<span class="wsr-label">Fillet edge</span></button>
               <button type="button" class="wsr-btn is-compact" data-feat="chamfer" aria-pressed="false">${studioIcon('chamfer')}<span class="wsr-label">Chamfer edge</span></button>
               <button type="button" class="wsr-btn is-compact" data-feat="shell" aria-pressed="false">${studioIcon('shell')}<span class="wsr-label">Shell body</span></button>
+              <button type="button" class="wsr-btn is-compact" data-v5-command="split">${studioIcon('cut')}<span class="wsr-label">Split body</span></button>
             </div>
           </div>
           <div class="ws-group">
@@ -523,6 +524,10 @@ export function cadStudioPage(): string {
             <div class="wsg-tools wsg-stack">
               <button type="button" class="wsr-btn is-compact" data-v5-command="loft">${studioIcon('loft')}<span class="wsr-label">Loft</span></button>
               <button type="button" class="wsr-btn is-compact" data-v5-command="sweep">${studioIcon('sweep3d')}<span class="wsr-label">Sweep</span></button>
+              <button type="button" class="wsr-btn is-compact" data-v5-command="revolve-advanced">${studioIcon('revolve')}<span class="wsr-label">Partial revolve</span></button>
+              <button type="button" class="wsr-btn is-compact" data-v5-command="draft">${studioIcon('shell')}<span class="wsr-label">Draft</span></button>
+              <button type="button" class="wsr-btn is-compact" data-v5-command="thicken">${studioIcon('extrude')}<span class="wsr-label">Thicken</span></button>
+              <button type="button" class="wsr-btn is-compact" data-v5-command="variable-fillet">${studioIcon('fillet')}<span class="wsr-label">Variable fillet</span></button>
               <button type="button" class="wsr-btn is-compact" data-v5-command="pattern">${studioIcon('pattern3d')}<span class="wsr-label">Pattern</span></button>
             </div>
           </div>
@@ -582,6 +587,8 @@ export function cadStudioPage(): string {
               <button type="button" class="wsr-btn is-compact" data-assembly-command="linked">${studioIcon('scale3d')}<span class="wsr-label">Linked duplicate</span></button>
               <button type="button" class="wsr-btn is-compact" data-assembly-command="independent">${studioIcon('extrude')}<span class="wsr-label">Make independent</span></button>
               <button type="button" class="wsr-btn is-compact" data-assembly-command="replace">${studioIcon('recover')}<span class="wsr-label">Replace</span></button>
+              <button type="button" class="wsr-btn is-compact" data-assembly-command="variant">${studioIcon('scale3d')}<span class="wsr-label">Component variant</span></button>
+              <button type="button" class="wsr-btn is-compact" data-assembly-command="transform">${studioIcon('move')}<span class="wsr-label">Move / rotate</span></button>
             </div>
           </div>
           <div class="ws-group">
@@ -615,8 +622,14 @@ export function cadStudioPage(): string {
               <button type="button" class="wsr-btn is-compact" data-inspection-command="stage">${studioIcon('pattern3d')}<span class="wsr-label">Axial stages</span></button>
               <button type="button" class="wsr-btn is-compact" data-inspection-command="material">${studioIcon('shell')}<span class="wsr-label">Material</span></button>
               <button type="button" class="wsr-btn is-compact" data-inspection-command="properties">${studioIcon('select')}<span class="wsr-label">Mass &amp; health</span></button>
+              <button type="button" class="wsr-btn is-compact" data-inspection-command="measure">${studioIcon('align')}<span class="wsr-label">Save measure</span></button>
+              <button type="button" class="wsr-btn is-compact" data-inspection-command="measurements">${studioIcon('select')}<span class="wsr-label">Measurements</span></button>
               <button type="button" class="wsr-btn is-compact" data-inspection-command="clearance">${studioIcon('align')}<span class="wsr-label">Clearance</span></button>
               <button type="button" class="wsr-btn is-compact" data-inspection-command="interference">${studioIcon('cut')}<span class="wsr-label">Interference</span></button>
+              <button type="button" class="wsr-btn is-compact" data-display-mode="shaded-edges">${studioIcon('iso')}<span class="wsr-label">Shaded + edges</span></button>
+              <button type="button" class="wsr-btn is-compact" data-display-mode="wireframe">${studioIcon('profile')}<span class="wsr-label">Wireframe</span></button>
+              <button type="button" class="wsr-btn is-compact" data-display-mode="hidden-line">${studioIcon('line')}<span class="wsr-label">Hidden line</span></button>
+              <button type="button" class="wsr-btn is-compact" data-display-mode="ghost">${studioIcon('shell')}<span class="wsr-label">Ghost</span></button>
             </div>
           </div>
           <div class="ws-group">
@@ -700,33 +713,33 @@ export function cadStudioPage(): string {
           </details>
           <details class="ws-origin ws-datums" open>
             <summary><span>Datums</span><small id="bw-datum-summary">0 references</small></summary>
-            <div id="bw-datum-tree" class="datum-tree" aria-label="Reference geometry"></div>
+            <div id="bw-datum-tree" class="datum-tree" role="tree" aria-label="Reference geometry"></div>
           </details>
           <details class="ws-origin ws-sketches" open>
             <summary><span>Profiles &amp; paths</span><small id="bw-sketch-summary">0 sketches</small></summary>
-            <div id="bw-sketch-tree" class="datum-tree" aria-label="Profile and path sketches"></div>
+            <div id="bw-sketch-tree" class="datum-tree" role="tree" aria-label="Profile and path sketches"></div>
           </details>
           <details class="ws-origin ws-patterns" open>
             <summary><span>Body patterns</span><small id="bw-pattern-summary">0 patterns</small></summary>
-            <div id="bw-pattern-tree" class="datum-tree pattern-tree" aria-label="Editable body patterns"></div>
+            <div id="bw-pattern-tree" class="datum-tree pattern-tree" role="tree" aria-label="Editable body patterns"></div>
           </details>
           <details class="ws-origin ws-assemblies" id="bw-assembly-components" open hidden>
             <summary><span>Components</span><small id="bw-assembly-summary">0 occurrences</small></summary>
-            <div id="bw-assembly-tree" class="datum-tree assembly-tree" aria-label="Assembly occurrence hierarchy"></div>
+            <div id="bw-assembly-tree" class="datum-tree assembly-tree" role="tree" aria-label="Assembly occurrence hierarchy"></div>
           </details>
           <details class="ws-origin ws-mates" id="bw-assembly-mates" open hidden>
             <summary><span>Mates</span><small id="bw-mate-summary">0 mates</small></summary>
-            <div id="bw-mate-tree" class="datum-tree mate-tree" aria-label="Assembly mates and solver state"></div>
+            <div id="bw-mate-tree" class="datum-tree mate-tree" role="tree" aria-label="Assembly mates and solver state"></div>
           </details>
           <details class="ws-origin ws-inspection" id="bw-assembly-inspection" open hidden>
             <summary><span>Views &amp; stages</span><small id="bw-inspection-summary">0 saved</small></summary>
-            <div id="bw-inspection-tree" class="datum-tree inspection-tree" aria-label="Saved sections, exploded views, and axial stage groups"></div>
+            <div id="bw-inspection-tree" class="datum-tree inspection-tree" role="tree" aria-label="Saved sections, exploded views, and axial stage groups"></div>
           </details>
           <div class="wsp wsp-grow wsp-history">
             <div class="ws-bodies-panel">
               <div class="wsp-head"><span><b>Bodies</b><small id="bw-active-body-label">No active body</small></span><button type="button" id="bw-body-new" title="Create a body with Extrude">＋</button></div>
               <div class="wsp-body">
-                <ol id="bw-bodies" class="body-tree" aria-label="Bodies"></ol>
+                <ol id="bw-bodies" class="body-tree" role="tree" aria-label="Bodies"></ol>
                 <p id="bw-bodies-empty" class="sk-note">The first solid feature creates a body.</p>
               </div>
             </div>
@@ -802,7 +815,7 @@ export function cadStudioPage(): string {
             <button type="button" class="sr-accent" id="bw-pick-apply">✓ Apply</button>
             <button type="button" id="bw-pick-cancel">Cancel</button>
           </div>
-          <p id="bw-studio-msg" hidden></p>
+          <p id="bw-studio-msg" role="status" aria-live="polite" aria-atomic="true" hidden></p>
           <div id="bw-sketch" hidden>
             <div class="sk-top">
               <b id="bw-sk-title"></b>

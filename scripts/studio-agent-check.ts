@@ -7,7 +7,7 @@ import { createEmptyStudioV5PartProject } from '../static/studio-project-v5.js';
 // @ts-expect-error Browser-native module intentionally has no declarations.
 import { studioV5CanonicalHash, studioV5RootPart } from '../static/studio-v5-runtime-document.js';
 
-type Mode = 'protocol' | 'queries' | 'transactions' | 'security' | 'handoff' | 'multibody' | 'all';
+type Mode = 'protocol' | 'queries' | 'transactions' | 'security' | 'handoff' | 'multibody' | 'advanced' | 'all';
 
 const mode = (process.argv[2] || 'all') as Mode;
 let passed = 0;
@@ -99,7 +99,6 @@ async function protocolChecks(): Promise<void> {
   const service = new CadCommandService({ project: emptyProject('project-agent-protocol') });
   const manifest = cadCapabilityManifest({ exactKernel: false });
   const available = new Set(manifest.operations.filter((entry: any) => entry.state === 'available').map((entry: any) => entry.kind));
-  const disabled = new Map(manifest.operations.filter((entry: any) => entry.state === 'disabled').map((entry: any) => [entry.kind, entry.disabledReasonCode]));
   check('protocol manifest is schema-versioned and transport-complete',
     manifest.protocolVersion === CAD_AGENT_PROTOCOL && manifest.schemaVersions.join(',') === '5' && manifest.transports.join(',') === 'headless,mcp-stdio,studio-loopback');
   check('protocol reports implemented multi-body operations available',
@@ -107,8 +106,10 @@ async function protocolChecks(): Promise<void> {
   const extrudeSchema = manifest.operations.find((entry: any) => entry.kind === 'feature.extrude')?.inputSchema;
   check('protocol capability discovery includes usable per-operation input schemas',
     extrudeSchema?.properties?.input?.required?.includes('sketch') && extrudeSchema.properties.input.properties.resultPolicy.oneOf.length === 4);
-  check('protocol truthfully disables advanced capabilities',
-    disabled.get('feature.loft') === 'V5_LOFT_RUNTIME_NOT_AVAILABLE' && disabled.get('mate.create') === 'V5_ASSEMBLY_SOLVER_NOT_AVAILABLE');
+  check('protocol exposes typed part, assembly, inspection, and interchange-era document operations',
+    manifest.documentKinds.join(',') === 'part,assembly' &&
+    ['datum.create', 'body.transform', 'feature.loft', 'feature.sweep', 'pattern.create', 'boolean.split', 'component.insert', 'mate.create', 'section.create', 'measurement.create']
+      .every((kind) => available.has(kind)) && manifest.operations.every((entry: any) => entry.state === 'available'));
   check('protocol does not advertise exact STEP without a kernel adapter',
     manifest.exports.find((entry: any) => entry.format === 'step')?.state === 'disabled');
 
@@ -330,6 +331,70 @@ async function multibodyChecks(): Promise<void> {
   check('multibody client used only capability-discovered operation kinds', create.operations.every((entry: any) => cadCapabilityManifest().operations.some((capability: any) => capability.kind === entry.kind && capability.state === 'available')));
 }
 
+async function advancedChecks(): Promise<void> {
+  console.log('\nAgent advanced V5 parity');
+  const service = new CadCommandService({ project: emptyProject('project-agent-advanced') });
+  const partId = service.snapshot().rootDocument.partId;
+  const authored = transaction('tx-agent-advanced-part', 0, [
+    { kind: 'datum.create', input: { id: 'datum-agent-xy', name: 'Agent XY', datumKind: 'plane', definition: { mode: 'principal', origin: [0, 0, 0], normal: [0, 0, 1], xDirection: [1, 0, 0] } } },
+    { kind: 'datum.create', input: { id: 'datum-agent-station', name: 'Agent station', datumKind: 'plane', definition: { mode: 'offset', referenceDatumId: 'datum-agent-xy', offset: 30 } } },
+    { kind: 'datum.create', input: { id: 'datum-agent-z', name: 'Agent Z', datumKind: 'axis', definition: { mode: 'principal', origin: [0, 0, 0], direction: [0, 0, 1] } } },
+    { kind: 'sketch.profile.create', input: { id: 'sketch-agent-root', name: 'Agent root profile', planeDatumId: 'datum-agent-xy', curveKind: 'polyline', points: [[-8, -5], [8, -5], [8, 5], [-8, 5]] } },
+    { kind: 'sketch.profile.create', input: { id: 'sketch-agent-tip', name: 'Agent tip profile', planeDatumId: 'datum-agent-station', curveKind: 'polyline', points: [[-4, -3], [4, -3], [4, 3], [-4, 3]] } },
+    { kind: 'sketch.path.create', input: { id: 'sketch-agent-path', name: 'Agent sweep path', curveKind: 'polyline', points: [[40, 0, 0], [40, 0, 15], [45, 0, 30]] } },
+    { kind: 'feature.loft', input: { id: 'feature-agent-loft', name: 'Agent editable loft', bodyName: 'Agent loft body', sections: ['sketch-agent-root', 'sketch-agent-tip'], mapping: 'explicit' } },
+    { kind: 'feature.sweep', input: { id: 'feature-agent-sweep', name: 'Agent editable sweep', bodyName: 'Agent sweep body', profileSketchId: 'sketch-agent-root', pathSketchId: 'sketch-agent-path', orientation: 'minimum-twist', transition: 'right' } },
+    { kind: 'body.transform', input: { id: 'feature-agent-copy', name: 'Agent linked body copy', bodyId: 'body-feature-agent-loft', bodyName: 'Agent loft copy', copy: true, transform: { mode: 'copy', translation: [70, 0, 0] } } },
+    { kind: 'pattern.create', input: { id: 'pattern-agent-circular', name: 'Agent circular pattern', kind: 'circular', sourceBodyId: 'body-feature-agent-loft', count: 4, axisDatumId: 'datum-agent-z', totalAngle: 360, outputMode: 'linked' } },
+    { kind: 'boolean.split', input: { id: 'split-agent-bodies', name: 'Agent split', targetBodyId: 'body-feature-agent-loft', toolBodyIds: ['body-feature-agent-sweep'], keepTools: true } },
+  ], 'Author advanced editable part through typed tools');
+  const partResult = await previewAndCommit(service, authored);
+  const advancedPart = service.snapshot().partDefinitions[0];
+  check('typed agent transaction authors datums, profile/path sketches, Loft, Sweep, linked transform, pattern, and Boolean Split',
+    advancedPart.referenceGeometry.length === 3 && advancedPart.sketches.length === 3 &&
+    advancedPart.features.some((entry: any) => entry.type === 'loft') && advancedPart.features.some((entry: any) => entry.type === 'sweep') &&
+    advancedPart.features.some((entry: any) => entry.type === 'transform') && advancedPart.bodyPatterns.length === 1 &&
+    advancedPart.features.filter((entry: any) => entry.type === 'boolean-split-side').length === 2,
+    { created: partResult.committed.changeSet.created });
+
+  const assembled = transaction('tx-agent-advanced-assembly', 1, [
+    { kind: 'material.ensureGeneric', input: {} },
+    { kind: 'material.assignBody', input: { partId, bodyId: 'body-feature-agent-sweep', materialId: 'material-generic-titanium' } },
+    { kind: 'assembly.create', input: { id: 'assembly-agent-advanced', name: 'Agent advanced assembly', occurrenceId: 'occurrence-agent-base', occurrenceName: 'Base component', fixed: true } },
+    { kind: 'component.duplicate', input: { occurrenceId: 'occurrence-agent-base', id: 'occurrence-agent-second', name: 'Variant component', baseTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 0, 0, 1] } },
+    { kind: 'component.update', input: { occurrenceId: 'occurrence-agent-second', patch: { parameterOverrides: {}, visible: true } } },
+    { kind: 'mate.create', input: { id: 'mate-agent-base-fixed', name: 'Agent fixed mate', mateKind: 'fixed', occurrenceIds: ['occurrence-agent-base'], references: [] } },
+    { kind: 'section.create', input: { id: 'section-agent-cutaway', name: 'Agent cutaway', kind: 'plane', planes: [{ normal: [1, 0, 0], offset: 50 }], scopeOccurrenceIds: [], cap: true, hatch: { enabled: true, spacing: 6, angle: 45 } } },
+    { kind: 'exploded.create', input: { id: 'exploded-agent-service', name: 'Agent service view', steps: [{ occurrenceIds: ['occurrence-agent-second'], translation: [35, 0, 0] }] } },
+    { kind: 'measurement.create', input: { id: 'measurement-agent-box', name: 'Agent assembly bounds', measurementKind: 'bounding-box', definition: { bodyIds: ['occurrence-agent-base:body-feature-agent-sweep'] } } },
+    { kind: 'display.setMode', input: { mode: 'hidden-line' } },
+    { kind: 'appearance.assignOccurrence', input: { occurrenceId: 'occurrence-agent-second', appearanceId: 'appearance-generic-titanium' } },
+  ], 'Assemble and inspect through typed tools');
+  const assemblyResult = await previewAndCommit(service, assembled);
+  const project = service.snapshot();
+  const assembly = project.assemblyDefinitions.find((entry: any) => entry.id === 'assembly-agent-advanced');
+  check('typed agent transaction authors linked occurrences, variants, mate, section, exploded view, measurement, material, appearance, and display state',
+    project.rootDocument.kind === 'assembly' && assembly.occurrences.length === 2 && assembly.mates.length === 1 &&
+    assembly.sectionViews.length === 1 && assembly.explodedViews.length === 1 && assembly.metadata.measurements.length === 1 &&
+    assembly.metadata.displayMode === 'hidden-line' && assembly.occurrences[1].appearanceOverrideId === 'appearance-generic-titanium' &&
+    project.partDefinitions[0].bodies.find((body: any) => body.id === 'body-feature-agent-sweep').materialId === 'material-generic-titanium',
+    { changeSet: assemblyResult.committed.changeSet });
+  const tree = service.inspect({ kind: 'project.tree', pageSize: 500 });
+  check('agent semantic tree exposes advanced part and assembly entities without JSON-path inspection',
+    ['datum-agent-station', 'feature-agent-loft', 'pattern-agent-circular', 'occurrence-agent-second', 'mate-agent-base-fixed', 'section-agent-cutaway', 'measurement-agent-box']
+      .every((id) => tree.items.some((entry: any) => entry.id === id)));
+
+  const beforeFailure = JSON.stringify(service.snapshot());
+  let rejected = false;
+  try {
+    await service.preview(transaction('tx-agent-advanced-invalid', 2, [
+      { kind: 'component.update', input: { occurrenceId: 'occurrence-agent-second', patch: { visible: false } } },
+      { kind: 'section.create', input: { id: 'section-agent-invalid', name: 'Invalid section', kind: 'plane', planes: [{ normal: [0, 0, 0], offset: 0 }] } },
+    ]), editScope(project.projectId));
+  } catch (error: any) { rejected = error.details?.operationIndex === 1; }
+  check('invalid advanced operation rolls back the whole atomic transaction byte-identically', rejected && JSON.stringify(service.snapshot()) === beforeFailure && service.revision === 2);
+}
+
 async function run(): Promise<void> {
   if (mode === 'protocol' || mode === 'all') await protocolChecks();
   if (mode === 'queries' || mode === 'all') await queryChecks();
@@ -337,6 +402,7 @@ async function run(): Promise<void> {
   if (mode === 'security' || mode === 'all') await securityChecks();
   if (mode === 'handoff' || mode === 'all') await handoffChecks();
   if (mode === 'multibody' || mode === 'all') await multibodyChecks();
+  if (mode === 'advanced' || mode === 'all') await advancedChecks();
   console.log(`\n${passed}/${passed + failed} agent checks passed`);
   if (failed) process.exitCode = 1;
 }

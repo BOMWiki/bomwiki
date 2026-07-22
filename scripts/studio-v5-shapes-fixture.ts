@@ -2,7 +2,7 @@
 // profile/path sketch, Loft, and Sweep document commands.
 
 // @ts-expect-error Browser-native modules intentionally have no TypeScript declarations.
-import { createStudioV5Datum, createStudioV5LoftFeature, createStudioV5PathSketch, createStudioV5ProfileSketch, createStudioV5SweepFeature } from '../static/studio-v5-runtime-document.js';
+import { configureStudioV5Feature, createStudioV5Datum, createStudioV5LoftFeature, createStudioV5PathSketch, createStudioV5ProfileSketch, createStudioV5RevolveFeature, createStudioV5SweepFeature } from '../static/studio-v5-runtime-document.js';
 import { createEmptyStudioV5PartProject } from '../static/studio-project-v5.js';
 
 export const SHAPE_IDS = Object.freeze({
@@ -15,6 +15,11 @@ export const SHAPE_IDS = Object.freeze({
   inletLoft: 'feature-inlet-loft', inletBody: 'body-feature-inlet-loft',
   sweepPlane: 'datum-sweep-profile', sweepProfile: 'sketch-sweep-profile', sweepPath: 'sketch-sweep-path',
   sweepFeature: 'feature-controlled-sweep', sweepBody: 'body-feature-controlled-sweep',
+  modifierBoxFeature: 'feature-modifier-box', modifierBoxBody: 'body-feature-modifier-box',
+  neutralPlane: 'datum-modifier-neutral-plane', revolvePlane: 'datum-revolve-profile-plane', revolveAxis: 'datum-revolve-axis',
+  revolveProfile: 'sketch-revolve-profile', revolveFeature: 'feature-partial-revolve', revolveBody: 'body-feature-partial-revolve',
+  draftFeature: 'feature-exact-draft', thickenFeature: 'feature-planar-thicken', thickenBody: 'body-feature-planar-thicken',
+  variableFilletFeature: 'feature-variable-fillet',
 });
 
 const rotate = (points: number[][], degrees: number) => {
@@ -75,6 +80,35 @@ export function createAdvancedShapeProject(): any {
     orientation: 'controlled-twist', twistAngle: 35, scaleEnd: 0.65, transition: 'round', bodyName: 'Swept duct',
   });
   return project;
+}
+
+export function createAdvancedModifierBaseProject(): any {
+  let project = createEmptyStudioV5PartProject({ projectId: 'project-slice-5c-modifiers', name: 'Slice 5C generic advanced modifiers', units: 'mm' });
+  project = configureStudioV5Feature(project, {
+    id: SHAPE_IDS.modifierBoxFeature, name: 'Modifier source box', type: 'extrude',
+    sketch: { shapes: [{ kind: 'rect', x: 80, y: 0, w: 40, h: 30 }], z: 0 }, h: 20, through: false,
+    resultPolicy: { kind: 'new-body', bodyName: 'Modifier source box' }, createdBodyId: SHAPE_IDS.modifierBoxBody,
+  }, { resultPolicy: { kind: 'new-body', bodyName: 'Modifier source box' }, bodyName: 'Modifier source box' });
+  project = createStudioV5Datum(project, {
+    id: SHAPE_IDS.neutralPlane, name: 'Modifier neutral plane', kind: 'plane',
+    definition: { mode: 'principal', origin: [0, 0, 0], normal: [0, 0, 1], xDirection: [1, 0, 0] },
+  });
+  project = createStudioV5Datum(project, {
+    id: SHAPE_IDS.revolvePlane, name: 'Revolve profile plane', kind: 'plane',
+    definition: { mode: 'principal', origin: [0, 0, 0], normal: [0, 1, 0], xDirection: [1, 0, 0] },
+  });
+  project = createStudioV5Datum(project, {
+    id: SHAPE_IDS.revolveAxis, name: 'Revolve X axis', kind: 'axis',
+    definition: { mode: 'principal', origin: [0, 0, 0], direction: [1, 0, 0] },
+  });
+  project = createStudioV5ProfileSketch(project, {
+    id: SHAPE_IDS.revolveProfile, name: 'Partial revolve annulus profile', planeDatumId: SHAPE_IDS.revolvePlane, kind: 'polyline',
+    points: [[0, -12], [20, -12], [20, -18], [0, -18]],
+  });
+  return createStudioV5RevolveFeature(project, {
+    id: SHAPE_IDS.revolveFeature, name: 'Editable 180 degree revolve', profileSketchId: SHAPE_IDS.revolveProfile,
+    axisDatumId: SHAPE_IDS.revolveAxis, angle: 180, startAngle: 15, bodyName: 'Partial revolve',
+  });
 }
 
 export const ADVANCED_SHAPE_EDIT = Object.freeze({

@@ -102,6 +102,13 @@ function normalizedSection(project, input, existingId = null) {
       cap: (input.definition?.cap ?? input.cap) !== false,
       reverse: (input.definition?.reverse ?? input.reverse) === true,
       scopeOccurrenceIds: occurrenceIds,
+      hatch: {
+        enabled: (input.definition?.hatch?.enabled ?? input.hatch?.enabled) !== false,
+        spacing: Math.max(1, finite(input.definition?.hatch?.spacing ?? input.hatch?.spacing ?? 8, 'Section hatch spacing')),
+        angle: finite(input.definition?.hatch?.angle ?? input.hatch?.angle ?? 45, 'Section hatch angle'),
+        color: String(input.definition?.hatch?.color ?? input.hatch?.color ?? '#243746'),
+        fillColor: String(input.definition?.hatch?.fillColor ?? input.hatch?.fillColor ?? '#d7e0e5'),
+      },
     },
     extensions: { ...(input.extensions || {}), studioDisplayOnly: true },
   };
@@ -211,6 +218,67 @@ function stageGroups(assembly) {
   assembly.metadata ||= {};
   assembly.metadata.axialStageGroups ||= [];
   return assembly.metadata.axialStageGroups;
+}
+
+const MEASUREMENT_KINDS = new Set(['coordinate', 'point-distance', 'edge-length', 'radius', 'diameter', 'face-angle', 'wall-thickness', 'bounding-box', 'minimum-clearance']);
+
+function measurements(assembly) {
+  assembly.metadata ||= {};
+  assembly.metadata.measurements ||= [];
+  return assembly.metadata.measurements;
+}
+
+function normalizedMeasurement(input, id = input.id) {
+  const kind = String(input.kind || 'bounding-box');
+  if (!MEASUREMENT_KINDS.has(kind)) throw new Error('Measurement kind is unsupported.');
+  const definition = clone(input.definition || {});
+  const bodyIds = [...new Set(definition.bodyIds || [])];
+  if (kind === 'bounding-box' && bodyIds.length !== 1) throw new Error('Bounding-box measurement requires one exact body.');
+  if (kind === 'minimum-clearance' && bodyIds.length !== 2) throw new Error('Minimum-clearance measurement requires two exact bodies.');
+  const requiredReferences = { coordinate: 1, 'point-distance': 2, 'edge-length': 1, radius: 1, diameter: 1, 'face-angle': 2, 'wall-thickness': 2 }[kind] || 0;
+  if (requiredReferences && (!Array.isArray(definition.references) || definition.references.length !== requiredReferences)) {
+    throw new Error(kind + ' measurement requires ' + requiredReferences + ' persistent topology reference' + (requiredReferences === 1 ? '' : 's') + '.');
+  }
+  return { id, name: requireName(input.name, 'Measurement name'), kind, definition, visible: input.visible !== false };
+}
+
+export function createStudioV5Measurement(project, input) {
+  const candidate = canonicalStudioV5Project(project);
+  const assembly = studioV5RootAssembly(candidate);
+  if (measurements(assembly).some((entry) => entry.id === input.id)) throw new Error('Measurement ID is already in use.');
+  measurements(assembly).push(normalizedMeasurement(input));
+  return prepared(candidate);
+}
+
+export function updateStudioV5Measurement(project, measurementId, patch) {
+  const candidate = canonicalStudioV5Project(project);
+  const assembly = studioV5RootAssembly(candidate);
+  const index = measurements(assembly).findIndex((entry) => entry.id === measurementId);
+  if (index < 0) throw new Error('That saved measurement no longer exists.');
+  measurements(assembly)[index] = normalizedMeasurement({ ...measurements(assembly)[index], ...patch, definition: { ...measurements(assembly)[index].definition, ...(patch.definition || {}) } }, measurementId);
+  return prepared(candidate);
+}
+
+export function deleteStudioV5Measurement(project, measurementId) {
+  const candidate = canonicalStudioV5Project(project);
+  const assembly = studioV5RootAssembly(candidate);
+  if (!measurements(assembly).some((entry) => entry.id === measurementId)) throw new Error('That saved measurement no longer exists.');
+  assembly.metadata.measurements = measurements(assembly).filter((entry) => entry.id !== measurementId);
+  return prepared(candidate);
+}
+
+export function studioV5Measurements(project) {
+  if (project.rootDocument?.kind !== 'assembly') return [];
+  return clone(studioV5RootAssembly(project).metadata?.measurements || []);
+}
+
+export function setStudioV5DisplayMode(project, mode) {
+  if (!['shaded', 'shaded-edges', 'wireframe', 'hidden-line', 'ghost'].includes(mode)) throw new Error('Display mode is unsupported.');
+  const candidate = canonicalStudioV5Project(project);
+  const assembly = studioV5RootAssembly(candidate);
+  assembly.metadata ||= {};
+  assembly.metadata.displayMode = mode;
+  return prepared(candidate);
 }
 
 function validateStageGroup(assembly, input, id) {

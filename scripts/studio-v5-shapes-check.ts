@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { cadStudioPage } from '../src/render/models.ts';
 // @ts-expect-error Browser-native modules intentionally have no TypeScript declarations.
-import { canonicalStudioV5Project, createStudioV5ProfileSketch, createStudioV5TransformFeature, parseOrMigrateStudioV5RuntimeProject, studioV5RootPart, updateStudioV5AdvancedFeature, updateStudioV5AdvancedSketch, updateStudioV5Datum } from '../static/studio-v5-runtime-document.js';
-import { ADVANCED_SHAPE_EDIT, createAdvancedShapeProject, SHAPE_IDS } from './studio-v5-shapes-fixture.ts';
+import { canonicalStudioV5Project, createStudioV5DraftFeature, createStudioV5ProfileSketch, createStudioV5ThickenFeature, createStudioV5TransformFeature, createStudioV5VariableFilletFeature, parseOrMigrateStudioV5RuntimeProject, studioV5RootPart, updateStudioV5AdvancedFeature, updateStudioV5AdvancedSketch, updateStudioV5Datum } from '../static/studio-v5-runtime-document.js';
+import { ADVANCED_SHAPE_EDIT, createAdvancedModifierBaseProject, createAdvancedShapeProject, SHAPE_IDS } from './studio-v5-shapes-fixture.ts';
 
 type Mode = 'all' | 'document' | 'kernel' | 'browser';
 const mode = (process.argv[2] || 'all') as Mode;
@@ -81,6 +81,49 @@ async function documentChecks(): Promise<void> {
   const serialized = JSON.stringify(canonicalStudioV5Project(edited));
   check('document save/reopen preserves advanced-shape history byte-identically',
     JSON.stringify(parseOrMigrateStudioV5RuntimeProject(serialized)) === serialized);
+
+  const modifierBase = createAdvancedModifierBaseProject();
+  const placeholderFace = { p: [80, 0, 20], n: [0, 0, 1] };
+  const placeholderEdge = { p: [60, -15, 10], l: 20 };
+  let modifierProject = createStudioV5DraftFeature(modifierBase, {
+    id: SHAPE_IDS.draftFeature, name: 'Editable exact Draft', bodyId: SHAPE_IDS.modifierBoxBody,
+    neutralPlaneDatumId: SHAPE_IDS.neutralPlane, angle: 6, faces: [placeholderFace], tangentPropagation: true,
+  });
+  modifierProject = createStudioV5VariableFilletFeature(modifierProject, {
+    id: SHAPE_IDS.variableFilletFeature, name: 'Editable variable Fillet', bodyId: SHAPE_IDS.modifierBoxBody,
+    startRadius: 1, endRadius: 3, edges: [placeholderEdge], tangentPropagation: false,
+  });
+  modifierProject = createStudioV5ThickenFeature(modifierProject, {
+    id: SHAPE_IDS.thickenFeature, name: 'Editable planar Thicken', bodyId: SHAPE_IDS.modifierBoxBody,
+    bodyName: 'Thickened planar face', thickness: 3, symmetric: true, faces: [placeholderFace],
+  });
+  const modifierPart = studioV5RootPart(modifierProject);
+  const revolve = modifierPart.features.find((feature: any) => feature.id === SHAPE_IDS.revolveFeature);
+  const draft = modifierPart.features.find((feature: any) => feature.id === SHAPE_IDS.draftFeature);
+  const thicken = modifierPart.features.find((feature: any) => feature.id === SHAPE_IDS.thickenFeature);
+  const variable = modifierPart.features.find((feature: any) => feature.id === SHAPE_IDS.variableFilletFeature);
+  check('document partial Revolve retains editable profile, selected axis, angle, and start angle',
+    revolve.profileSketchId === SHAPE_IDS.revolveProfile && revolve.axisDatumId === SHAPE_IDS.revolveAxis && revolve.angle === 180 && revolve.startAngle === 15);
+  check('document Draft retains selected faces, neutral plane, angle, propagation, and target ownership',
+    draft.faces.length === 1 && draft.neutralPlaneDatumId === SHAPE_IDS.neutralPlane && draft.angle === 6 && draft.tangentPropagation === true && draft.resultPolicy.targetBodyIds[0] === SHAPE_IDS.modifierBoxBody);
+  check('document Thicken creates a distinct linked body from exactly one source face',
+    thicken.sourceBodyId === SHAPE_IDS.modifierBoxBody && thicken.toolBodyIds[0] === SHAPE_IDS.modifierBoxBody &&
+    modifierPart.bodies.find((entry: any) => entry.id === SHAPE_IDS.thickenBody)?.createdByFeatureId === SHAPE_IDS.thickenFeature);
+  check('document variable Fillet retains per-edge start/end radii and target ownership',
+    variable.variableRadii[0].startRadius === 1 && variable.variableRadii[0].endRadius === 3 && variable.resultPolicy.targetBodyIds[0] === SHAPE_IDS.modifierBoxBody);
+  const editedModifiers = updateStudioV5AdvancedFeature(modifierProject, SHAPE_IDS.revolveFeature, { angle: 225, startAngle: -30 });
+  check('document advanced modifier edit preserves feature and created-body identities',
+    studioV5RootPart(editedModifiers).features.find((entry: any) => entry.id === SHAPE_IDS.revolveFeature)?.angle === 225 &&
+    studioV5RootPart(editedModifiers).bodies.some((entry: any) => entry.id === SHAPE_IDS.revolveBody));
+  const beforeBadModifier = JSON.stringify(modifierProject);
+  let badModifierCount = 0;
+  try { createStudioV5DraftFeature(modifierProject, { id: 'bad-draft', bodyId: SHAPE_IDS.modifierBoxBody, neutralPlaneDatumId: SHAPE_IDS.neutralPlane, angle: 0, faces: [placeholderFace] }); } catch { badModifierCount++; }
+  try { createStudioV5ThickenFeature(modifierProject, { id: 'bad-thicken', bodyId: SHAPE_IDS.modifierBoxBody, thickness: -1, faces: [placeholderFace] }); } catch { badModifierCount++; }
+  try { createStudioV5VariableFilletFeature(modifierProject, { id: 'bad-variable', bodyId: SHAPE_IDS.modifierBoxBody, startRadius: 0, endRadius: 2, edges: [placeholderEdge] }); } catch { badModifierCount++; }
+  check('document rejects invalid advanced modifiers without mutating the source transaction', badModifierCount === 3 && JSON.stringify(modifierProject) === beforeBadModifier);
+  const modifierSerialized = JSON.stringify(canonicalStudioV5Project(modifierProject));
+  check('document save/reopen preserves advanced modifier ownership and topology references byte-identically',
+    JSON.stringify(parseOrMigrateStudioV5RuntimeProject(modifierSerialized)) === modifierSerialized);
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -154,6 +197,56 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
     body(failed, SHAPE_IDS.inletBody).lastValid === true && failed.errors.some((entry: any) => entry.featureId === SHAPE_IDS.inletLoft && /misses Loft section/.test(entry.message)));
   check('kernel failed guided Loft leaves unrelated blade and Sweep cached',
     failed.evaluation.reusedBodyIds.includes(SHAPE_IDS.bladeBody) && failed.evaluation.reusedBodyIds.includes(SHAPE_IDS.sweepBody));
+
+  const modifierBase = createAdvancedModifierBaseProject();
+  const modifierBaseline = await workerRequest(page, { kind: 'rebuild', revision: 10, document: modifierBase });
+  const boxBaseline = body(modifierBaseline, SHAPE_IDS.modifierBoxBody);
+  const revolveBaseline = body(modifierBaseline, SHAPE_IDS.revolveBody);
+  check('kernel builds the source box and editable partial Revolve as separate exact valid solids',
+    modifierBaseline.errors.length === 0 && [boxBaseline, revolveBaseline].every((entry) => entry?.geometry?.valid), modifierBaseline.errors);
+  check('kernel partial Revolve has exact 180 degree annular-prism volume and non-full angular bounds',
+    close(revolveBaseline.geometry.volume, Math.PI * (18 ** 2 - 12 ** 2) * 20 / 2, 2e-5) &&
+    revolveBaseline.geometry.bounds[0][1] < -4 && revolveBaseline.geometry.bounds[1][1] > 4,
+    { volume: revolveBaseline.geometry.volume, bounds: revolveBaseline.geometry.bounds });
+  const planarFaces = boxBaseline.mesh.planarFaces;
+  const sideFaces = planarFaces.filter((face: any) => Math.abs(face.sig.n[2]) < 0.1).map((face: any) => face.sig);
+  const topFace = planarFaces.find((face: any) => face.sig.n[2] > 0.9)?.sig;
+  const verticalEdge = boxBaseline.mesh.edges.find((edge: any) => close(edge.sig.l, 20, 1e-4))?.sig;
+  check('kernel exposes stable topology signatures for Draft, Thicken, and variable Fillet selection', sideFaces.length === 4 && Boolean(topFace) && Boolean(verticalEdge));
+
+  const draftedProject = createStudioV5DraftFeature(modifierBase, {
+    id: SHAPE_IDS.draftFeature, name: 'Exact four-face Draft', bodyId: SHAPE_IDS.modifierBoxBody,
+    neutralPlaneDatumId: SHAPE_IDS.neutralPlane, angle: 6, faces: sideFaces, tangentPropagation: true,
+  });
+  const drafted = await workerRequest(page, { kind: 'rebuild', revision: 11, document: draftedProject });
+  const draftedBox = body(drafted, SHAPE_IDS.modifierBoxBody);
+  check('kernel Draft modifies the selected exact faces into one valid tapered solid',
+    drafted.errors.length === 0 && draftedBox.geometry.valid && !close(draftedBox.geometry.volume, boxBaseline.geometry.volume), drafted.errors);
+
+  const thickenedProject = createStudioV5ThickenFeature(modifierBase, {
+    id: SHAPE_IDS.thickenFeature, name: 'Exact planar Thicken', bodyId: SHAPE_IDS.modifierBoxBody,
+    bodyName: 'Thickened top face', thickness: 3, symmetric: true, faces: [topFace],
+  });
+  const thickened = await workerRequest(page, { kind: 'rebuild', revision: 12, document: thickenedProject });
+  const thickenedFace = body(thickened, SHAPE_IDS.thickenBody);
+  check('kernel Thicken creates a distinct linked exact solid with face-area times thickness volume',
+    thickened.errors.length === 0 && thickenedFace.geometry.valid && close(thickenedFace.geometry.volume, 40 * 30 * 3, 2e-5),
+    { errors: thickened.errors, geometry: thickenedFace?.geometry });
+  const editedThickenProject = updateStudioV5AdvancedFeature(thickenedProject, SHAPE_IDS.thickenFeature, { thickness: 4 });
+  const editedThicken = await workerRequest(page, { kind: 'rebuild', revision: 13, document: editedThickenProject });
+  check('kernel Thicken rebuild reuses its unchanged source body and evaluates only the linked result',
+    editedThicken.evaluation.reusedBodyIds.includes(SHAPE_IDS.modifierBoxBody) &&
+    editedThicken.evaluation.evaluatedBodyIds.includes(SHAPE_IDS.thickenBody) &&
+    close(body(editedThicken, SHAPE_IDS.thickenBody).geometry.volume, 40 * 30 * 4, 2e-5));
+
+  const variableProject = createStudioV5VariableFilletFeature(modifierBase, {
+    id: SHAPE_IDS.variableFilletFeature, name: 'Exact variable edge Fillet', bodyId: SHAPE_IDS.modifierBoxBody,
+    startRadius: 1, endRadius: 3, edges: [verticalEdge], tangentPropagation: false,
+  });
+  const variable = await workerRequest(page, { kind: 'rebuild', revision: 14, document: variableProject });
+  const variableBox = body(variable, SHAPE_IDS.modifierBoxBody);
+  check('kernel variable Fillet applies distinct endpoint radii to one exact edge and keeps one valid solid',
+    variable.errors.length === 0 && variableBox.geometry.valid && variableBox.geometry.volume < boxBaseline.geometry.volume, variable.errors);
   await page.close();
 }
 
@@ -162,6 +255,14 @@ async function waitForStudio(page: Page, revisionAfter?: number): Promise<void> 
     const studio = (window as any).__bwStudio;
     return Boolean(studio && studio.mode().kind === 'idle' && (after == null || studio.appliedRevision() > after));
   }, { timeout: 60_000, polling: 250 }, revisionAfter ?? null);
+}
+
+async function activateControl(page: Page, selector: string): Promise<void> {
+  await page.evaluate((value) => {
+    const element = document.querySelector(value) as HTMLElement | null;
+    if (!element) throw new Error(`Slice 5C browser control is missing: ${value}`);
+    element.focus(); element.click();
+  }, selector);
 }
 
 async function openProject(page: Page, project: any): Promise<void> {
@@ -196,7 +297,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   check('browser exposes visible generic Profile, Path, Loft, and Sweep commands',
     (await page.$$('[data-v5-command="profile"], [data-v5-command="path"], [data-v5-command="loft"], [data-v5-command="sweep"]')).length === 4);
   const beforeProfileCreate = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
-  await page.click('[data-v5-command="profile"]');
+  await activateControl(page, '[data-v5-command="profile"]');
   await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
   await waitForStudio(page, beforeProfileCreate);
   check('browser creates an ordinary editable Profile through the visible command',
@@ -223,7 +324,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   check('browser Loft edit rebuilds one exact valid solid transactionally', afterLoftEdit.valid && !close(afterLoftEdit.volume, beforeLoftEdit.volume));
 
   const beforeLoftCreate = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
-  await page.click('[data-v5-command="loft"]');
+  await activateControl(page, '[data-v5-command="loft"]');
   await page.$eval('#bw-v5-command [name="name"]', (element: any) => { element.value = 'Visible Loft creation'; });
   await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
   await waitForStudio(page, beforeLoftCreate);
@@ -233,7 +334,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   await undo(page);
 
   const beforeSweepCreate = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
-  await page.click('[data-v5-command="sweep"]');
+  await activateControl(page, '[data-v5-command="sweep"]');
   await page.$eval('#bw-v5-command [name="name"]', (element: any) => { element.value = 'Visible Sweep creation'; });
   await page.select('#bw-v5-command [name="profileSketchId"]', SHAPE_IDS.sweepProfile);
   await page.select('#bw-v5-command [name="pathSketchId"]', SHAPE_IDS.sweepPath);
@@ -290,6 +391,100 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   }, { timeout: 60_000, polling: 250 });
   const recovered = await page.evaluate(() => ({ hash: (window as any).__bwStudio.canonicalHash(), bodyIds: (window as any).__bwStudio.bodyIds(), sketchIds: (window as any).__bwStudio.sketchIds() }));
   check('browser recovery reload preserves advanced feature, body, and sketch identities', JSON.stringify(recovered) === JSON.stringify(persisted), { persisted, recovered });
+
+  await openProject(page, createAdvancedModifierBaseProject());
+  check('browser exposes visible partial Revolve, Draft, Thicken, and variable Fillet commands',
+    (await page.$$('[data-v5-command="revolve-advanced"], [data-v5-command="draft"], [data-v5-command="thicken"], [data-v5-command="variable-fillet"]')).length === 4);
+  await activateControl(page, `[data-body-id="${SHAPE_IDS.modifierBoxBody}"] [data-body-action="select"]`);
+
+  const beforeRevolveEdit = await page.evaluate((bodyId) => ({
+    revision: (window as any).__bwStudio.appliedRevision(),
+    volume: (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === bodyId).geometry.volume,
+  }), SHAPE_IDS.revolveBody);
+  await activateControl(page, `[data-sel="${SHAPE_IDS.revolveFeature}"] [data-edit]`);
+  await page.$eval('#bw-v5-command [name="angle"]', (element: any) => { element.value = '225'; });
+  await page.$eval('#bw-v5-command [name="startAngle"]', (element: any) => { element.value = '-30'; });
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeRevolveEdit.revision);
+  const afterRevolveEdit = await page.evaluate((bodyId) => (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === bodyId).geometry, SHAPE_IDS.revolveBody);
+  check('browser partial Revolve editor changes exact volume while preserving its body identity',
+    afterRevolveEdit.valid && close(afterRevolveEdit.volume / beforeRevolveEdit.volume, 225 / 180, 2e-5));
+
+  const beforeInvalidDraft = await page.evaluate(() => ({ json: (window as any).__bwStudio.docJson(), undo: (window as any).__bwStudio.undoDepth(), redo: (window as any).__bwStudio.redoDepth() }));
+  await activateControl(page, '[data-v5-command="draft"]');
+  await page.$eval('#bw-v5-command [name="angle"]', (element: any) => { element.value = '0'; });
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await page.waitForFunction(() => /Draft angle must be non-zero/.test(document.getElementById('bw-v5-command-error')?.textContent || ''), { timeout: 60_000, polling: 250 });
+  const afterInvalidDraft = await page.evaluate(() => ({ json: (window as any).__bwStudio.docJson(), undo: (window as any).__bwStudio.undoDepth(), redo: (window as any).__bwStudio.redoDepth() }));
+  check('browser invalid Draft Apply leaves document and undo/redo stacks byte-identical', JSON.stringify(beforeInvalidDraft) === JSON.stringify(afterInvalidDraft));
+  await page.$eval('#bw-v5-command-cancel', (element: any) => element.click());
+
+  const beforeDraft = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await activateControl(page, '[data-v5-command="draft"]');
+  await page.evaluate(() => {
+    const dialog = document.getElementById('bw-v5-command') as any;
+    const select = dialog.querySelector('[name="topology"]') as HTMLSelectElement;
+    [...select.options].forEach((option) => { option.selected = Math.abs(dialog.__topologyChoices[Number(option.value)].n[2]) < 0.1; });
+  });
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await page.waitForFunction((before) => {
+    const studio = (window as any).__bwStudio;
+    return studio.appliedRevision() > before || Boolean(document.getElementById('bw-v5-command-error')?.textContent);
+  }, { timeout: 60_000, polling: 250 }, beforeDraft);
+  const draftApplyError = await page.$eval('#bw-v5-command-error', (element) => element.textContent || '');
+  check('browser creates exact multi-face Draft transactionally from visible topology controls',
+    !draftApplyError && (await page.evaluate((id) => (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === id), SHAPE_IDS.modifierBoxBody)).geometry.valid &&
+    (await page.$$('[data-feature="draft"]')).length === 1, draftApplyError);
+  if (draftApplyError) await page.$eval('#bw-v5-command-cancel', (element: any) => element.click());
+
+  const beforeVariable = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await activateControl(page, '[data-v5-command="variable-fillet"]');
+  await page.evaluate(() => {
+    const dialog = document.getElementById('bw-v5-command') as any;
+    const select = dialog.querySelector('[name="topology"]') as HTMLSelectElement;
+    const candidates = dialog.__topologyChoices.map((signature: any, index: number) => ({ signature, index }));
+    const picked = candidates.find((entry: any) => entry.signature.l > 19 && entry.signature.l < 23) || candidates.sort((a: any, b: any) => b.signature.l - a.signature.l)[0];
+    [...select.options].forEach((option) => { option.selected = Number(option.value) === picked.index; });
+  });
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeVariable);
+  check('browser variable Fillet applies distinct endpoint radii through the visible edge selector',
+    (await page.evaluate((id) => (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === id), SHAPE_IDS.modifierBoxBody)).geometry.valid &&
+    (await page.$$('[data-feature="fillet"]')).length === 1);
+
+  const beforeThicken = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await activateControl(page, '[data-v5-command="thicken"]');
+  await page.evaluate(() => {
+    const dialog = document.getElementById('bw-v5-command') as any;
+    const select = dialog.querySelector('[name="topology"]') as HTMLSelectElement;
+    const index = dialog.__topologyChoices.findIndex((signature: any) => signature.n[2] > 0.9);
+    select.value = String(index);
+  });
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeThicken);
+  const visibleThickenBodies = await page.evaluate(() => (window as any).__bwStudio.bodyResults());
+  check('browser Thicken creates a distinct selectable linked exact body',
+    visibleThickenBodies.length === 3 && visibleThickenBodies.every((entry: any) => entry.geometry?.valid) && (await page.$$('#bw-bodies .body-row')).length === 3);
+
+  const beforeNewRevolve = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await activateControl(page, '[data-v5-command="revolve-advanced"]');
+  await page.$eval('#bw-v5-command [name="name"]', (element: any) => { element.value = 'Visible second partial revolve'; });
+  await page.$eval('#bw-v5-command [name="angle"]', (element: any) => { element.value = '90'; });
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeNewRevolve);
+  check('browser creates another independent exact partial Revolve through the visible command',
+    (await page.evaluate(() => (window as any).__bwStudio.bodyResults())).length === 4 &&
+    (await page.evaluate(() => (window as any).__bwStudio.bodyResults())).every((entry: any) => entry.geometry?.valid));
+
+  const modifierPersisted = await page.evaluate(() => ({ hash: (window as any).__bwStudio.canonicalHash(), bodyIds: (window as any).__bwStudio.bodyIds() }));
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => {
+    const studio = (window as any).__bwStudio;
+    return Boolean(studio && studio.mode().kind === 'idle' && studio.bodyResults().length === 4 && studio.bodyResults().every((entry: any) => entry.geometry?.valid));
+  }, { timeout: 60_000, polling: 250 });
+  const modifierRecovered = await page.evaluate(() => ({ hash: (window as any).__bwStudio.canonicalHash(), bodyIds: (window as any).__bwStudio.bodyIds() }));
+  check('browser reload recovery preserves all advanced modifier feature and body identities', JSON.stringify(modifierRecovered) === JSON.stringify(modifierPersisted));
   check('browser Slice 5C gate has no page errors or native dialogs', pageErrors.length === 0 && dialogs.length === 0, { pageErrors, dialogs });
   await context.close();
 }

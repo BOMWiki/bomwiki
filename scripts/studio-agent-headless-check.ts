@@ -20,7 +20,9 @@ function check(name: string, condition: unknown, detail?: unknown) {
 const root = await mkdtemp(join(tmpdir(), 'bomwiki-bomcad-'));
 const source = join(root, 'source.json');
 const txFile = join(root, 'transaction.json');
+const advancedTxFile = join(root, 'advanced-transaction.json');
 const output = join(root, 'output.json');
+const advancedOutput = join(root, 'advanced-output.json');
 await writeFile(source, JSON.stringify(createEmptyStudioV5PartProject({ projectId: 'project-bomcad-check', name: 'Headless check', units: 'mm' })));
 await writeFile(txFile, JSON.stringify({
   transactionId: 'tx-bomcad-create', label: 'Create headless body', expectedRevision: 0, atomic: true,
@@ -67,6 +69,24 @@ check('headless apply produces normal editable feature/body structure', resultPr
 
 const validated = await bomcad(['validate', output]);
 check('headless validate reports canonical validity without claiming exact geometry', validated.code === 0 && validated.json.valid === true && validated.json.exactGeometry === false);
+
+await writeFile(advancedTxFile, JSON.stringify({
+  transactionId: 'tx-bomcad-advanced', label: 'Create advanced headless structure', expectedRevision: 0, atomic: true,
+  operations: [
+    { kind: 'datum.create', input: { id: 'datum-headless-x', name: 'Headless X', datumKind: 'axis', definition: { mode: 'principal', origin: [0, 0, 0], direction: [1, 0, 0] } } },
+    { kind: 'body.transform', input: { id: 'feature-headless-copy', name: 'Headless linked copy', bodyId: 'body-feature-headless-body', bodyName: 'Headless copy', copy: true, transform: { mode: 'copy', translation: [45, 0, 0] } } },
+    { kind: 'pattern.create', input: { id: 'pattern-headless-linear', name: 'Headless linked pattern', kind: 'linear', sourceBodyId: 'body-feature-headless-body', directionDatumId: 'datum-headless-x', count: 3, definition: { spacing: 50 }, outputMode: 'linked' } },
+    { kind: 'assembly.create', input: { id: 'assembly-headless', name: 'Headless assembly', occurrenceId: 'occurrence-headless-base', fixed: true } },
+    { kind: 'component.duplicate', input: { occurrenceId: 'occurrence-headless-base', id: 'occurrence-headless-second', name: 'Headless second', baseTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 120, 0, 0, 1] } },
+    { kind: 'section.create', input: { id: 'section-headless', name: 'Headless section', kind: 'plane', planes: [{ normal: [1, 0, 0], offset: 60 }], cap: true } },
+  ],
+}));
+const advanced = await bomcad(['apply', output, '--transaction', advancedTxFile, '--out', advancedOutput]);
+const advancedProject = JSON.parse(await readFile(advancedOutput, 'utf8'));
+check('headless adapter replays typed datum, transform, linked pattern, assembly, occurrence, and section operations',
+  advanced.code === 0 && advancedProject.rootDocument.kind === 'assembly' &&
+  advancedProject.partDefinitions[0].referenceGeometry.length === 1 && advancedProject.partDefinitions[0].bodyPatterns.length === 1 &&
+  advancedProject.assemblyDefinitions[0].occurrences.length === 2 && advancedProject.assemblyDefinitions[0].sectionViews.length === 1);
 
 const render = await bomcad(['render', output, '--out', join(root, 'render.png')]);
 check('headless render refuses to fake a visual without the browser kernel', render.code === 1 && render.json.code === 'EXACT_KERNEL_REQUIRED');

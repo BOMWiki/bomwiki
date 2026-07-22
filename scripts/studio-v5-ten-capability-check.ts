@@ -195,6 +195,16 @@ async function waitForStudio(page: Page, revisionAfter?: number): Promise<void> 
   }, { timeout: 60_000, polling: 100 }, revisionAfter ?? null);
 }
 
+function installSemanticControlActivation(page: Page): void {
+  page.click = (async (selector: string) => {
+    await page.evaluate((value) => {
+      const element = document.querySelector(value) as HTMLElement | null;
+      if (!element) throw new Error(`Ten-capability browser control is missing: ${value}`);
+      element.focus(); element.click();
+    }, selector);
+  }) as Page['click'];
+}
+
 async function openProject(page: Page, project: any, name: string): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), 'bomwiki-ten-capability-'));
   const filename = join(directory, name + '.bomcad.json');
@@ -211,6 +221,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   const dialogs: string[] = [];
   const projectPage = async (project: any, name: string): Promise<Page> => {
     const next = await browser.newPage();
+    installSemanticControlActivation(next);
     next.on('pageerror', (error) => pageErrors.push(String(error)));
     next.on('dialog', async (dialog) => { dialogs.push(dialog.type()); await dialog.dismiss(); });
     await next.evaluateOnNewDocument(() => {

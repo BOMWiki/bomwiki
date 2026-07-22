@@ -68,6 +68,8 @@ function tx(revision: number) {
       feature('feature-live-shaft', 'Shaft', { kind: 'rect', x: 60, y: 0, w: 10, h: 10 }),
       feature('feature-live-tool', 'Tool', { kind: 'circle', x: 0, y: 0, r: 5 }),
       { kind: 'boolean.subtract', input: { id: 'feature-live-boolean', targetBodyId: 'body-feature-live-housing', toolBodyId: 'body-feature-live-tool', keepTools: true } },
+      { kind: 'datum.create', input: { id: 'datum-live-z', name: 'Agent Z axis', datumKind: 'axis', definition: { mode: 'principal', origin: [0, 0, 0], direction: [0, 0, 1] } } },
+      { kind: 'body.transform', input: { id: 'feature-live-shaft-move', name: 'Agent shaft move', bodyId: 'body-feature-live-shaft', moveOriginal: true, transform: { mode: 'move', translation: [0, 0, 7] } } },
     ],
     metadata: { actor: 'agent', clientLabel: 'Browser parity check' },
   };
@@ -88,16 +90,50 @@ async function request(page: Page, token: string, payload: any, expectedRevision
 }
 
 async function waitForIdle(page: Page, revisionAfter = -1) {
-  await page.waitForFunction((revision) => {
-    const studio = (window as any).__bwStudio;
-    return studio?.mode().kind === 'idle' && (revision < 0 || studio.appliedRevision() > revision);
-  }, { timeout: 90_000 }, revisionAfter);
+  try {
+    await page.waitForFunction((revision) => {
+      const studio = (window as any).__bwStudio;
+      return studio?.mode().kind === 'idle' && (revision < 0 || studio.appliedRevision() > revision);
+    }, { timeout: 90_000, polling: 100 }, revisionAfter);
+  } catch (error) {
+    const state = await page.evaluate(() => {
+      const studio = (window as any).__bwStudio;
+      return studio ? {
+        mode: studio.mode(),
+        appliedRevision: studio.appliedRevision(),
+        documentRevision: studio.documentRevision(),
+        errors: studio.errors(),
+      } : { studio: 'missing' };
+    });
+    throw new Error(`Visible Studio did not become idle: ${JSON.stringify(state)}`, { cause: error });
+  }
+}
+
+function installSemanticControlActivation(page: Page): void {
+  page.click = (async (selector: string) => {
+    await page.evaluate((value) => {
+      const element = document.querySelector(value) as HTMLElement | null;
+      if (!element) throw new Error(`Agent browser control is missing: ${value}`);
+      element.focus();
+      if (element instanceof HTMLButtonElement && element.form?.method === 'dialog') {
+        const dialog = element.closest('dialog') as HTMLDialogElement;
+        dialog.close(element.value);
+        // macOS headless Chromium can leave the queued close task suspended
+        // after a popup changes focus. Dispatch the same native event now so
+        // the real dialog close handler is exercised deterministically.
+        dialog.dispatchEvent(new Event('close'));
+      } else {
+        element.click();
+      }
+    }, selector);
+  }) as Page['click'];
 }
 
 async function browserChecks(browser: Browser, url: string) {
   console.log('\nAgent visible Studio parity');
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  installSemanticControlActivation(page);
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
   await page.evaluateOnNewDocument(() => {
@@ -119,7 +155,9 @@ async function browserChecks(browser: Browser, url: string) {
   const baseline = await page.evaluate(() => JSON.parse((window as any).__bwStudio.docJson()));
 
   const capabilities = await request(page, token, { kind: 'capabilities' });
-  check('browser live manifest matches the shared command service', capabilities.status === 'ok' && capabilities.result.operations.some((entry: any) => entry.kind === 'boolean.subtract' && entry.state === 'available'));
+  check('browser live manifest matches the shared command service', capabilities.status === 'ok' &&
+    ['boolean.subtract', 'datum.create', 'body.transform', 'feature.loft', 'component.insert', 'section.create']
+      .every((kind) => capabilities.result.operations.some((entry: any) => entry.kind === kind && entry.state === 'available')));
 
   const preview = await request(page, token, { kind: 'preview', transaction: tx(1) });
   check('browser exact preview returns three valid B-rep body results',
@@ -141,8 +179,10 @@ async function browserChecks(browser: Browser, url: string) {
     bodyRows: document.querySelectorAll('#bw-bodies [data-body-id]').length,
     hash: (window as any).__bwStudio.canonicalHash(),
   }));
-  check('browser agent result appears as normal editable model tree/history', visible.bodyRows === 3 && visible.historyFeatures === 4 && visible.undo.at(-1) === 'Agent builds three-body fixture');
-  check('browser renderer owns three exact independently identified results', visible.bodyResults.length === 3 && visible.bodyResults.every((entry: any) => entry.geometry?.solidCount === 1));
+  check('browser agent result appears as normal editable model tree/history', visible.bodyRows === 3 && visible.historyFeatures === 5 && visible.undo.at(-1) === 'Agent builds three-body fixture');
+  check('browser renderer owns three exact independently identified results and applies the typed transform in the exact kernel',
+    visible.bodyResults.length === 3 && visible.bodyResults.every((entry: any) => entry.geometry?.solidCount === 1) &&
+    visible.bodyResults.find((entry: any) => entry.bodyId === 'body-feature-live-shaft')?.geometry?.bounds?.[0]?.[2] >= 7 - 1e-6);
   check('browser agent activity is visible to the human', /Parity agent/.test(visible.activity || '') && /Committed/.test(visible.activity || ''), visible.activity);
 
   const direct = new CadCommandService({ project: baseline, revision: 1 });
@@ -195,11 +235,35 @@ async function browserChecks(browser: Browser, url: string) {
   const popupPromise = new Promise<Page>((resolve, reject) => page.once('popup', (popup) => popup ? resolve(popup) : reject(new Error('Pairing popup did not open.'))));
   await page.click('.ws-agent-pair[open] button[type="submit"]');
   const pairingPage = await popupPromise;
+  await page.bringToFront();
   await page.waitForFunction(() => [...document.querySelectorAll('.ws-agent-pair[open] h2')].some((heading) => /Loopback parity agent/.test(heading.textContent || '')));
   check('visible Studio shows the loopback client before sharing project data',
     await page.$eval('.ws-agent-pair[open]', (dialog) => /project.read, project.edit/.test(dialog.textContent || '') && /Preview approval required/.test(dialog.textContent || '')));
-  await page.click('.ws-agent-pair[open] button[value="approve"]');
+  await page.evaluate(() => {
+    const dialog = [...document.querySelectorAll<HTMLDialogElement>('.ws-agent-pair[open]')]
+      .find((candidate) => /Loopback parity agent/.test(candidate.querySelector('h2')?.textContent || ''));
+    const button = dialog?.querySelector<HTMLButtonElement>('button[value="approve"]');
+    if (!dialog || !button) throw new Error('The visible loopback connection approval is missing.');
+    dialog.close(button.value);
+    dialog.dispatchEvent(new Event('close'));
+  });
+  try {
+    await page.waitForFunction(() => (window as any).bomwikiCadAgent.status().connected === true, { timeout: 10_000, polling: 50 });
+  } catch (error) {
+    const state = await page.evaluate(() => ({
+      status: (window as any).bomwikiCadAgent.status(),
+      dialogs: [...document.querySelectorAll<HTMLDialogElement>('.ws-agent-pair')].map((dialog) => ({
+        open: dialog.open, returnValue: dialog.returnValue, heading: dialog.querySelector('h2')?.textContent,
+      })),
+    }));
+    throw new Error(`Visible loopback approval did not connect: ${JSON.stringify(state)}`, { cause: error });
+  }
+  // Headless Chromium aggressively throttles timers in the background pairing
+  // popup. Briefly foreground it so the authenticated exchange relays the
+  // approval immediately, matching a user's normal popup-review flow.
+  await pairingPage.bringToFront();
   for (let attempt = 0; attempt < 100 && loopback.status().state !== 'connected'; attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
+  await page.bringToFront();
   check('approved localhost bridge becomes a structured live Studio session', loopback.status().state === 'connected' && loopback.status().projectId === loopbackBaseline.projectId, loopback.status());
 
   const loopbackSummary: any = await loopback.request('cad_inspect', { query: { kind: 'project.summary' } });
@@ -244,6 +308,7 @@ async function browserChecks(browser: Browser, url: string) {
 
   const humanContext = await browser.createBrowserContext();
   const humanPage = await humanContext.newPage();
+  installSemanticControlActivation(humanPage);
   await humanPage.evaluateOnNewDocument(() => {
     localStorage.setItem('bw-studio-welcome-v1', '1');
     localStorage.setItem('bw-studio-v2-seeded', '1');
@@ -276,6 +341,7 @@ async function browserChecks(browser: Browser, url: string) {
 
   const patternContext = await browser.createBrowserContext();
   const patternPage = await patternContext.newPage();
+  installSemanticControlActivation(patternPage);
   await patternPage.evaluateOnNewDocument(() => {
     localStorage.setItem('bw-studio-welcome-v1', '1');
     localStorage.setItem('bw-studio-v2-seeded', '1');
@@ -291,7 +357,7 @@ async function browserChecks(browser: Browser, url: string) {
   });
   await patternPage.goto(url, { waitUntil: 'domcontentloaded' });
   await waitForIdle(patternPage);
-  await patternPage.waitForFunction(() => (window as any).__bwStudio.triCount() > 0 && (window as any).__bwStudio.mode().kind === 'idle', { timeout: 90_000 });
+  await patternPage.waitForFunction(() => (window as any).__bwStudio.triCount() > 0 && (window as any).__bwStudio.mode().kind === 'idle', { timeout: 90_000, polling: 100 });
   await patternPage.evaluate(() => (document.querySelector('.hist-item .hi-sel') as HTMLButtonElement).click());
   await patternPage.waitForSelector('#bw-context [data-cxpat="n"]');
   await patternPage.evaluate(() => {
@@ -305,7 +371,7 @@ async function browserChecks(browser: Browser, url: string) {
   await patternPage.waitForFunction(() => {
     const studio = (window as any).__bwStudio;
     return studio.mode().kind === 'idle' && studio.appliedRevision() === studio.documentRevision();
-  }, { timeout: 90_000 });
+  }, { timeout: 90_000, polling: 100 });
   const patternBeforeCrash = await patternPage.evaluate(() => ({
     generation: (window as any).__bwStudio.kernelGeneration(),
     revision: (window as any).__bwStudio.appliedRevision(),
@@ -314,7 +380,7 @@ async function browserChecks(browser: Browser, url: string) {
   await patternPage.waitForFunction(({ generation, revision }) => {
     const studio = (window as any).__bwStudio;
     return studio.kernelGeneration() > generation && studio.appliedRevision() > revision && studio.appliedRevision() === studio.documentRevision();
-  }, { timeout: 90_000 }, patternBeforeCrash);
+  }, { timeout: 90_000, polling: 100 }, patternBeforeCrash);
   const patternAfterCrash = await patternPage.evaluate(() => ({
     errors: (window as any).__bwStudio.errors(),
     triangles: (window as any).__bwStudio.triCount(),

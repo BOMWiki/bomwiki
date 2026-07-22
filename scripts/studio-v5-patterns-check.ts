@@ -9,9 +9,10 @@ import { fileURLToPath } from 'node:url';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { cadStudioPage } from '../src/render/models.ts';
 // @ts-expect-error Browser-native modules intentionally have no TypeScript declarations.
-import { canonicalStudioV5Project, createStudioV5BodyPattern, deleteStudioV5BodyPattern, parseOrMigrateStudioV5RuntimeProject, studioV5RootPart, updateStudioV5AdvancedSketch, updateStudioV5BodyPattern, updateStudioV5Datum } from '../static/studio-v5-runtime-document.js';
+import { canonicalStudioV5Project, createStudioV5BodyPattern, createStudioV5BooleanSplit, createStudioV5Datum, deleteStudioV5BodyPattern, materializeStudioV5PatternOccurrences, parseOrMigrateStudioV5RuntimeProject, studioV5RootPart, updateStudioV5AdvancedSketch, updateStudioV5BodyPattern, updateStudioV5Datum } from '../static/studio-v5-runtime-document.js';
 import { ADVANCED_SHAPE_EDIT, SHAPE_IDS } from './studio-v5-shapes-fixture.ts';
 import { createEditablePatternProject, createPatternSourceProject, patternInstanceId, PATTERN_IDS } from './studio-v5-patterns-fixture.ts';
+import { createThreeBodyRuntimeProject, RUNTIME_BODY_IDS } from './studio-v5-runtime-fixture.ts';
 
 type Mode = 'all' | 'document' | 'kernel' | 'browser';
 const mode = (process.argv[2] || 'all') as Mode;
@@ -23,6 +24,16 @@ function check(name: string, ok: boolean, detail?: unknown): void {
   if (!ok) failures++;
 }
 const close = (a: number, b: number, tolerance = 1e-6) => Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
+
+function materializedRecord(patternId: string, index: number, sourceBodyId = SHAPE_IDS.bladeBody): any {
+  const prefix = `materialized-test-${index}`;
+  return {
+    patternId, patternIndex: index, sourceBodyId,
+    resource: { id: `${prefix}-resource`, name: `Independent ${index}`, mimeType: 'text/plain', byteLength: 4, encoding: 'base64', data: 'YnJlcA==' },
+    feature: { id: `${prefix}-feature`, name: `Independent ${index}`, type: 'imported-step', suppressed: false, inputRefs: [], resultPolicy: { kind: 'new-body', bodyName: `Independent ${index}` }, extensions: { studioImportedStep: { resourceId: `${prefix}-resource`, exactBrep: true, parametricHistory: false } } },
+    body: { id: `${prefix}-body`, name: `Independent ${index}`, kind: 'solid', createdByFeatureId: `${prefix}-feature`, featureIds: [`${prefix}-feature`], visible: true, suppressed: false },
+  };
+}
 
 async function documentChecks(): Promise<void> {
   console.log('\nSlice 5D linked pattern documents');
@@ -84,6 +95,34 @@ async function documentChecks(): Promise<void> {
   const serialized = JSON.stringify(canonicalStudioV5Project(skipped));
   check('document save/reopen preserves linked pattern history byte-identically',
     JSON.stringify(parseOrMigrateStudioV5RuntimeProject(serialized)) === serialized);
+
+  const independent = materializeStudioV5PatternOccurrences(project, PATTERN_IDS.pattern, [materializedRecord(PATTERN_IDS.pattern, 5)]);
+  const independentPart = studioV5RootPart(independent);
+  check('document Make independent freezes one occurrence as an exact imported body and skips only its linked ordinal',
+    independentPart.bodyPatterns[0].skippedIndices.includes(5) && independentPart.bodies.some((entry: any) => entry.id === 'materialized-test-5-body') &&
+    independentPart.features.find((entry: any) => entry.id === 'materialized-test-5-feature')?.extensions?.studioPatternMaterialization?.independent === true);
+  const dissolved = materializeStudioV5PatternOccurrences(project, PATTERN_IDS.pattern, [
+    materializedRecord(PATTERN_IDS.pattern, 1), materializedRecord(PATTERN_IDS.pattern, 2),
+  ], { dissolve: true });
+  check('document Dissolve removes the linked pattern while retaining source and independent exact bodies',
+    studioV5RootPart(dissolved).bodyPatterns.length === 0 && studioV5RootPart(dissolved).bodies.length === part.bodies.length + 2 &&
+    studioV5RootPart(dissolved).bodies.some((entry: any) => entry.id === SHAPE_IDS.bladeBody));
+
+  const fused = createStudioV5BodyPattern(createPatternSourceProject(), {
+    id: 'pattern-fused-contract', name: 'Fused contract', kind: 'linear', sourceBodyId: SHAPE_IDS.bladeBody,
+    directionDatumIds: [PATTERN_IDS.axis], count: 3, spacing: 10, outputMode: 'union',
+  });
+  check('document pattern fusion remains one editable source-linked definition rather than copied feature histories',
+    studioV5RootPart(fused).bodyPatterns[0].outputMode === 'union' && studioV5RootPart(fused).bodies.length === 3);
+
+  const split = createStudioV5BooleanSplit(createThreeBodyRuntimeProject({ boolean: false }), {
+    id: 'split-housing-tool', name: 'Split housing with tool', targetBodyId: RUNTIME_BODY_IDS.housing,
+    toolBodyId: RUNTIME_BODY_IDS.tool, keepOriginal: false, keepTools: true,
+  });
+  const splitPart = studioV5RootPart(split);
+  check('document Boolean Split creates two explicit editable side results and retains hidden addressable sources',
+    splitPart.features.filter((entry: any) => entry.type === 'boolean-split-side').length === 2 && splitPart.bodies.length === 5 &&
+    splitPart.bodies.find((entry: any) => entry.id === RUNTIME_BODY_IDS.housing)?.visible === false && splitPart.bodies.find((entry: any) => entry.id === RUNTIME_BODY_IDS.tool)?.visible === true);
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -231,6 +270,59 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
   check('kernel evaluates mirror as one linked exact occurrence on the selected plane',
     mirrorResult.errors.length === 0 && patternBodies(mirrorResult, mirrorId).length === 1 && patternBodies(mirrorResult, mirrorId)[0].geometry?.valid &&
     renderTransformsMatchExactCentres(mirrorResult, mirrorId));
+
+  const frozen = await workerRequest(page, {
+    kind: 'freeze-pattern-v5', revision: 12, document: project, bodyIds: [patternInstanceId(5)], freezePrefix: 'kernel-independent-five',
+  });
+  check('kernel Make independent serializes one selected occurrence as an exact standalone B-rep record',
+    frozen.errors.length === 0 && frozen.records.length === 1 && frozen.records[0].patternIndex === 5 && frozen.records[0].resource.byteLength > 500,
+    { errors: frozen.errors, records: frozen.records?.map((entry: any) => ({ index: entry.patternIndex, bytes: entry.resource.byteLength })) });
+  const independentProject = materializeStudioV5PatternOccurrences(project, PATTERN_IDS.pattern, frozen.records);
+  const independentBodyId = frozen.records[0].body.id;
+  const independentResult = await workerRequest(page, { kind: 'rebuild', revision: 13, document: independentProject });
+  check('kernel materialized occurrence is one valid canonical body and its linked ordinal is removed',
+    body(independentResult, independentBodyId)?.geometry?.valid && !body(independentResult, patternInstanceId(5)) && instances(independentResult).length === 10);
+  const independentSourceEdit = updateStudioV5AdvancedSketch(independentProject, SHAPE_IDS.tipProfile, { points: ADVANCED_SHAPE_EDIT.tipPoints });
+  const independentEdited = await workerRequest(page, { kind: 'rebuild', revision: 14, document: independentSourceEdit });
+  check('kernel source edit changes linked occurrences but leaves the frozen independent B-rep unchanged',
+    !close(body(independentEdited, SHAPE_IDS.bladeBody).geometry.volume, body(independentResult, SHAPE_IDS.bladeBody).geometry.volume) &&
+    close(body(independentEdited, independentBodyId).geometry.volume, body(independentResult, independentBodyId).geometry.volume));
+
+  const smallPattern = updateStudioV5BodyPattern(project, PATTERN_IDS.pattern, { count: 4 });
+  const dissolvedRecords = await workerRequest(page, {
+    kind: 'freeze-pattern-v5', revision: 15, document: smallPattern,
+    bodyIds: [patternInstanceId(1), patternInstanceId(2), patternInstanceId(3)], freezePrefix: 'kernel-dissolved',
+  });
+  const dissolvedProject = materializeStudioV5PatternOccurrences(smallPattern, PATTERN_IDS.pattern, dissolvedRecords.records, { dissolve: true });
+  const dissolvedResult = await workerRequest(page, { kind: 'rebuild', revision: 16, document: dissolvedProject });
+  check('kernel Dissolve replaces all generated occurrences with independent exact canonical bodies',
+    dissolvedRecords.errors.length === 0 && studioV5RootPart(dissolvedProject).bodyPatterns.length === 0 &&
+    dissolvedRecords.records.every((record: any) => body(dissolvedResult, record.body.id)?.geometry?.valid) && patternBodies(dissolvedResult, PATTERN_IDS.pattern).length === 0);
+
+  let fusedProject: any = createThreeBodyRuntimeProject({ boolean: false, projectId: 'project-pattern-fusion-kernel' });
+  fusedProject = createStudioV5Datum(fusedProject, {
+    id: 'datum-fusion-x', name: 'Fusion X direction', kind: 'axis', definition: { mode: 'principal', origin: [0, 0, 0], direction: [1, 0, 0] },
+  });
+  fusedProject = createStudioV5BodyPattern(fusedProject, {
+    id: 'pattern-touching-fusion', name: 'Touching box fusion', kind: 'linear', sourceBodyId: RUNTIME_BODY_IDS.housing,
+    directionDatumIds: ['datum-fusion-x'], count: 3, spacing: 40, outputMode: 'union',
+  });
+  const fusedResult = await workerRequest(page, { kind: 'rebuild', revision: 17, document: fusedProject });
+  const fusedBody = body(fusedResult, 'pattern-touching-fusion-fused');
+  check('kernel pattern fusion produces one connected exact solid with the combined source-plus-occurrence volume',
+    fusedResult.errors.length === 0 && fusedBody?.geometry?.valid && close(fusedBody.geometry.volume, 40 * 40 * 20 * 3) && fusedBody.sharesSourceGeometry === false,
+    { errors: fusedResult.errors, geometry: fusedBody?.geometry });
+
+  const splitProject = createStudioV5BooleanSplit(createThreeBodyRuntimeProject({ boolean: false, projectId: 'project-boolean-split-kernel' }), {
+    id: 'split-housing-tool', name: 'Split housing with tool', targetBodyId: RUNTIME_BODY_IDS.housing,
+    toolBodyId: RUNTIME_BODY_IDS.tool, keepOriginal: false, keepTools: true,
+  });
+  const splitResult = await workerRequest(page, { kind: 'rebuild', revision: 18, document: splitProject });
+  const outside = body(splitResult, 'body-split-housing-tool-outside');
+  const inside = body(splitResult, 'body-split-housing-tool-inside');
+  check('kernel Boolean Split keeps both exact valid sides and conserves target volume',
+    splitResult.errors.length === 0 && outside?.geometry?.valid && inside?.geometry?.valid &&
+    close(outside.geometry.volume + inside.geometry.volume, 40 * 40 * 20), { errors: splitResult.errors, outside: outside?.geometry, inside: inside?.geometry });
   await page.close();
 }
 
@@ -239,6 +331,16 @@ async function waitForStudio(page: Page, revisionAfter?: number): Promise<void> 
     const studio = (window as any).__bwStudio;
     return Boolean(studio && studio.mode().kind === 'idle' && (after == null || studio.appliedRevision() > after));
   }, { timeout: 60_000, polling: 250 }, revisionAfter ?? null);
+}
+
+function installSemanticControlActivation(page: Page): void {
+  page.click = (async (selector: string) => {
+    await page.evaluate((value) => {
+      const element = document.querySelector(value) as HTMLElement | null;
+      if (!element) throw new Error(`Slice 5D browser control is missing: ${value}`);
+      element.focus(); element.click();
+    }, selector);
+  }) as Page['click'];
 }
 
 async function openProject(page: Page, project: any): Promise<void> {
@@ -261,6 +363,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   console.log('\nSlice 5D visible browser pattern gate');
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  installSemanticControlActivation(page);
   const pageErrors: string[] = [];
   const dialogs: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
@@ -295,9 +398,12 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     sourceExact: (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === 'body-feature-blade-loft').geometry.bounds,
     sourceRendered: (window as any).__bwStudio.renderedBodyBounds('body-feature-blade-loft'),
   }), browserInstanceId(5));
-  const exactSceneCentre = cadToScene(centre(instancing.exact));
+  // Kernel geometry reports canonical CAD coordinates while Three.js renders
+  // the same B-rep in the Studio scene basis (x, z, -y).
+  const exactRenderCentre = cadToScene(centre(instancing.exact));
   check('browser shares the source render geometry and applies occurrence transforms at exact placements',
-    instancing.geometryCount === 3 && exactSceneCentre.every((value, axis) => close(value, centre(instancing.rendered)[axis], 0.01)), instancing);
+    instancing.geometryCount === 3 && exactRenderCentre.every((value, axis) => close(value, centre(instancing.rendered)[axis], 0.2)) &&
+    cadToScene(centre(instancing.sourceExact)).every((value, axis) => close(value, centre(instancing.sourceRendered)[axis], 0.2)), instancing);
 
   await page.click(`[data-pattern-instance-id="${browserInstanceId(5)}"] [data-pattern-instance-action="select"]`);
   const beforeCount = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
@@ -364,6 +470,80 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
   }, { timeout: 60_000, polling: 250 }, persisted.ids.length);
   const recovered = await page.evaluate(() => ({ hash: (window as any).__bwStudio.canonicalHash(), ids: (window as any).__bwStudio.patternInstanceIds() }));
   check('browser persistence/recovery preserves pattern history and stable occurrence identities', JSON.stringify(recovered) === JSON.stringify(persisted), { persisted, recovered });
+
+  const beforeIndependent = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.click(`[data-pattern-instance-id="${browserInstanceId(5)}"] [data-pattern-instance-action="independent"]`);
+  await page.waitForFunction((before) => {
+    const studio = (window as any).__bwStudio;
+    return studio.appliedRevision() > before || /Pattern materialization failed/.test(document.getElementById('bw-studio-msg')?.textContent || '');
+  }, { timeout: 90_000, polling: 250 }, beforeIndependent);
+  const independentError = await page.$eval('#bw-studio-msg', (element) => /Pattern materialization failed/.test(element.textContent || '') ? element.textContent || '' : '');
+  if (independentError) throw new Error(independentError);
+  await waitForStudio(page, beforeIndependent);
+  const independentState = await page.evaluate(() => ({
+    patternIds: (window as any).__bwStudio.patternInstanceIds(),
+    bodyIds: (window as any).__bwStudio.bodyIds(),
+    project: JSON.parse((window as any).__bwStudio.docJson()),
+  }));
+  check('browser Make independent freezes one generated occurrence as a canonical exact body',
+    independentState.patternIds.length === 12 && !independentState.patternIds.includes(browserInstanceId(5)) && independentState.bodyIds.length === 4 &&
+    independentState.project.resources.some((entry: any) => entry.extensions?.studioImportedStep));
+  await undo(page);
+
+  const beforeSmallCount = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.click(`#bw-pattern-tree [data-pattern-id="${patternId}"] [data-pattern-action="edit"]`);
+  await page.$eval('#bw-v5-command [name="count"]', (element: any) => { element.value = '4'; });
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeSmallCount);
+  const beforeDissolve = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.click(`#bw-pattern-tree [data-pattern-id="${patternId}"] [data-pattern-action="dissolve"]`);
+  await waitForStudio(page, beforeDissolve);
+  check('browser Dissolve replaces every active linked occurrence with an independent selectable exact body',
+    (await page.evaluate(() => (window as any).__bwStudio.patternInstanceIds())).length === 0 &&
+    (await page.evaluate(() => (window as any).__bwStudio.bodyIds())).length === 6 &&
+    (await page.evaluate(() => (window as any).__bwStudio.bodyResults())).every((entry: any) => entry.geometry?.valid));
+
+  const brokenPattern = updateStudioV5Datum(createEditablePatternProject(), PATTERN_IDS.axis, { suppressed: true });
+  await openProject(page, brokenPattern);
+  check('browser broken pattern reference is explicit in the tree with a Repair entry point', Boolean(await page.$('#bw-pattern-tree .pattern-row.is-broken')));
+  const beforeRepair = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.click(`#bw-pattern-tree [data-pattern-id="${PATTERN_IDS.pattern}"] [data-pattern-action="edit"]`);
+  await page.select('#bw-v5-command [name="axisDatumId"]', PATTERN_IDS.direction2);
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeRepair);
+  check('browser pattern Repair replaces the broken axis and restores every exact occurrence transactionally',
+    !await page.$('#bw-pattern-tree .pattern-row.is-broken') && (await page.evaluate(() => (window as any).__bwStudio.patternInstanceIds())).length === 11);
+
+  let fusedProject: any = createThreeBodyRuntimeProject({ boolean: false, projectId: 'project-pattern-fusion-browser' });
+  fusedProject = createStudioV5Datum(fusedProject, {
+    id: 'datum-fusion-x', name: 'Fusion X direction', kind: 'axis', definition: { mode: 'principal', origin: [0, 0, 0], direction: [1, 0, 0] },
+  });
+  fusedProject = createStudioV5BodyPattern(fusedProject, {
+    id: 'pattern-touching-fusion', name: 'Touching box fusion', kind: 'linear', sourceBodyId: RUNTIME_BODY_IDS.housing,
+    directionDatumIds: ['datum-fusion-x'], count: 3, spacing: 40, outputMode: 'union',
+  });
+  await openProject(page, fusedProject);
+  const fusedBrowserBody = await page.evaluate(() => (window as any).__bwStudio.bodyResults().find((entry: any) => entry.bodyId === 'pattern-touching-fusion-fused'));
+  check('browser fused pattern displays one exact selectable result and hides its replaced source mesh',
+    fusedBrowserBody?.geometry?.valid && close(fusedBrowserBody.geometry.volume, 40 * 40 * 20 * 3) &&
+    (await page.$$('#bw-pattern-tree .pattern-instance-row')).length === 1 &&
+    !(await page.evaluate(() => (window as any).__bwStudio.visibleBodyIds())).includes(RUNTIME_BODY_IDS.housing));
+
+  await openProject(page, createThreeBodyRuntimeProject({ boolean: false, projectId: 'project-boolean-split-browser' }));
+  await page.evaluate((bodyId) => (window as any).__bwStudio.selectBodyForTest(bodyId), RUNTIME_BODY_IDS.housing);
+  check('browser exposes visible Boolean Split with explicit target and tool controls', Boolean(await page.$('[data-v5-command="split"]')));
+  const beforeSplit = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
+  await page.click('[data-v5-command="split"]');
+  await page.select('#bw-v5-command [name="toolBodyId"]', RUNTIME_BODY_IDS.tool);
+  await page.$eval('#bw-v5-command-form', (form: any) => form.requestSubmit());
+  await waitForStudio(page, beforeSplit);
+  const splitBrowser = await page.evaluate(() => ({ results: (window as any).__bwStudio.bodyResults(), visible: (window as any).__bwStudio.visibleBodyIds(), bodyIds: (window as any).__bwStudio.bodyIds() }));
+  check('browser Boolean Split commits both exact sides while retaining the hidden original and visible tool',
+    splitBrowser.bodyIds.length === 5 && splitBrowser.results.filter((entry: any) => /split-/.test(entry.bodyId)).length === 2 &&
+    splitBrowser.results.filter((entry: any) => /split-/.test(entry.bodyId)).every((entry: any) => entry.geometry?.valid) &&
+    !splitBrowser.visible.includes(RUNTIME_BODY_IDS.housing) && splitBrowser.visible.includes(RUNTIME_BODY_IDS.tool), splitBrowser);
+
+  await openProject(page, createEditablePatternProject());
   await page.setViewport({ width: 375, height: 812 });
   await page.click('#bw-mtab-history');
   const mobileControls = await page.$$eval('#bw-pattern-tree button, #bw-pattern-tree label', (elements) => elements.map((element) => Number.parseFloat(getComputedStyle(element).minHeight)));

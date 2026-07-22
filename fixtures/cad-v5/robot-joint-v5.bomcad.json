@@ -1,0 +1,1344 @@
+{
+  "schemaVersion": 5,
+  "projectId": "project-generality-robot-joint-v5",
+  "name": "Robot joint",
+  "units": "mm",
+  "parameters": [],
+  "materials": [
+    {
+      "id": "material-generic-steel",
+      "name": "Generic steel",
+      "densityKgM3": 7850,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-steel",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#687785",
+          "metallic": 0.78,
+          "roughness": 0.34,
+          "opacity": 1,
+          "edgeColor": "#263746"
+        }
+      }
+    },
+    {
+      "id": "material-generic-stainless",
+      "name": "Generic stainless steel",
+      "densityKgM3": 8000,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-stainless",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#a9b3ba",
+          "metallic": 0.88,
+          "roughness": 0.24,
+          "opacity": 1,
+          "edgeColor": "#263746"
+        }
+      }
+    },
+    {
+      "id": "material-generic-aluminum",
+      "name": "Generic aluminum",
+      "densityKgM3": 2700,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-aluminum",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#9aa9b5",
+          "metallic": 0.72,
+          "roughness": 0.38,
+          "opacity": 1,
+          "edgeColor": "#263746"
+        }
+      }
+    },
+    {
+      "id": "material-generic-titanium",
+      "name": "Generic titanium",
+      "densityKgM3": 4500,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-titanium",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#7d8791",
+          "metallic": 0.72,
+          "roughness": 0.42,
+          "opacity": 1,
+          "edgeColor": "#263746"
+        }
+      }
+    },
+    {
+      "id": "material-generic-polymer",
+      "name": "Generic polymer",
+      "densityKgM3": 1150,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-polymer",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#406d91",
+          "metallic": 0.05,
+          "roughness": 0.58,
+          "opacity": 1,
+          "edgeColor": "#263746"
+        }
+      }
+    },
+    {
+      "id": "material-generic-rubber",
+      "name": "Generic rubber",
+      "densityKgM3": 1100,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-rubber",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#252b30",
+          "metallic": 0,
+          "roughness": 0.9,
+          "opacity": 1,
+          "edgeColor": "#263746"
+        }
+      }
+    },
+    {
+      "id": "material-generic-glass",
+      "name": "Generic glass",
+      "densityKgM3": 2500,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-glass",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#8fbfc9",
+          "metallic": 0,
+          "roughness": 0.08,
+          "opacity": 0.34,
+          "edgeColor": "#263746"
+        }
+      }
+    },
+    {
+      "id": "material-generic-ceramic",
+      "name": "Generic ceramic",
+      "densityKgM3": 3200,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-ceramic",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#d6d0c2",
+          "metallic": 0,
+          "roughness": 0.66,
+          "opacity": 1,
+          "edgeColor": "#263746"
+        }
+      }
+    },
+    {
+      "id": "material-generic-carbon",
+      "name": "Generic carbon composite",
+      "densityKgM3": 1600,
+      "description": "Generic editable engineering placeholder; verify the grade before relying on mass.",
+      "source": "BOMwiki generic placeholder",
+      "appearanceId": "appearance-generic-carbon",
+      "extensions": {
+        "studioAppearance": {
+          "baseColor": "#30383e",
+          "metallic": 0.18,
+          "roughness": 0.54,
+          "opacity": 1,
+          "edgeColor": "#263746"
+        }
+      }
+    }
+  ],
+  "partDefinitions": [
+    {
+      "id": "part-new-0xhkkhb",
+      "name": "Robot joint bracket",
+      "parameters": [],
+      "referenceGeometry": [
+        {
+          "id": "datum-robot-xy",
+          "name": "Robot XY",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              0,
+              1
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-mirror",
+          "name": "Robot mirror plane",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "sketches": [
+        {
+          "id": "sketch-robot-profile",
+          "name": "Bracket profile",
+          "support": {
+            "ownerKind": "datum",
+            "ownerId": "datum-robot-xy",
+            "semanticPath": {
+              "role": "support"
+            },
+            "signature": {
+              "kind": "plane"
+            }
+          },
+          "entities": [
+            {
+              "id": "entity-sketch-robot-profile",
+              "kind": "polyline",
+              "points": [
+                [
+                  -8,
+                  -5
+                ],
+                [
+                  8,
+                  -5
+                ],
+                [
+                  8,
+                  5
+                ],
+                [
+                  -8,
+                  5
+                ]
+              ],
+              "closed": true
+            }
+          ],
+          "groups": [],
+          "constraints": [],
+          "extensions": {
+            "studioRole": "profile"
+          }
+        },
+        {
+          "id": "sketch-robot-path",
+          "name": "Bracket sweep path",
+          "entities": [
+            {
+              "id": "entity-sketch-robot-path",
+              "kind": "spline",
+              "points": [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  45
+                ],
+                [
+                  25,
+                  0,
+                  70
+                ],
+                [
+                  45,
+                  0,
+                  70
+                ]
+              ],
+              "closed": false
+            }
+          ],
+          "groups": [],
+          "constraints": [],
+          "extensions": {
+            "studioRole": "path"
+          }
+        }
+      ],
+      "bodies": [
+        {
+          "id": "body-feature-robot-arm",
+          "name": "Robot arm",
+          "kind": "solid",
+          "createdByFeatureId": "feature-robot-arm",
+          "featureIds": [
+            "feature-robot-arm"
+          ],
+          "visible": true,
+          "suppressed": false,
+          "appearanceId": "appearance-generic-aluminum",
+          "materialId": "material-generic-aluminum"
+        },
+        {
+          "id": "body-feature-robot-mirror",
+          "name": "Mirrored robot arm",
+          "kind": "solid",
+          "createdByFeatureId": "feature-robot-mirror",
+          "featureIds": [
+            "feature-robot-mirror"
+          ],
+          "visible": true,
+          "suppressed": false
+        }
+      ],
+      "bodyPatterns": [],
+      "features": [
+        {
+          "id": "feature-robot-arm",
+          "name": "Swept robot arm",
+          "type": "sweep",
+          "suppressed": false,
+          "profileSketchId": "sketch-robot-profile",
+          "pathSketchId": "sketch-robot-path",
+          "orientation": "minimum-twist",
+          "referenceDirection": [
+            0,
+            0,
+            1
+          ],
+          "twistAngle": 0,
+          "scaleEnd": 1,
+          "transition": "round",
+          "inputRefs": [
+            {
+              "ownerKind": "sketch",
+              "ownerId": "sketch-robot-profile",
+              "semanticPath": {
+                "role": "profile"
+              },
+              "signature": {
+                "role": "profile"
+              }
+            },
+            {
+              "ownerKind": "sketch",
+              "ownerId": "sketch-robot-path",
+              "semanticPath": {
+                "role": "path"
+              },
+              "signature": {
+                "role": "path"
+              }
+            }
+          ],
+          "resultPolicy": {
+            "kind": "new-body",
+            "bodyName": "Robot arm"
+          },
+          "createdBodyId": "body-feature-robot-arm"
+        },
+        {
+          "id": "feature-robot-mirror",
+          "name": "Mirrored bracket arm",
+          "type": "transform",
+          "operation": "mirror",
+          "transform": {
+            "mode": "mirror",
+            "planeDatumId": "datum-robot-mirror"
+          },
+          "sourceBodyId": "body-feature-robot-arm",
+          "toolBodyIds": [
+            "body-feature-robot-arm"
+          ],
+          "linked": true,
+          "suppressed": false,
+          "inputRefs": [
+            {
+              "ownerKind": "body",
+              "ownerId": "body-feature-robot-arm",
+              "semanticPath": {
+                "role": "source"
+              },
+              "signature": {
+                "role": "source"
+              }
+            },
+            {
+              "ownerKind": "datum",
+              "ownerId": "datum-robot-mirror",
+              "semanticPath": {
+                "role": "planeDatumId"
+              },
+              "signature": {
+                "kind": "plane"
+              }
+            }
+          ],
+          "resultPolicy": {
+            "kind": "new-body",
+            "bodyName": "Mirrored robot arm"
+          },
+          "createdBodyId": "body-feature-robot-mirror"
+        }
+      ],
+      "featureOrder": [
+        "feature-robot-arm",
+        "feature-robot-mirror"
+      ],
+      "metadata": {
+        "activeBodyId": "body-feature-robot-arm"
+      }
+    },
+    {
+      "id": "part-robot-shaft",
+      "name": "Robot joint shaft",
+      "parameters": [],
+      "referenceGeometry": [
+        {
+          "id": "datum-robot-shaft-axis",
+          "name": "robot-shaft axis",
+          "kind": "axis",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "direction": [
+              1,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-shaft-station",
+          "name": "robot-shaft station",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "xDirection": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-shaft-xz",
+          "name": "robot-shaft longitudinal plane",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "sketches": [
+        {
+          "id": "sketch-robot-shaft-body",
+          "name": "Robot joint shaft profile",
+          "support": {
+            "ownerKind": "datum",
+            "ownerId": "datum-robot-shaft-xz",
+            "semanticPath": {
+              "role": "support"
+            },
+            "signature": {
+              "kind": "plane"
+            }
+          },
+          "entities": [
+            {
+              "id": "entity-sketch-robot-shaft-body",
+              "kind": "polyline",
+              "points": [
+                [
+                  -25,
+                  0
+                ],
+                [
+                  -25,
+                  8
+                ],
+                [
+                  25,
+                  8
+                ],
+                [
+                  25,
+                  0
+                ]
+              ],
+              "closed": true
+            }
+          ],
+          "groups": [],
+          "constraints": [],
+          "extensions": {
+            "studioRole": "profile"
+          }
+        }
+      ],
+      "bodies": [
+        {
+          "id": "body-feature-robot-shaft-body",
+          "name": "Robot joint shaft",
+          "kind": "solid",
+          "createdByFeatureId": "feature-robot-shaft-body",
+          "featureIds": [
+            "feature-robot-shaft-body"
+          ],
+          "visible": true,
+          "suppressed": false
+        }
+      ],
+      "bodyPatterns": [],
+      "features": [
+        {
+          "id": "feature-robot-shaft-body",
+          "name": "Robot joint shaft",
+          "type": "revolve",
+          "profileSketchId": "sketch-robot-shaft-body",
+          "axisDatumId": "datum-robot-shaft-axis",
+          "angle": 360,
+          "startAngle": 0,
+          "symmetric": false,
+          "suppressed": false,
+          "inputRefs": [
+            {
+              "ownerKind": "sketch",
+              "ownerId": "sketch-robot-shaft-body",
+              "semanticPath": {
+                "role": "profile"
+              },
+              "signature": {
+                "role": "profile"
+              }
+            },
+            {
+              "ownerKind": "datum",
+              "ownerId": "datum-robot-shaft-axis",
+              "semanticPath": {
+                "role": "axis"
+              },
+              "signature": {
+                "role": "axis"
+              }
+            }
+          ],
+          "resultPolicy": {
+            "kind": "new-body",
+            "bodyName": "Robot joint shaft"
+          },
+          "createdBodyId": "body-feature-robot-shaft-body"
+        }
+      ],
+      "featureOrder": [
+        "feature-robot-shaft-body"
+      ],
+      "metadata": {
+        "activeBodyId": "body-feature-robot-shaft-body"
+      }
+    },
+    {
+      "id": "part-robot-bearing",
+      "name": "Robot joint bearing",
+      "parameters": [],
+      "referenceGeometry": [
+        {
+          "id": "datum-robot-bearing-axis",
+          "name": "robot-bearing axis",
+          "kind": "axis",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "direction": [
+              1,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-bearing-station",
+          "name": "robot-bearing station",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "xDirection": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-bearing-xz",
+          "name": "robot-bearing longitudinal plane",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "sketches": [
+        {
+          "id": "sketch-robot-bearing-body",
+          "name": "Robot joint bearing profile",
+          "support": {
+            "ownerKind": "datum",
+            "ownerId": "datum-robot-bearing-xz",
+            "semanticPath": {
+              "role": "support"
+            },
+            "signature": {
+              "kind": "plane"
+            }
+          },
+          "entities": [
+            {
+              "id": "entity-sketch-robot-bearing-body",
+              "kind": "polyline",
+              "points": [
+                [
+                  -8,
+                  8.5
+                ],
+                [
+                  -8,
+                  16
+                ],
+                [
+                  8,
+                  16
+                ],
+                [
+                  8,
+                  8.5
+                ]
+              ],
+              "closed": true
+            }
+          ],
+          "groups": [],
+          "constraints": [],
+          "extensions": {
+            "studioRole": "profile"
+          }
+        }
+      ],
+      "bodies": [
+        {
+          "id": "body-feature-robot-bearing-body",
+          "name": "Robot joint bearing",
+          "kind": "solid",
+          "createdByFeatureId": "feature-robot-bearing-body",
+          "featureIds": [
+            "feature-robot-bearing-body"
+          ],
+          "visible": true,
+          "suppressed": false
+        }
+      ],
+      "bodyPatterns": [],
+      "features": [
+        {
+          "id": "feature-robot-bearing-body",
+          "name": "Robot joint bearing",
+          "type": "revolve",
+          "profileSketchId": "sketch-robot-bearing-body",
+          "axisDatumId": "datum-robot-bearing-axis",
+          "angle": 360,
+          "startAngle": 0,
+          "symmetric": false,
+          "suppressed": false,
+          "inputRefs": [
+            {
+              "ownerKind": "sketch",
+              "ownerId": "sketch-robot-bearing-body",
+              "semanticPath": {
+                "role": "profile"
+              },
+              "signature": {
+                "role": "profile"
+              }
+            },
+            {
+              "ownerKind": "datum",
+              "ownerId": "datum-robot-bearing-axis",
+              "semanticPath": {
+                "role": "axis"
+              },
+              "signature": {
+                "role": "axis"
+              }
+            }
+          ],
+          "resultPolicy": {
+            "kind": "new-body",
+            "bodyName": "Robot joint bearing"
+          },
+          "createdBodyId": "body-feature-robot-bearing-body"
+        }
+      ],
+      "featureOrder": [
+        "feature-robot-bearing-body"
+      ],
+      "metadata": {
+        "activeBodyId": "body-feature-robot-bearing-body"
+      }
+    },
+    {
+      "id": "part-robot-motor",
+      "name": "Robot joint motor",
+      "parameters": [],
+      "referenceGeometry": [
+        {
+          "id": "datum-robot-motor-axis",
+          "name": "robot-motor axis",
+          "kind": "axis",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "direction": [
+              1,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-motor-station",
+          "name": "robot-motor station",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "xDirection": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-motor-xz",
+          "name": "robot-motor longitudinal plane",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "sketches": [
+        {
+          "id": "sketch-robot-motor-body",
+          "name": "Robot joint motor profile",
+          "support": {
+            "ownerKind": "datum",
+            "ownerId": "datum-robot-motor-xz",
+            "semanticPath": {
+              "role": "support"
+            },
+            "signature": {
+              "kind": "plane"
+            }
+          },
+          "entities": [
+            {
+              "id": "entity-sketch-robot-motor-body",
+              "kind": "polyline",
+              "points": [
+                [
+                  -22,
+                  0
+                ],
+                [
+                  -22,
+                  28
+                ],
+                [
+                  22,
+                  28
+                ],
+                [
+                  22,
+                  0
+                ]
+              ],
+              "closed": true
+            }
+          ],
+          "groups": [],
+          "constraints": [],
+          "extensions": {
+            "studioRole": "profile"
+          }
+        }
+      ],
+      "bodies": [
+        {
+          "id": "body-feature-robot-motor-body",
+          "name": "Robot joint motor",
+          "kind": "solid",
+          "createdByFeatureId": "feature-robot-motor-body",
+          "featureIds": [
+            "feature-robot-motor-body"
+          ],
+          "visible": true,
+          "suppressed": false
+        }
+      ],
+      "bodyPatterns": [],
+      "features": [
+        {
+          "id": "feature-robot-motor-body",
+          "name": "Robot joint motor",
+          "type": "revolve",
+          "profileSketchId": "sketch-robot-motor-body",
+          "axisDatumId": "datum-robot-motor-axis",
+          "angle": 360,
+          "startAngle": 0,
+          "symmetric": false,
+          "suppressed": false,
+          "inputRefs": [
+            {
+              "ownerKind": "sketch",
+              "ownerId": "sketch-robot-motor-body",
+              "semanticPath": {
+                "role": "profile"
+              },
+              "signature": {
+                "role": "profile"
+              }
+            },
+            {
+              "ownerKind": "datum",
+              "ownerId": "datum-robot-motor-axis",
+              "semanticPath": {
+                "role": "axis"
+              },
+              "signature": {
+                "role": "axis"
+              }
+            }
+          ],
+          "resultPolicy": {
+            "kind": "new-body",
+            "bodyName": "Robot joint motor"
+          },
+          "createdBodyId": "body-feature-robot-motor-body"
+        }
+      ],
+      "featureOrder": [
+        "feature-robot-motor-body"
+      ],
+      "metadata": {
+        "activeBodyId": "body-feature-robot-motor-body"
+      }
+    },
+    {
+      "id": "part-robot-cover",
+      "name": "Robot joint cover",
+      "parameters": [],
+      "referenceGeometry": [
+        {
+          "id": "datum-robot-cover-axis",
+          "name": "robot-cover axis",
+          "kind": "axis",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "direction": [
+              1,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-cover-station",
+          "name": "robot-cover station",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "xDirection": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "id": "datum-robot-cover-xz",
+          "name": "robot-cover longitudinal plane",
+          "kind": "plane",
+          "suppressed": false,
+          "definition": {
+            "mode": "principal",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "xDirection": [
+              1,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "sketches": [
+        {
+          "id": "sketch-robot-cover-body",
+          "name": "Robot joint cover profile",
+          "support": {
+            "ownerKind": "datum",
+            "ownerId": "datum-robot-cover-xz",
+            "semanticPath": {
+              "role": "support"
+            },
+            "signature": {
+              "kind": "plane"
+            }
+          },
+          "entities": [
+            {
+              "id": "entity-sketch-robot-cover-body",
+              "kind": "polyline",
+              "points": [
+                [
+                  -10,
+                  17
+                ],
+                [
+                  -10,
+                  31
+                ],
+                [
+                  10,
+                  31
+                ],
+                [
+                  10,
+                  17
+                ]
+              ],
+              "closed": true
+            }
+          ],
+          "groups": [],
+          "constraints": [],
+          "extensions": {
+            "studioRole": "profile"
+          }
+        }
+      ],
+      "bodies": [
+        {
+          "id": "body-feature-robot-cover-body",
+          "name": "Robot joint cover",
+          "kind": "solid",
+          "createdByFeatureId": "feature-robot-cover-body",
+          "featureIds": [
+            "feature-robot-cover-body"
+          ],
+          "visible": true,
+          "suppressed": false
+        }
+      ],
+      "bodyPatterns": [],
+      "features": [
+        {
+          "id": "feature-robot-cover-body",
+          "name": "Robot joint cover",
+          "type": "revolve",
+          "profileSketchId": "sketch-robot-cover-body",
+          "axisDatumId": "datum-robot-cover-axis",
+          "angle": 360,
+          "startAngle": 0,
+          "symmetric": false,
+          "suppressed": false,
+          "inputRefs": [
+            {
+              "ownerKind": "sketch",
+              "ownerId": "sketch-robot-cover-body",
+              "semanticPath": {
+                "role": "profile"
+              },
+              "signature": {
+                "role": "profile"
+              }
+            },
+            {
+              "ownerKind": "datum",
+              "ownerId": "datum-robot-cover-axis",
+              "semanticPath": {
+                "role": "axis"
+              },
+              "signature": {
+                "role": "axis"
+              }
+            }
+          ],
+          "resultPolicy": {
+            "kind": "new-body",
+            "bodyName": "Robot joint cover"
+          },
+          "createdBodyId": "body-feature-robot-cover-body"
+        }
+      ],
+      "featureOrder": [
+        "feature-robot-cover-body"
+      ],
+      "metadata": {
+        "activeBodyId": "body-feature-robot-cover-body"
+      }
+    }
+  ],
+  "assemblyDefinitions": [
+    {
+      "id": "assembly-robot-joint",
+      "name": "Robot joint",
+      "parameters": [],
+      "occurrences": [
+        {
+          "id": "occurrence-robot-bracket",
+          "name": "Robot joint bracket",
+          "definition": {
+            "kind": "part",
+            "partId": "part-new-0xhkkhb"
+          },
+          "baseTransform": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "fixed": true,
+          "suppressed": false,
+          "visible": true
+        },
+        {
+          "id": "occurrence-robot-shaft",
+          "name": "Robot joint shaft:1",
+          "definition": {
+            "kind": "part",
+            "partId": "part-robot-shaft"
+          },
+          "baseTransform": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "fixed": true,
+          "suppressed": false,
+          "visible": true
+        },
+        {
+          "id": "occurrence-robot-bearing",
+          "name": "Robot joint bearing:1",
+          "definition": {
+            "kind": "part",
+            "partId": "part-robot-bearing"
+          },
+          "baseTransform": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            18,
+            1
+          ],
+          "fixed": true,
+          "suppressed": false,
+          "visible": true
+        },
+        {
+          "id": "occurrence-robot-motor",
+          "name": "Robot joint motor:1",
+          "definition": {
+            "kind": "part",
+            "partId": "part-robot-motor"
+          },
+          "baseTransform": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            -32,
+            1
+          ],
+          "fixed": true,
+          "suppressed": false,
+          "visible": true
+        },
+        {
+          "id": "occurrence-robot-cover",
+          "name": "Robot joint cover:1",
+          "definition": {
+            "kind": "part",
+            "partId": "part-robot-cover"
+          },
+          "baseTransform": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            32,
+            1
+          ],
+          "fixed": true,
+          "suppressed": false,
+          "visible": true
+        }
+      ],
+      "mates": [],
+      "occurrencePatterns": [],
+      "explodedViews": [],
+      "sectionViews": [
+        {
+          "id": "section-robot-joint",
+          "name": "Robot joint section",
+          "kind": "plane",
+          "definition": {
+            "planes": [
+              {
+                "normal": [
+                  0,
+                  1,
+                  0
+                ],
+                "offset": 0
+              }
+            ],
+            "cap": true,
+            "reverse": false,
+            "scopeOccurrenceIds": [],
+            "hatch": {
+              "enabled": true,
+              "spacing": 8,
+              "angle": 45,
+              "color": "#243746",
+              "fillColor": "#d7e0e5"
+            }
+          },
+          "extensions": {
+            "studioDisplayOnly": true
+          }
+        }
+      ],
+      "metadata": {
+        "activeSectionViewId": "section-robot-joint"
+      }
+    }
+  ],
+  "rootDocument": {
+    "kind": "assembly",
+    "assemblyId": "assembly-robot-joint"
+  },
+  "resources": [],
+  "metadata": {}
+}

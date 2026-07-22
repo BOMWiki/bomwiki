@@ -241,19 +241,34 @@
   syncFullscreen();
 
   // --- three viewer --------------------------------------------------------
-  let THREE, OrbitControls;
+  let THREE, OrbitControls, TransformControls;
   try {
-    [THREE, { OrbitControls }] = await Promise.all([
+    [THREE, { OrbitControls }, { TransformControls }] = await Promise.all([
       import('/static/vendor/three.module.min.js'),
       import('/static/vendor/OrbitControls.js'),
+      import('/static/vendor/TransformControls.js'),
     ]);
   } catch {
     stage.innerHTML = '<p class="mv-error">The studio failed to load. Check your connection and reload.</p>';
     return;
   }
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
   renderer.localClippingEnabled = true;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const debugRendererInfo = renderer.getContext().getExtension('WEBGL_debug_renderer_info');
+  const rendererName = debugRendererInfo
+    ? String(renderer.getContext().getParameter(debugRendererInfo.UNMASKED_RENDERER_WEBGL) || '')
+    : '';
+  const softwareWebgl = /swiftshader|llvmpipe|software/i.test(rendererName);
+  // A software rasterizer cannot sustain a full-resolution 1.6 MP CAD view,
+  // even after draw-call batching. Keep its idle canvas readable at half
+  // resolution, use a coarse buffer only while manipulating, and reserve the
+  // requested device resolution for explicit evidence/image capture.
+  const fullPixelRatio = softwareWebgl ? Math.min(devicePixelRatio, 0.5) : devicePixelRatio;
+  const interactivePixelRatio = softwareWebgl ? Math.min(fullPixelRatio, 0.2) : fullPixelRatio;
+  let currentPixelRatio = fullPixelRatio;
+  let interactiveResolutionTimer = null;
+  renderer.setPixelRatio(fullPixelRatio);
   renderer.domElement.tabIndex = 0;
   renderer.domElement.setAttribute('aria-label', '3D modeling canvas');
   stage.appendChild(renderer.domElement);
@@ -270,6 +285,22 @@
   orbit.enableDamping = true;
   orbit.dampingFactor = 0.08;
   orbit.target.set(0, 15, 0);
+  const transformControls = new TransformControls(camera, renderer.domElement);
+  const transformHelper = transformControls.getHelper();
+  transformControls.enabled = false;
+  transformHelper.visible = false;
+  transformControls.setSize(0.82);
+  scene.add(transformHelper);
+  let transformPreview = null;
+  let gizmoPointerActive = false;
+  transformControls.addEventListener('mouseDown', () => {
+    gizmoPointerActive = true;
+    orbit.enabled = false;
+  });
+  transformControls.addEventListener('mouseUp', () => {
+    orbit.enabled = true;
+    setTimeout(() => { gizmoPointerActive = false; }, 0);
+  });
 
   const partGroup = new THREE.Group();
   // Kernel space is Z-up (CAD convention); three is Y-up.
@@ -277,6 +308,40 @@
   scene.add(partGroup);
   const MAT = new THREE.MeshStandardMaterial({ color: 0xa7b8c9, metalness: 0.16, roughness: 0.56, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const EDGE_MAT = new THREE.LineBasicMaterial({ color: 0x30475c });
+  let sceneBatchObjects = [];
+  let sceneInteractiveBatchObjects = [];
+  let sceneInteractiveSolidBatchEntries = new Map();
+  let sceneInteractiveTriangleCount = 0;
+  let sceneProxyObjects = [];
+
+  function renderScene() {
+    const useBatches = sceneBatchObjects.length > 0 && !transformPreview && mode.kind !== 'picking-edges';
+    if (!useBatches) return renderer.render(scene, camera);
+    // SwiftShader remains vertex-bound on the largest assemblies even at a
+    // tiny drawing-buffer resolution. During a pointer gesture, render a
+    // body-aware bounds LOD (same placement, visibility, color, and clipping)
+    // and omit the exact stencil/edge passes. The exact tessellation and caps
+    // stay resident and return automatically at the idle-quality boundary.
+    const useInteractiveBatches = softwareWebgl
+      && currentPixelRatio === interactivePixelRatio
+      && sceneInteractiveBatchObjects.length > 0;
+    const visibleBatches = useInteractiveBatches ? sceneInteractiveBatchObjects : sceneBatchObjects;
+    const visibility = sceneProxyObjects.map((object) => [object, object.visible]);
+    const capVisibility = useInteractiveBatches
+      ? sectionCapObjects.map((object) => [object, object.visible])
+      : [];
+    for (const [object] of visibility) object.visible = false;
+    for (const object of sceneBatchObjects) object.visible = false;
+    for (const object of sceneInteractiveBatchObjects) object.visible = false;
+    for (const [object] of capVisibility) object.visible = false;
+    for (const object of visibleBatches) object.visible = true;
+    try { renderer.render(scene, camera); }
+    finally {
+      for (const object of visibleBatches) object.visible = false;
+      for (const [object, visible] of capVisibility) object.visible = visible;
+      for (const [object, visible] of visibility) object.visible = visible;
+    }
+  }
 
   // On phones the site header wraps and its height varies, so the fixed
   // calc() in CSS overshoots — measure and pin the app to the viewport.
@@ -300,6 +365,14 @@
       document.documentElement.style.setProperty('--bw-sheet-bottom', Math.max(0, window.innerHeight - r.top) + 'px');
     }
   }
+  // The Studio used to redraw the complete scene on every animation frame,
+  // even while the camera and model were idle. That continuously saturated
+  // software-rendered/headless browsers and also competed with the kernel
+  // worker for CPU during exact rebuild and inspection work. Keep the rAF
+  // loop for OrbitControls damping, but only submit WebGL work when controls
+  // changed or application state dirtied the scene.
+  let sceneRenderDirty = true;
+  const requestSceneRender = () => { sceneRenderDirty = true; };
   window.addEventListener('resize', fitAppHeight);
   fitAppHeight();
 
@@ -311,7 +384,38 @@
     camera.updateProjectionMatrix();
     sketch.resize();
     fitAppHeight();
+    requestSceneRender();
   }
+  function beginInteractiveResolution() {
+    if (interactivePixelRatio >= fullPixelRatio) return;
+    clearTimeout(interactiveResolutionTimer);
+    interactiveResolutionTimer = null;
+    if (currentPixelRatio === interactivePixelRatio) return;
+    currentPixelRatio = interactivePixelRatio;
+    renderer.setPixelRatio(currentPixelRatio);
+    requestSceneRender();
+  }
+  function endInteractiveResolution() {
+    if (interactivePixelRatio >= fullPixelRatio) return;
+    clearTimeout(interactiveResolutionTimer);
+    interactiveResolutionTimer = setTimeout(() => {
+      interactiveResolutionTimer = null;
+      if (currentPixelRatio === fullPixelRatio) return;
+      currentPixelRatio = fullPixelRatio;
+      renderer.setPixelRatio(currentPixelRatio);
+      requestSceneRender();
+    }, 180);
+  }
+  function pulseInteractiveResolution() {
+    beginInteractiveResolution();
+    endInteractiveResolution();
+  }
+  orbit.addEventListener('start', beginInteractiveResolution);
+  orbit.addEventListener('end', endInteractiveResolution);
+  transformControls.addEventListener('mouseDown', beginInteractiveResolution);
+  transformControls.addEventListener('mouseUp', endInteractiveResolution);
+  appEl?.addEventListener('pointerdown', beginInteractiveResolution, { capture: true });
+  appEl?.addEventListener('pointerup', endInteractiveResolution, { capture: true });
   new ResizeObserver(resize).observe(stage);
   // Render only while the stage is actually visible — an open studio tab in
   // the background must not drain a phone's battery.
@@ -320,13 +424,19 @@
     // Last entry, not first: a batch can carry [hidden, visible] and the
     // stale first entry would freeze the render loop.
     stageVisible = entries[entries.length - 1].isIntersecting;
+    if (stageVisible) requestSceneRender();
   }).observe(stage);
+  for (const eventName of ['click', 'change', 'input', 'keydown', 'pointermove']) {
+    appEl?.addEventListener(eventName, requestSceneRender, { capture: true });
+  }
   // No document.hidden check: browsers already stop the animation-frame
   // loop in hidden tabs, and some embedded webviews report hidden wrongly.
   renderer.setAnimationLoop(() => {
     if (!stageVisible) return;
-    orbit.update();
-    renderer.render(scene, camera);
+    const controlsChanged = orbit.update();
+    if (!sceneRenderDirty && !controlsChanged) return;
+    sceneRenderDirty = false;
+    renderScene();
   });
 
   // --- kernel worker (lazy, revisioned) -----------------------------------
@@ -335,6 +445,7 @@
   // rebuild are ignored below.
   let kernelWorker = null;
   let kernelReady = null;
+  let kernelWorkerProjectId = null;
   let kernelRequestSeq = 0;
   let documentRevision = 0;
   let latestRequestedRevision = -1;
@@ -346,6 +457,8 @@
   let kernelRestarting = false;
   let kernelRestartCount = 0;
   let nextKernelReplyDelay = 0;
+  let successfulV5Rebuilds = 0;
+  const KERNEL_COMPACTION_REBUILD_INTERVAL = 15;
 
   function rejectKernelPending(error) {
     for (const pending of kernelPending.values()) {
@@ -377,6 +490,7 @@
     } catch {}
     kernelWorker = null;
     kernelReady = null;
+    successfulV5Rebuilds = 0;
     rejectKernelPending(error);
     say('The CAD kernel worker stopped. Restarting from your last committed state…', true);
     if (restart) scheduleKernelRestart();
@@ -394,7 +508,9 @@
         const message = event.data;
         if (message?.kind === 'kernel-status') {
           if (message.status === 'ready') {
-            say('Kernel ready.');
+            // Do not bury a more useful project-open/import success message
+            // when a fresh project-scoped worker finishes loading.
+            if (/^Loading the CAD kernel/.test($('bw-studio-msg')?.textContent || '')) say('Kernel ready.');
             resolve(worker);
           } else if (message.status === 'failed') {
             const error = new Error(message.message || 'The CAD kernel failed to load.');
@@ -421,7 +537,23 @@
   }
 
   async function kernelCall(kind, revision, options = {}) {
+    // OpenCascade writers/readers and retained TopoDS wrappers are scoped to
+    // one canonical project. A document replacement therefore gets a fresh
+    // worker instead of inheriting allocator/cache state from the previous
+    // project (especially after STEP interchange).
+    if (kernelWorker && kernelWorkerProjectId && kernelWorkerProjectId !== projectId) {
+      const previousWorker = kernelWorker;
+      try { previousWorker.terminate(); } catch {}
+      kernelWorker = null;
+      kernelReady = null;
+      kernelWorkerProjectId = null;
+      successfulV5Rebuilds = 0;
+      kernelRestarting = false;
+      kernelRestartCount++;
+      rejectKernelPending(new Error('The CAD kernel reset because the active project changed.'));
+    }
     const worker = await loadKernel();
+    kernelWorkerProjectId = projectId;
     const requestId = ++kernelRequestSeq;
     const request = {
       requestId,
@@ -435,6 +567,7 @@
     if (options.blob instanceof Blob) request.blob = options.blob;
     if (options.filename) request.filename = String(options.filename);
     if (options.mode) request.mode = options.mode;
+    if (options.freezePrefix) request.freezePrefix = String(options.freezePrefix);
     if (options.tolerance != null) request.tolerance = Number(options.tolerance);
     if (nextKernelReplyDelay) {
       request.delayMs = nextKernelReplyDelay;
@@ -464,6 +597,24 @@
     return response;
   }
 
+  async function importStepWithKernelRecovery(blob, filename, revision) {
+    try {
+      return await kernelCall('import-step-v5', revision, { blob, filename });
+    } catch (error) {
+      const message = String(error?.message || error);
+      if (!/reading STEP geometry:\s*(?:null function|memory access out of bounds)|Failed to load STEP file/i.test(message)) throw error;
+      const failedWorker = kernelWorker;
+      try { failedWorker?.terminate(); } catch {}
+      if (failedWorker === kernelWorker) {
+        kernelWorker = null;
+        kernelReady = null;
+        kernelRestartCount++;
+      }
+      say('The CAD kernel reset after a STEP reader fault. Retrying the import once…', true);
+      return kernelCall('import-step-v5', revision, { blob, filename });
+    }
+  }
+
   // --- document ------------------------------------------------------------
   const KEY = 'bw-studio-doc-v2';
   const makeProjectId = () => crypto.randomUUID?.() || 'project-' + Date.now() + '-' + Math.random().toString(36).slice(2);
@@ -480,6 +631,7 @@
   let selectedDatumId = null;
   let selectedSketchId = null;
   let isolatedBodyId = null;
+  let selectionFilter = 'auto';
   const exportBodyIds = new Set();
   let lastBodyResults = [];
   let lastEvaluationTrace = null;
@@ -495,6 +647,20 @@
 
   const deepCopy = (o) => JSON.parse(JSON.stringify(o));
   const escapeHtml = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  function setTreeItemSemantics(element, options = {}) {
+    element.setAttribute('role', 'treeitem');
+    element.setAttribute('aria-level', String(options.level || 1));
+    element.setAttribute('aria-selected', String(Boolean(options.selected)));
+    if (options.expanded != null) element.setAttribute('aria-expanded', String(Boolean(options.expanded)));
+    if (options.count != null) element.setAttribute('aria-setsize', String(Math.max(1, Number(options.count) || 1)));
+    const states = [
+      options.hidden ? 'hidden' : 'visible',
+      options.suppressed ? 'suppressed' : null,
+      options.failed ? 'failed' : null,
+      options.count != null ? options.count + ' occurrences' : null,
+    ].filter(Boolean);
+    if (options.label) element.setAttribute('aria-label', options.label + (states.length ? ', ' + states.join(', ') : ''));
+  }
   function normalizeDoc(d) {
     if (v5RuntimeTools.isStudioV5Project(d)) return v5RuntimeTools.prepareStudioV5RuntimeProject(d);
     const out = d && typeof d === 'object' ? d : {};
@@ -1245,7 +1411,7 @@
     renderHistory();
     renderContext();
     syncHistoryActions();
-    rebuild();
+    rebuild({ treePreRendered: true });
   }
 
   function replaceDocument(snapJson) {
@@ -1254,6 +1420,7 @@
   }
 
   function undo() {
+    if ($('bw-v5-command')?.open) return say('Apply or cancel the active command first.');
     if (mode.kind !== 'idle' && mode.kind !== 'rebuilding') return say('Finish or cancel the current action first.');
     if (!undoStack.length) return say('Nothing to undo.');
     const entry = undoStack.pop();
@@ -1265,6 +1432,7 @@
     say('Undid: ' + entry.label);
   }
   function redo() {
+    if ($('bw-v5-command')?.open) return say('Apply or cancel the active command first.');
     if (mode.kind !== 'idle' && mode.kind !== 'rebuilding') return say('Finish or cancel the current action first.');
     if (!redoStack.length) return say('Nothing to redo.');
     const entry = redoStack.pop();
@@ -1493,7 +1661,7 @@
     return Math.random().toString(36).slice(2, 8);
   }
 
-  const OP_LABEL = { extrude: 'Extrude', cut: 'Cut', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell', boolean: 'Boolean', transform: 'Transform', loft: 'Loft', sweep: 'Sweep', pattern: 'Pattern', mate: 'Mate', assembly: 'Assembly' };
+  const OP_LABEL = { extrude: 'Extrude', cut: 'Cut', revolve: 'Revolve', draft: 'Draft', thicken: 'Thicken', 'boolean-split-side': 'Split', 'imported-step': 'Independent B-rep', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell', boolean: 'Boolean', transform: 'Transform', loft: 'Loft', sweep: 'Sweep', pattern: 'Pattern', mate: 'Mate', assembly: 'Assembly' };
 
   const v5Dialog = $('bw-v5-command');
   const v5Fields = $('bw-v5-command-fields');
@@ -1504,6 +1672,136 @@
   const selectField = (label, name, entries, value, wide = false) =>
     '<label' + (wide ? ' class="is-wide"' : '') + '>' + label + '<select name="' + name + '">' + entries.map((entry) => '<option value="' + attr(entry.id) + '"' + (entry.id === value ? ' selected' : '') + '>' + attr(entry.name) + '</option>').join('') + '</select></label>';
   const textareaField = (label, name, value) => '<label class="is-wide">' + label + '<textarea name="' + name + '">' + String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</textarea></label>';
+
+  function setV5FormValue(name, value) {
+    const input = v5Fields?.querySelector('[name="' + name + '"]');
+    if (input) input.value = String(Math.round(value * 1e6) / 1e6);
+  }
+
+  function endTransformPreview(reset = true) {
+    if (transformPreview?.previewObjects && reset) {
+      for (const entry of transformPreview.previewObjects) {
+        entry.object.matrix.copy(entry.matrix);
+        entry.object.matrixAutoUpdate = false;
+      }
+    }
+    if (transformPreview?.object && reset) {
+      transformPreview.object.position.copy(transformPreview.position);
+      transformPreview.object.quaternion.copy(transformPreview.quaternion);
+      transformPreview.object.scale.copy(transformPreview.scale);
+      transformPreview.object.updateMatrixWorld(true);
+    }
+    transformControls.detach();
+    transformControls.enabled = false;
+    transformHelper.visible = false;
+    if (transformPreview?.anchor) partGroup.remove(transformPreview.anchor);
+    transformPreview = null;
+    orbit.enabled = true;
+  }
+
+  function beginAssemblyTransformPreview(occurrence) {
+    endTransformPreview();
+    const bodyIds = new Set(lastBodyResults
+      .filter((entry) => entry.occurrenceInstance?.occurrencePath?.[0] === occurrence.id)
+      .map((entry) => entry.bodyId));
+    const previewObjects = [
+      ...[...bodyMeshes].filter(([bodyId]) => bodyIds.has(bodyId)).map(([, object]) => object),
+      ...edgeLines.filter((line) => bodyIds.has(line.userData.bodyId)),
+    ].map((object) => ({ object, matrix: object.matrix.clone() }));
+    if (!previewObjects.length) return false;
+    const anchor = new THREE.Object3D();
+    anchor.matrix.fromArray(cadMatrixToScene(occurrence.baseTransform));
+    anchor.matrix.decompose(anchor.position, anchor.quaternion, anchor.scale);
+    anchor.updateMatrixWorld(true);
+    partGroup.add(anchor);
+    transformPreview = {
+      command: 'assembly-transform', occurrenceId: occurrence.id, bodyId: previewObjects[0].object.userData.bodyId,
+      object: anchor, anchor, previewObjects,
+      position: anchor.position.clone(), quaternion: anchor.quaternion.clone(), scale: anchor.scale.clone(),
+      anchorMatrix: anchor.matrix.clone(),
+    };
+    const mode = v5Fields.querySelector('[name="gizmoMode"]')?.value || 'translate';
+    const snap = Math.max(mode === 'rotate' ? 0.1 : 0.001, Number(v5Fields.querySelector('[name="gizmoSnap"]')?.value) || (mode === 'rotate' ? 15 : 1));
+    transformControls.setMode(mode);
+    transformControls.setSpace('local');
+    transformControls.setTranslationSnap(mode === 'translate' ? snap : null);
+    transformControls.setRotationSnap(mode === 'rotate' ? snap * Math.PI / 180 : null);
+    transformControls.attach(anchor);
+    transformControls.enabled = true;
+    transformHelper.visible = true;
+    return true;
+  }
+
+  function beginTransformPreview(command, feature = null) {
+    endTransformPreview();
+    if (!['move', 'copy', 'rotate'].includes(command)) return false;
+    const previewBodyId = feature?.createdBodyId || feature?.sourceBodyId || v5Dialog.dataset.bodyId;
+    const object = bodyMeshes.get(previewBodyId);
+    if (!object) return false;
+    transformPreview = {
+      command,
+      bodyId: previewBodyId,
+      object,
+      position: object.position.clone(),
+      quaternion: object.quaternion.clone(),
+      scale: object.scale.clone(),
+      baseTranslation: feature?.transform?.translation ? [...feature.transform.translation] : [0, 0, 0],
+      baseAngle: Number(feature?.transform?.angle || 0),
+    };
+    transformControls.setMode(command === 'rotate' ? 'rotate' : 'translate');
+    transformControls.setSpace('local');
+    const snap = Number(v5Fields.querySelector('[name="gizmoSnap"]')?.value || (command === 'rotate' ? 15 : 1));
+    transformControls.setTranslationSnap(command === 'rotate' ? null : Math.max(0.001, snap));
+    transformControls.setRotationSnap(command === 'rotate' ? Math.max(0.1, snap) * Math.PI / 180 : null);
+    transformControls.attach(object);
+    transformControls.enabled = true;
+    transformHelper.visible = true;
+    return true;
+  }
+
+  transformControls.addEventListener('objectChange', () => {
+    const preview = transformPreview;
+    if (!preview?.object) return;
+    if (preview.command === 'assembly-transform') {
+      preview.object.updateMatrix();
+      const delta = preview.object.matrix.clone().multiply(preview.anchorMatrix.clone().invert());
+      for (const entry of preview.previewObjects) {
+        entry.object.matrix.multiplyMatrices(delta, entry.matrix);
+        entry.object.matrixAutoUpdate = false;
+      }
+      const cad = sceneMatrixToCad(preview.object.matrix.toArray());
+      const matrixInput = v5Fields.querySelector('[name="matrix"]');
+      if (matrixInput) matrixInput.value = cad.map((value) => Math.abs(value) < 1e-12 ? 0 : Math.round(value * 1e9) / 1e9).join(', ');
+      return;
+    }
+    if (preview.command === 'move' || preview.command === 'copy') {
+      const delta = preview.object.position.clone().sub(preview.position);
+      setV5FormValue('tx', preview.baseTranslation[0] + delta.x);
+      setV5FormValue('ty', preview.baseTranslation[1] + delta.y);
+      setV5FormValue('tz', preview.baseTranslation[2] + delta.z);
+      return;
+    }
+    const delta = preview.quaternion.clone().invert().multiply(preview.object.quaternion).normalize();
+    const angle = 2 * Math.acos(Math.max(-1, Math.min(1, delta.w)));
+    const denominator = Math.sqrt(Math.max(0, 1 - delta.w * delta.w));
+    const axis = denominator > 1e-7 ? [delta.x / denominator, delta.y / denominator, delta.z / denominator] : [1, 0, 0];
+    const dominant = axis.map(Math.abs).indexOf(Math.max(...axis.map(Math.abs)));
+    const axisId = ['datum-origin-x', 'datum-origin-y', 'datum-origin-z'][dominant];
+    const axisInput = v5Fields.querySelector('[name="axisDatumId"]');
+    if (axisInput) axisInput.value = axisId;
+    setV5FormValue('angle', preview.baseAngle + angle * Math.sign(axis[dominant] || 1) * 180 / Math.PI);
+  });
+
+  v5Fields?.addEventListener('change', (event) => {
+    if (!transformPreview || !['gizmoSnap', 'gizmoMode'].includes(event.target?.name)) return;
+    const selectedMode = transformPreview.command === 'assembly-transform'
+      ? v5Fields.querySelector('[name="gizmoMode"]')?.value || 'translate'
+      : transformPreview.command === 'rotate' ? 'rotate' : 'translate';
+    const snap = Math.max(selectedMode === 'rotate' ? 0.1 : 0.001, Number(v5Fields.querySelector('[name="gizmoSnap"]')?.value) || 0);
+    transformControls.setMode(selectedMode);
+    transformControls.setTranslationSnap(selectedMode === 'translate' ? snap : null);
+    transformControls.setRotationSnap(selectedMode === 'rotate' ? snap * Math.PI / 180 : null);
+  });
 
   function v5PartCandidate() {
     return v5RuntimeTools.isStudioV5Project(doc)
@@ -1590,9 +1888,9 @@
     const axes = part.referenceGeometry.filter((entry) => entry.kind === 'axis');
     if (command === 'move' || command === 'copy') {
       const vector = transform.translation || [0, 0, 0];
-      v5Fields.innerHTML = field('ΔX', 'tx', vector[0]) + field('ΔY', 'ty', vector[1]) + field('ΔZ', 'tz', vector[2]) + (command === 'copy' ? '<p class="is-wide">The copied body remains linked to its source feature history.</p>' : '');
+      v5Fields.innerHTML = field('ΔX', 'tx', vector[0]) + field('ΔY', 'ty', vector[1]) + field('ΔZ', 'tz', vector[2]) + field('Handle snap (mm)', 'gizmoSnap', 1, { wide: true }) + '<p class="is-wide">Drag the 3D axis handles or enter exact offsets.' + (command === 'copy' ? ' The copied body remains linked to its source feature history.' : '') + '</p>';
     } else if (command === 'rotate') {
-      v5Fields.innerHTML = selectField('Axis', 'axisDatumId', axes, transform.axisDatumId || 'datum-origin-x', true) + field('Angle (deg)', 'angle', transform.angle ?? 15, { wide: true });
+      v5Fields.innerHTML = selectField('Axis', 'axisDatumId', axes, transform.axisDatumId || 'datum-origin-x', true) + field('Angle (deg)', 'angle', transform.angle ?? 15) + field('Handle snap (deg)', 'gizmoSnap', 15) + '<p class="is-wide">Drag a 3D rotation ring or enter an exact angle.</p>';
     } else if (command === 'mirror') {
       v5Fields.innerHTML = selectField('Mirror plane', 'planeDatumId', planes, transform.planeDatumId || 'datum-origin-yz', true) + '<label class="is-wide"><input type="checkbox" name="moveOriginal"' + (feature && feature.resultPolicy?.kind !== 'new-body' ? ' checked' : '') + ' /> Move original instead of creating linked mirror</label>';
     } else if (command === 'scale') {
@@ -1694,6 +1992,99 @@
     };
   }
 
+  function bodyTopologyChoices(bodyId, kind, stored = []) {
+    const current = kind === 'face'
+      ? [...faceByHash.values()].filter((entry) => entry.bodyId === bodyId).map((entry) => entry.sig)
+      : edgeLines.filter((entry) => entry.userData.bodyId === bodyId).flatMap(edgeSignaturesForLine);
+    const choices = [];
+    for (const signature of [...stored, ...current]) {
+      if (!signature || choices.some((entry) => JSON.stringify(entry) === JSON.stringify(signature))) continue;
+      choices.push(signature);
+    }
+    return choices;
+  }
+
+  function topologySelect(label, name, choices, selected, multiple) {
+    const selectedKeys = new Set((selected || []).map((entry) => JSON.stringify(entry)));
+    return '<label class="is-wide">' + label + '<select name="' + name + '"' + (multiple ? ' multiple size="6"' : '') + '>' +
+      choices.map((signature, index) => {
+        const description = signature.n
+          ? 'Face ' + (index + 1) + ' · centre ' + signature.p.join(', ') + ' · normal ' + signature.n.join(', ')
+          : 'Edge ' + (index + 1) + ' · midpoint ' + signature.p.join(', ') + ' · length ' + signature.l;
+        return '<option value="' + index + '"' + (selectedKeys.has(JSON.stringify(signature)) ? ' selected' : '') + '>' + attr(description) + '</option>';
+      }).join('') + '</select></label>';
+  }
+
+  function renderAdvancedModifierFields(candidate, command, feature = null) {
+    const part = v5RuntimeTools.studioV5RootPart(candidate);
+    const profiles = part.sketches.filter((entry) => entry.extensions?.studioRole === 'profile');
+    const axes = part.referenceGeometry.filter((entry) => entry.kind === 'axis');
+    const planes = part.referenceGeometry.filter((entry) => entry.kind === 'plane');
+    if (command === 'revolve-advanced') {
+      v5Fields.innerHTML = field('Name', 'name', feature?.name || 'Partial revolve', { wide: true }) +
+        selectField('Profile', 'profileSketchId', profiles, feature?.profileSketchId || profiles[0]?.id) +
+        selectField('Axis', 'axisDatumId', axes, feature?.axisDatumId || axes[0]?.id) +
+        field('Sweep angle (deg)', 'angle', feature?.angle ?? 180) + field('Start angle (deg)', 'startAngle', feature?.startAngle ?? 0) +
+        '<label class="is-wide"><input type="checkbox" name="symmetric"' + (feature?.symmetric ? ' checked' : '') + ' /> Symmetric about the profile plane start direction</label>';
+      return;
+    }
+    const featureBodyId = feature?.type === 'thicken' ? feature.sourceBodyId : feature?.resultPolicy?.targetBodyIds?.[0];
+    const bodyId = featureBodyId || selectedBodyId;
+    const body = part.bodies.find((entry) => entry.id === bodyId);
+    const stored = command === 'variable-fillet' ? (feature?.edges || []) : (feature?.faces || []);
+    const kind = command === 'variable-fillet' ? 'edge' : 'face';
+    const choices = bodyTopologyChoices(bodyId, kind, stored);
+    v5Dialog.__topologyChoices = choices;
+    const common = field('Name', 'name', feature?.name || ({ draft: 'Draft', thicken: 'Thicken', 'variable-fillet': 'Variable fillet' })[command] + ' ' + (body?.name || 'body'), { wide: true }) +
+      selectField('Body', 'bodyId', body ? [body] : [], bodyId, true);
+    if (command === 'draft') {
+      v5Fields.innerHTML = common + selectField('Neutral plane', 'neutralPlaneDatumId', planes, feature?.neutralPlaneDatumId || planes[0]?.id, true) +
+        field('Draft angle (deg)', 'angle', feature?.angle ?? 5) +
+        topologySelect('Faces — use Command/Ctrl to select more than one', 'topology', choices, feature?.faces || [], true) +
+        '<label><input type="checkbox" name="flip"' + (feature?.flip ? ' checked' : '') + ' /> Flip angle</label>' +
+        '<label><input type="checkbox" name="tangentPropagation"' + (feature?.tangentPropagation !== false ? ' checked' : '') + ' /> Tangent propagation</label>';
+    } else if (command === 'thicken') {
+      v5Fields.innerHTML = common + field('New body name', 'bodyName', part.bodies.find((entry) => entry.createdByFeatureId === feature?.id)?.name || feature?.resultPolicy?.bodyName || (body?.name || 'Body') + ' thickened face', { wide: true }) +
+        field('Thickness', 'thickness', feature?.thickness ?? 2) + topologySelect('One planar source face', 'topology', choices, feature?.faces || [], false) +
+        '<label><input type="checkbox" name="symmetric"' + (feature?.symmetric ? ' checked' : '') + ' /> Symmetric thickness</label>' +
+        '<label><input type="checkbox" name="flip"' + (feature?.flip ? ' checked' : '') + ' /> Flip direction</label>';
+    } else {
+      v5Fields.innerHTML = common + field('Start radius', 'startRadius', feature?.variableRadii?.[0]?.startRadius ?? 1) +
+        field('End radius', 'endRadius', feature?.variableRadii?.[0]?.endRadius ?? 3) +
+        topologySelect('Edges — use Command/Ctrl to select more than one', 'topology', choices, feature?.edges || [], true) +
+        '<label class="is-wide"><input type="checkbox" name="tangentPropagation"' + (feature?.tangentPropagation ? ' checked' : '') + ' /> Tangent propagation</label>';
+    }
+  }
+
+  function advancedModifierFromForm(form, command) {
+    const topology = [...form.elements.namedItem('topology').selectedOptions].map((entry) => v5Dialog.__topologyChoices[Number(entry.value)]);
+    const common = { name: form.elements.namedItem('name').value.trim(), bodyId: form.elements.namedItem('bodyId').value };
+    if (command === 'draft') return {
+      ...common, faces: topology, neutralPlaneDatumId: form.elements.namedItem('neutralPlaneDatumId').value,
+      angle: formNumber(form, 'angle'), flip: form.elements.namedItem('flip').checked,
+      tangentPropagation: form.elements.namedItem('tangentPropagation').checked,
+    };
+    if (command === 'thicken') return {
+      ...common, faces: topology, bodyName: form.elements.namedItem('bodyName').value.trim(), thickness: formNumber(form, 'thickness'),
+      symmetric: form.elements.namedItem('symmetric').checked, flip: form.elements.namedItem('flip').checked,
+    };
+    return {
+      ...common, edges: topology, startRadius: formNumber(form, 'startRadius'), endRadius: formNumber(form, 'endRadius'),
+      tangentPropagation: form.elements.namedItem('tangentPropagation').checked,
+    };
+  }
+
+  function renderBooleanSplitFields(candidate) {
+    const part = v5RuntimeTools.studioV5RootPart(candidate);
+    const target = part.bodies.find((entry) => entry.id === selectedBodyId);
+    const tools = part.bodies.filter((entry) => entry.id !== target?.id && !entry.suppressed);
+    v5Fields.innerHTML = field('Name', 'name', 'Split ' + (target?.name || 'body'), { wide: true }) +
+      selectField('Target body', 'targetBodyId', target ? [target] : [], target?.id, true) +
+      selectField('Splitting tool body', 'toolBodyId', tools, tools[0]?.id, true) +
+      '<label><input type="checkbox" name="keepOriginal" /> Keep original target visible</label>' +
+      '<label><input type="checkbox" name="keepTools" checked /> Keep tool visible</label>';
+  }
+
   function renderBodyPatternFields(candidate, pattern = null) {
     const part = v5RuntimeTools.studioV5RootPart(candidate);
     const kind = pattern?.kind || 'circular';
@@ -1707,6 +2098,7 @@
       selectField('Source body', 'sourceBodyId', part.bodies, sourceBodyId) +
       '<label>Type<select name="patternKind">' + [['circular', 'Circular'], ['linear', 'Linear'], ['curve', 'Curve'], ['mirror', 'Mirror']]
         .map(([id, name]) => '<option value="' + id + '"' + (id === kind ? ' selected' : '') + '>' + name + '</option>').join('') + '</select></label>' +
+      '<label>Result<select name="outputMode"><option value="linked"' + (pattern?.outputMode !== 'union' ? ' selected' : '') + '>Linked occurrences</option><option value="union"' + (pattern?.outputMode === 'union' ? ' selected' : '') + '>Fuse to one solid</option></select></label>' +
       field('Count', 'count', pattern?.definition?.count ?? 12) +
       selectField('Axis', 'axisDatumId', axes, referenceByRole.axis || axes[0]?.id) +
       selectField('Direction', 'directionDatumId', axes, referenceByRole.direction || axes[0]?.id) +
@@ -1758,6 +2150,7 @@
       name: form.elements.namedItem('name').value.trim(),
       sourceBodyId: form.elements.namedItem('sourceBodyId').value,
       kind,
+      outputMode: form.elements.namedItem('outputMode').value,
       count: form.elements.namedItem('count').value,
       distribution: form.elements.namedItem('distribution').value,
       symmetric: form.elements.namedItem('symmetric').checked,
@@ -1806,16 +2199,45 @@
       if (occurrence.definition.kind !== 'part') continue;
       const part = candidate.partDefinitions.find((entry) => entry.id === occurrence.definition.partId);
       for (const datum of part?.referenceGeometry || []) options.push({ id: occurrence.id + '|' + datum.id, name: occurrence.name + ' · ' + datum.name + ' (' + datum.kind + ')' });
+      const results = lastBodyResults.filter((entry) => entry.occurrenceInstance?.occurrencePath?.length === 1 && entry.occurrenceInstance.occurrencePath[0] === occurrence.id);
+      for (const result of results) {
+        const faces = [...faceByHash.values()].filter((entry) => entry.bodyId === result.bodyId);
+        faces.forEach((face, index) => options.push({
+          id: occurrence.id + '|body:' + result.sourceBodyId + ':face:' + index,
+          name: occurrence.name + ' · ' + result.bodyName.split(' / ').at(-1) + ' planar face ' + (index + 1),
+          reference: {
+            ownerKind: 'body', ownerId: result.sourceBodyId, occurrencePath: [occurrence.id],
+            semanticPath: { topologyKind: 'planar-face', bodyId: result.sourceBodyId },
+            signature: { ...face.sig, topologyKind: 'planar-face' },
+          },
+        }));
+      }
     }
     return options;
   }
 
   function assemblyGeometryReference(value, role) {
+    const topology = v5Dialog.__assemblyReferences?.find((entry) => entry.id === value)?.reference;
+    if (topology) return { ...structuredClone(topology), semanticPath: { ...(topology.semanticPath || {}), role } };
     const [occurrenceId, ownerId] = String(value || '').split('|');
     if (!occurrenceId) throw new Error('Choose a component reference.');
     return ownerId
       ? { ownerKind: 'datum', ownerId, occurrencePath: [occurrenceId], semanticPath: { role }, signature: { role } }
       : { ownerKind: 'occurrence', ownerId: occurrenceId, occurrencePath: [occurrenceId], semanticPath: { role }, signature: { role } };
+  }
+
+  function parseParameterOverrides(value) {
+    const overrides = {};
+    for (const [index, row] of String(value || '').split(/\r?\n/).entries()) {
+      const line = row.trim();
+      if (!line) continue;
+      const separator = line.indexOf('=');
+      if (separator <= 0 || !line.slice(separator + 1).trim()) throw new Error('Variant row ' + (index + 1) + ' must use name = expression.');
+      const name = line.slice(0, separator).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error('Variant parameter "' + name + '" is invalid.');
+      overrides[name] = line.slice(separator + 1).trim();
+    }
+    return overrides;
   }
 
   function openAssemblyCommand(command, mateKind = null, mateId = null) {
@@ -1843,6 +2265,8 @@
       : command === 'linked' ? 'Create linked duplicate'
       : command === 'independent' ? 'Make component independent'
       : command === 'replace' ? 'Replace component definition'
+      : command === 'variant' ? 'Edit component variant parameters'
+      : command === 'transform' ? 'Move or rotate component occurrence'
       : command === 'pattern' ? 'Create component pattern'
       : ((editedMate ? 'Edit ' : '') + mateKind[0].toUpperCase() + mateKind.slice(1) + ' mate');
     v5Error.textContent = '';
@@ -1865,6 +2289,21 @@
       if (!selectedOccurrence) return say('Select a direct component occurrence to replace.');
       const current = selectedOccurrence.definition.kind + ':' + (selectedOccurrence.definition.partId || selectedOccurrence.definition.assemblyId);
       v5Fields.innerHTML = selectField('Replacement definition', 'definition', definitions, current);
+    } else if (command === 'variant') {
+      if (!selectedOccurrence || selectedOccurrence.definition.kind !== 'part') return say('Select a direct part occurrence to configure as a variant.');
+      const part = candidate.partDefinitions.find((entry) => entry.id === selectedOccurrence.definition.partId);
+      if (!part?.parameters?.length) return say('This component definition has no editable parameters.');
+      const existing = selectedOccurrence.parameterOverrides || {};
+      const rows = part.parameters.map((parameter) => parameter.name + ' = ' + (existing[parameter.name] ?? parameter.value));
+      v5Fields.innerHTML = textareaField('Parameter overrides — one name = expression per line', 'parameterOverrides', rows.join('\n')) +
+        '<p class="is-wide">Occurrences with the same overrides share one exact cached variant; other values remain independent.</p>';
+    } else if (command === 'transform') {
+      if (!selectedOccurrence) return say('Select a direct component occurrence to transform.');
+      if (selectedOccurrence.fixed || assembly.mates.some((mate) => !mate.suppressed && mate.occurrenceIds.includes(selectedOccurrence.id))) {
+        return say('Suppress the component’s driving mates or Fixed constraint before direct manipulation.');
+      }
+      v5Fields.innerHTML = '<label>Handle mode<select name="gizmoMode"><option value="translate">Translate</option><option value="rotate">Rotate</option></select></label>' +
+        field('Snap', 'gizmoSnap', 1) + textareaField('Rigid 4×4 transform', 'matrix', selectedOccurrence.baseTransform.join(', '));
     } else if (command === 'pattern') {
       if (!selectedOccurrence) return say('Select a direct component occurrence to pattern.');
       v5Fields.innerHTML = field('Pattern name', 'name', selectedOccurrence.name + ' pattern', { wide: true }) +
@@ -1872,12 +2311,19 @@
         field('Generated count', 'generatedCount', 5) + field('Spacing', 'spacing', 25) + field('Total angle', 'totalAngle', 360);
     } else {
       const references = assemblyReferenceOptions(candidate);
+      v5Dialog.__assemblyReferences = references;
       const moving = editedMate?.occurrenceIds.at(-1) || selectedOccurrence?.id || occurrences[1]?.id || occurrences[0]?.id;
       const anchor = editedMate?.occurrenceIds[0] || occurrences.find((entry) => entry.id !== moving)?.id || occurrences[0]?.id;
       const referenceFor = (occurrenceId) => references.find((entry) => entry.id.startsWith(occurrenceId + '|') && entry.id !== occurrenceId + '|')?.id || occurrenceId + '|';
       const storedReference = (index, fallback) => {
         const reference = editedMate?.references?.[index];
-        return reference ? reference.occurrencePath[0] + '|' + (reference.ownerKind === 'datum' ? reference.ownerId : '') : fallback;
+        if (!reference) return fallback;
+        if (reference.ownerKind === 'body') {
+          const matched = references.find((entry) => entry.reference?.ownerId === reference.ownerId && entry.reference.occurrencePath[0] === reference.occurrencePath[0] &&
+            JSON.stringify(entry.reference.signature) === JSON.stringify(reference.signature));
+          return matched?.id || fallback;
+        }
+        return reference.occurrencePath[0] + '|' + (reference.ownerKind === 'datum' ? reference.ownerId : '');
       };
       v5Fields.innerHTML = field('Mate name', 'name', editedMate?.name || mateKind[0].toUpperCase() + mateKind.slice(1) + ' mate', { wide: true }) +
         selectField('Anchor component', 'anchorOccurrenceId', occurrences, anchor) + selectField('Moving component', 'movingOccurrenceId', occurrences, moving) +
@@ -1885,8 +2331,14 @@
         field(mateKind === 'angle' ? 'Angle' : 'Offset / distance', 'value', editedMate?.value ?? 0) + '<label class="is-wide"><input type="checkbox" name="flip"' + (editedMate?.extensions?.flip ? ' checked' : '') + ' /> Flip alignment direction</label>';
     }
     v5Dialog.__candidate = candidate;
-    if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
+    const usesGizmo = command === 'transform';
+    v5Dialog.classList.toggle('with-gizmo', usesGizmo);
+    if (usesGizmo && typeof v5Dialog.show === 'function') v5Dialog.show();
+    else if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
     else v5Dialog.setAttribute('open', '');
+    if (usesGizmo && !beginAssemblyTransformPreview(selectedOccurrence)) {
+      v5Fields.insertAdjacentHTML('beforeend', '<p class="is-wide">The exact component geometry is still rebuilding; reopen Move / rotate when it is visible.</p>');
+    }
   }
 
   function applyAssemblyForm(candidate, command, mateKind, occurrenceId, mateId, form) {
@@ -1908,6 +2360,14 @@
       partId: 'part-independent-' + newId(), name: form.elements.namedItem('name').value.trim(),
     });
     if (command === 'replace') return v5RuntimeTools.replaceStudioV5ComponentOccurrence(candidate, occurrenceId, documentReferenceFromOption(form.elements.namedItem('definition').value));
+    if (command === 'variant') return v5RuntimeTools.updateStudioV5ComponentOccurrence(candidate, occurrenceId, {
+      parameterOverrides: parseParameterOverrides(form.elements.namedItem('parameterOverrides').value),
+    });
+    if (command === 'transform') {
+      const matrix = String(form.elements.namedItem('matrix').value || '').split(/[\s,]+/).filter(Boolean).map(Number);
+      if (matrix.length !== 16 || matrix.some((value) => !Number.isFinite(value))) throw new Error('Component transform must contain 16 finite numbers.');
+      return v5RuntimeTools.updateStudioV5ComponentOccurrence(candidate, occurrenceId, { baseTransform: matrix });
+    }
     if (command === 'pattern') {
       const kind = form.elements.namedItem('patternKind').value;
       return v5RuntimeTools.createStudioV5OccurrencePattern(candidate, {
@@ -1958,17 +2418,19 @@
     v5Dialog.dataset.sketchId = '';
     v5Dialog.dataset.patternId = '';
     v5Dialog.dataset.bodyId = '';
-    $('bw-v5-command-kind').textContent = command === 'material' ? 'Engineering appearance' : command === 'stage' ? 'Axial model structure' : 'Display-only assembly view';
+    $('bw-v5-command-kind').textContent = command === 'material' ? 'Engineering appearance' : command === 'stage' ? 'Axial model structure' : command === 'measure' ? 'Persistent exact measurement' : 'Display-only assembly view';
     $('bw-v5-command-title').textContent = command === 'section' ? 'Save non-destructive section'
       : command === 'explode' ? 'Save exploded view step'
       : command === 'stage' ? 'Create axial stage group'
+      : command === 'measure' ? 'Save measurement'
       : 'Assign material and appearance';
     v5Error.textContent = '';
     if (command === 'section') {
       v5Fields.innerHTML = field('Section name', 'name', 'Longitudinal half section', { wide: true }) +
         '<label>Mode<select name="sectionKind"><option value="plane">Single plane</option><option value="quarter">Quarter section</option><option value="box">Three-plane box</option></select></label>' +
         field('Offset', 'offset', 0) + field('Scope occurrence ID (blank = all)', 'scopeOccurrenceId', selectedOccurrence?.id || '', { wide: true }) +
-        '<label><input type="checkbox" name="cap" checked /> Section cap</label><label><input type="checkbox" name="reverse" /> Reverse</label>';
+        '<label><input type="checkbox" name="cap" checked /> Section cap</label><label><input type="checkbox" name="reverse" /> Reverse</label>' +
+        field('Hatch spacing', 'hatchSpacing', 8) + field('Hatch angle', 'hatchAngle', 45) + field('Cap fill', 'capFillColor', '#d7e0e5') + field('Hatch color', 'hatchColor', '#243746');
     } else if (command === 'explode') {
       if (!selectedOccurrence) return say('Select a direct component occurrence to explode.');
       v5Fields.innerHTML = field('View name', 'name', 'Service exploded view', { wide: true }) +
@@ -1985,6 +2447,14 @@
         textareaField('Ordered occurrence IDs', 'occurrenceIds', occurrenceIds.join('\n')) + textareaField('Matching Distance mate IDs', 'distanceMateIds', distances.map((mate) => mate.id).join('\n')) +
         field('First station', 'start', numericStart) + field('Stage spacing', 'spacing', numericSpacing) +
         '<label class="is-wide"><input type="checkbox" name="visible" checked /> Show every stage in this group</label>';
+    } else if (command === 'measure') {
+      const selected = inspectionResultsForSelection();
+      if (!selected.length) return say('Select a body or component before saving a measurement.');
+      const bodyIds = selected.map((entry) => entry.bodyId);
+      const defaultKind = bodyIds.length === 2 ? 'minimum-clearance' : 'bounding-box';
+      v5Fields.innerHTML = field('Measurement name', 'name', defaultKind === 'minimum-clearance' ? 'Component clearance' : 'Body envelope', { wide: true }) +
+        '<label>Type<select name="measurementKind"><option value="bounding-box"' + (defaultKind === 'bounding-box' ? ' selected' : '') + '>Bounding box</option><option value="minimum-clearance"' + (defaultKind === 'minimum-clearance' ? ' selected' : '') + '>Minimum clearance</option></select></label>' +
+        textareaField('Exact runtime body IDs', 'bodyIds', bodyIds.join('\n'));
     } else if (command === 'material') {
       candidate = v5InspectionTools.ensureStudioV5GenericMaterials(candidate);
       const result = inspectionResultsForSelection()[0];
@@ -2009,7 +2479,10 @@
       const scope = form.elements.namedItem('scopeOccurrenceId').value.trim();
       return v5InspectionTools.createStudioV5SectionView(candidate, {
         id: 'section-' + newId(), name: form.elements.namedItem('name').value.trim(), kind,
-        definition: { planes: normals.map((normal) => ({ normal, offset })), cap: form.elements.namedItem('cap').checked, reverse: form.elements.namedItem('reverse').checked, scopeOccurrenceIds: scope ? [scope] : [] },
+        definition: {
+          planes: normals.map((normal) => ({ normal, offset })), cap: form.elements.namedItem('cap').checked, reverse: form.elements.namedItem('reverse').checked, scopeOccurrenceIds: scope ? [scope] : [],
+          hatch: { enabled: true, spacing: Number(form.elements.namedItem('hatchSpacing').value), angle: Number(form.elements.namedItem('hatchAngle').value), fillColor: form.elements.namedItem('capFillColor').value, color: form.elements.namedItem('hatchColor').value },
+        },
       });
     }
     if (command === 'explode') return v5InspectionTools.createStudioV5ExplodedView(candidate, {
@@ -2024,6 +2497,13 @@
         start: Number(form.elements.namedItem('start').value), spacing: Number(form.elements.namedItem('spacing').value), visible: form.elements.namedItem('visible').checked,
       });
     }
+    if (command === 'measure') {
+      const bodyIds = form.elements.namedItem('bodyIds').value.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
+      return v5InspectionTools.createStudioV5Measurement(candidate, {
+        id: 'measurement-' + newId(), name: form.elements.namedItem('name').value.trim(),
+        kind: form.elements.namedItem('measurementKind').value, definition: { bodyIds },
+      });
+    }
     if (command === 'material') {
       const materialId = form.elements.namedItem('materialId').value;
       let next = v5InspectionTools.assignStudioV5BodyMaterial(candidate, v5Dialog.dataset.partId, v5Dialog.dataset.sourceBodyId, materialId);
@@ -2035,22 +2515,33 @@
   }
 
   function closeV5Command() {
+    endTransformPreview();
+    v5Dialog?.classList.remove('with-gizmo');
     if (typeof v5Dialog?.close === 'function' && v5Dialog.open) v5Dialog.close();
     else v5Dialog?.removeAttribute('open');
   }
 
   function openV5Command(command, datumId = null, featureId = null, sketchId = null, patternId = null) {
     if (!v5Dialog || !v5Fields) return;
+    if (v5Dialog.open) closeV5Command();
     let candidate;
     try { candidate = ensureOriginDatums(v5PartCandidate()); }
     catch (error) { return say(String(error?.message || error)); }
     const part = v5RuntimeTools.studioV5RootPart(candidate);
-    const feature = featureId ? part.features.find((entry) => entry.id === featureId && (entry.type === 'transform' || entry.type === 'loft' || entry.type === 'sweep')) : null;
+    const feature = featureId ? part.features.find((entry) => entry.id === featureId && (
+      entry.type === 'transform' || entry.type === 'loft' || entry.type === 'sweep' ||
+      (entry.type === 'revolve' && entry.profileSketchId) || entry.type === 'draft' || entry.type === 'thicken' ||
+      (entry.type === 'fillet' && Array.isArray(entry.variableRadii))
+    )) : null;
     const datum = datumId ? part.referenceGeometry.find((entry) => entry.id === datumId) : null;
     const sketch = sketchId ? part.sketches.find((entry) => entry.id === sketchId) : null;
     const pattern = patternId ? (part.bodyPatterns || []).find((entry) => entry.id === patternId) : null;
     const transformCommands = new Set(['move', 'copy', 'rotate', 'mirror', 'scale', 'align']);
+    const modifierCommands = new Set(['draft', 'thicken', 'variable-fillet']);
     if (transformCommands.has(command) && !feature && !part.bodies.some((body) => body.id === selectedBodyId)) return say('Select a body before using a transform command.');
+    if (modifierCommands.has(command) && !feature && !part.bodies.some((body) => body.id === selectedBodyId)) return say('Select a body before using this advanced modifier.');
+    if (command === 'split' && !part.bodies.some((body) => body.id === selectedBodyId)) return say('Select a target body before using Boolean Split.');
+    if (command === 'split' && part.bodies.filter((body) => !body.suppressed).length < 2) return say('Boolean Split requires a separate exact tool body.');
     if (command === 'pattern' && !pattern && !part.bodies.some((body) => body.id === selectedBodyId)) return say('Select a source body before creating a pattern.');
     v5Dialog.dataset.command = command;
     v5Dialog.dataset.datumId = datumId || '';
@@ -2060,14 +2551,15 @@
     v5Dialog.dataset.occurrenceId = '';
     v5Dialog.dataset.mateKind = '';
     v5Dialog.dataset.mateId = '';
-    v5Dialog.dataset.bodyId = feature?.sourceBodyId || selectedBodyId || '';
-    $('bw-v5-command-kind').textContent = command === 'plane' ? 'Reference geometry' : command === 'profile' || command === 'path' ? 'Editable sketch geometry' : command === 'loft' || command === 'sweep' ? 'Advanced shape' : command === 'pattern' ? 'Linked body occurrences' : 'Body transform';
+    v5Dialog.dataset.bodyId = feature?.sourceBodyId || feature?.resultPolicy?.targetBodyIds?.[0] || selectedBodyId || '';
+    $('bw-v5-command-kind').textContent = command === 'plane' ? 'Reference geometry' : command === 'profile' || command === 'path' ? 'Editable sketch geometry' : command === 'loft' || command === 'sweep' || command === 'revolve-advanced' || modifierCommands.has(command) ? 'Advanced shape' : command === 'pattern' ? 'Linked body occurrences' : command === 'split' ? 'Boolean body operation' : 'Body transform';
     $('bw-v5-command-title').textContent = command === 'plane'
       ? (datum ? 'Edit ' + datum.name : 'Construction plane')
       : command === 'profile' || command === 'path'
         ? (sketch ? 'Edit ' + sketch.name : 'Create ' + command)
-        : command === 'loft' || command === 'sweep'
+        : command === 'loft' || command === 'sweep' || command === 'revolve-advanced' || modifierCommands.has(command)
           ? (feature ? 'Edit ' + feature.name : 'Create ' + command)
+          : command === 'split' ? 'Split body with another body'
           : command === 'pattern'
             ? (pattern ? 'Edit ' + pattern.name : 'Create body pattern')
           : (command[0].toUpperCase() + command.slice(1) + ' body');
@@ -2075,11 +2567,19 @@
     if (command === 'plane') renderPlaneCommandFields(candidate, datum);
     else if (command === 'profile' || command === 'path') renderSketchCommandFields(candidate, command, sketch);
     else if (command === 'loft' || command === 'sweep') renderAdvancedShapeFields(candidate, command, feature);
+    else if (command === 'revolve-advanced' || modifierCommands.has(command)) renderAdvancedModifierFields(candidate, command, feature);
     else if (command === 'pattern') renderBodyPatternFields(candidate, pattern);
+    else if (command === 'split') renderBooleanSplitFields(candidate);
     else renderTransformCommandFields(candidate, command, feature);
     v5Dialog.__candidate = candidate;
-    if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
+    const usesGizmo = ['move', 'copy', 'rotate'].includes(command);
+    v5Dialog.classList.toggle('with-gizmo', usesGizmo);
+    if (usesGizmo && typeof v5Dialog.show === 'function') v5Dialog.show();
+    else if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
     else v5Dialog.setAttribute('open', '');
+    if (usesGizmo && !beginTransformPreview(command, feature)) {
+      v5Fields.insertAdjacentHTML('beforeend', '<p class="is-wide">The exact numeric controls remain available while this body is rebuilding.</p>');
+    }
   }
 
   $('bw-v5-command-cancel')?.addEventListener('click', closeV5Command);
@@ -2128,6 +2628,30 @@
           : command === 'loft'
             ? v5RuntimeTools.createStudioV5LoftFeature(candidate, { id: 'feature-loft-' + newId(), ...patch, bodyName: patch.name })
             : v5RuntimeTools.createStudioV5SweepFeature(candidate, { id: 'feature-sweep-' + newId(), ...patch, bodyName: patch.name });
+      } else if (command === 'revolve-advanced') {
+        const patch = {
+          name: form.elements.namedItem('name').value.trim(), profileSketchId: form.elements.namedItem('profileSketchId').value,
+          axisDatumId: form.elements.namedItem('axisDatumId').value, angle: formNumber(form, 'angle'),
+          startAngle: formNumber(form, 'startAngle'), symmetric: form.elements.namedItem('symmetric').checked,
+        };
+        candidate = featureId
+          ? v5RuntimeTools.updateStudioV5AdvancedFeature(candidate, featureId, patch)
+          : v5RuntimeTools.createStudioV5RevolveFeature(candidate, { id: 'feature-revolve-' + newId(), ...patch, bodyName: patch.name });
+      } else if (command === 'draft' || command === 'thicken' || command === 'variable-fillet') {
+        const patch = advancedModifierFromForm(form, command);
+        candidate = featureId
+          ? v5RuntimeTools.updateStudioV5AdvancedFeature(candidate, featureId, patch)
+          : command === 'draft'
+            ? v5RuntimeTools.createStudioV5DraftFeature(candidate, { id: 'feature-draft-' + newId(), ...patch })
+            : command === 'thicken'
+              ? v5RuntimeTools.createStudioV5ThickenFeature(candidate, { id: 'feature-thicken-' + newId(), ...patch })
+              : v5RuntimeTools.createStudioV5VariableFilletFeature(candidate, { id: 'feature-variable-fillet-' + newId(), ...patch });
+      } else if (command === 'split') {
+        candidate = v5RuntimeTools.createStudioV5BooleanSplit(candidate, {
+          id: 'split-' + newId(), name: form.elements.namedItem('name').value.trim(),
+          targetBodyId: form.elements.namedItem('targetBodyId').value, toolBodyId: form.elements.namedItem('toolBodyId').value,
+          keepOriginal: form.elements.namedItem('keepOriginal').checked, keepTools: form.elements.namedItem('keepTools').checked,
+        });
       } else if (command === 'pattern') {
         const patch = bodyPatternFromForm(form);
         candidate = patternId
@@ -2148,7 +2672,7 @@
       if (validation.errors?.length) throw new Error(validation.errors[0].message);
       const subject = command.startsWith('assembly-') ? command.slice('assembly-'.length).replace('-', ' ')
         : command.startsWith('inspection-') ? command.slice('inspection-'.length).replace('-', ' ')
-        : command === 'plane' ? 'construction plane' : command === 'profile' || command === 'path' ? command + ' sketch' : command === 'loft' || command === 'sweep' ? command + ' feature' : command === 'pattern' ? 'body pattern' : command + ' transform';
+        : command === 'plane' ? 'construction plane' : command === 'profile' || command === 'path' ? command + ' sketch' : command === 'loft' || command === 'sweep' || command === 'revolve-advanced' || command === 'draft' || command === 'thicken' || command === 'variable-fillet' ? command + ' feature' : command === 'pattern' ? 'body pattern' : command === 'split' ? 'Boolean Split' : command + ' transform';
       commit((featureId || datumId || sketchId || patternId || mateId ? 'Edit ' : 'Create ') + subject, () => candidate);
       closeV5Command();
     } catch (error) {
@@ -2172,14 +2696,14 @@
 
   async function runV5Inspection(inspectionMode) {
     if (!v5RuntimeTools.isStudioV5Project(doc)) return say('Engineering inspection requires a schema-5 project.');
-    const selected = inspectionResultsForSelection().map((entry) => entry.bodyId);
+    const selected = inspectionMode === 'measurements' ? [] : inspectionResultsForSelection().map((entry) => entry.bodyId);
     if (inspectionMode === 'clearance' && selected.length !== 2) return say('Select exactly two bodies or one two-body subassembly for clearance.');
     const sourceRevision = documentRevision;
     const sourceHash = v5RuntimeTools.studioV5CanonicalHash(doc);
     try {
       const options = {
         mode: inspectionMode,
-        ...(inspectionMode === 'interference' && selected.length === 0 ? {} : { bodyIds: selected }),
+        ...((inspectionMode === 'interference' && selected.length === 0) || inspectionMode === 'measurements' ? {} : { bodyIds: selected }),
         ...(inspectionMode === 'clearance' ? { pairBodyIds: selected } : {}),
       };
       const response = await kernelCall('inspect-v5', documentRevision, options);
@@ -2190,18 +2714,44 @@
       if (response.errors?.length) return say('Inspection needs review: ' + response.errors[0].message);
       const count = lastInspection.bodyCount;
       const interferenceCount = lastInspection.pairs.filter((pair) => pair.interferenceVolumeMm3 > 1e-8).length;
-      say(inspectionMode === 'interference' ? interferenceCount + ' interfering pair' + (interferenceCount === 1 ? '' : 's') + ' found.' : inspectionMode === 'clearance' ? 'Exact minimum clearance calculated.' : 'Mass and health updated for ' + count + ' bod' + (count === 1 ? 'y.' : 'ies.'));
+      say(inspectionMode === 'interference' ? interferenceCount + ' interfering pair' + (interferenceCount === 1 ? '' : 's') + ' found.' : inspectionMode === 'clearance' ? 'Exact minimum clearance calculated.' : inspectionMode === 'measurements' ? lastInspection.measurementResults.length + ' saved measurement' + (lastInspection.measurementResults.length === 1 ? '' : 's') + ' evaluated.' : 'Mass and health updated for ' + count + ' bod' + (count === 1 ? 'y.' : 'ies.'));
     } catch (error) { say('Inspection failed: ' + String(error?.message || error)); }
   }
 
   document.querySelectorAll('[data-inspection-command]').forEach((button) => button.addEventListener('click', () => {
     const command = button.dataset.inspectionCommand;
-    if (['section', 'explode', 'stage', 'material'].includes(command)) openInspectionCommand(command);
+    if (['section', 'explode', 'stage', 'material', 'measure'].includes(command)) openInspectionCommand(command);
     else runV5Inspection(command);
   }));
+  document.querySelectorAll('[data-display-mode]').forEach((button) => button.addEventListener('click', () => {
+    if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') return say('Assembly display modes require an assembly document.');
+    const displayMode = button.dataset.displayMode;
+    commit('Set ' + displayMode + ' display', () => v5InspectionTools.setStudioV5DisplayMode(doc, displayMode));
+  }));
 
-  async function rebuild() {
+  let preRenderedAssemblyTreeReuseCount = 0;
+  function assemblyTreeResultFingerprint() {
+    const trace = lastEvaluationTrace || {};
+    return JSON.stringify({
+      bodies: lastBodyResults.map((entry) => ({
+        id: entry.bodyId,
+        name: entry.bodyName,
+        visible: entry.visible,
+        suppressed: entry.suppressed,
+        occurrenceId: entry.occurrenceInstance?.occurrenceId || null,
+        occurrencePath: entry.occurrenceInstance?.occurrencePath || null,
+      })).sort((left, right) => left.id.localeCompare(right.id)),
+      featureErrors: [...buildErrors].sort(([left], [right]) => left.localeCompare(right)),
+      bodyErrors: [...bodyBuildErrors].sort(([left], [right]) => left.localeCompare(right)),
+      solverState: trace.solverState || null,
+      degreesOfFreedom: trace.degreesOfFreedom || null,
+      conflicts: trace.conflicts || null,
+    });
+  }
+
+  async function rebuild(options = {}) {
     const revision = ++documentRevision;
+    const previousAssemblyTreeResult = assemblyTreeResultFingerprint();
     latestRequestedRevision = revision;
     if (mode.kind === 'idle' || mode.kind === 'rebuilding') setMode({ kind: 'rebuilding' });
     if (!doc.features.length && !(v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly')) {
@@ -2219,6 +2769,22 @@
     }
     let response;
     try {
+      // OpenCascade's Emscripten allocator cannot return grown linear-memory
+      // pages to the browser. Recreate the isolated worker at a bounded edit
+      // interval so transient preview/rebuild peaks do not become retained
+      // process memory. The committed document and GPU template cache remain
+      // authoritative; the replacement worker performs an ordinary cold
+      // rebuild and preserves selections/history.
+      if (v5RuntimeTools.isStudioV5Project(doc)
+        && successfulV5Rebuilds >= KERNEL_COMPACTION_REBUILD_INTERVAL
+        && kernelWorker
+        && kernelPending.size === 0) {
+        kernelWorker.terminate();
+        kernelWorker = null;
+        kernelReady = null;
+        successfulV5Rebuilds = 0;
+        kernelRestartCount++;
+      }
       response = await kernelCall('rebuild', revision);
     } catch (error) {
       if (revision === latestRequestedRevision) {
@@ -2230,6 +2796,7 @@
     // A slow earlier rebuild must never overwrite a newer requested state.
     if (response.revision !== latestRequestedRevision) return;
     latestAppliedRevision = response.revision;
+    if (v5RuntimeTools.isStudioV5Project(doc)) successfulV5Rebuilds++;
     appliedRevisionLog.push(response.revision);
     if (appliedRevisionLog.length > 200) appliedRevisionLog.shift();
     kernelRestarting = false;
@@ -2268,7 +2835,15 @@
     } catch {
       say('Display meshing failed.', false);
     }
-    renderHistory();
+    const canReusePreRenderedAssemblyTree = options.treePreRendered === true
+      && v5RuntimeTools.isStudioV5Project(doc)
+      && doc.rootDocument?.kind === 'assembly'
+      && previousAssemblyTreeResult === assemblyTreeResultFingerprint();
+    if (canReusePreRenderedAssemblyTree) {
+      preRenderedAssemblyTreeReuseCount++;
+      syncBodyMeshState();
+    }
+    else renderHistory();
     const failed = (response.errors || [])[0];
     const errEl = $('bw-cmd-err');
     if (errEl) errEl.textContent = failed ? (OP_LABEL[failed.featureType] || 'Body') + ' failed: ' + failed.message : '';
@@ -2288,17 +2863,301 @@
     );
   };
 
-  let edgeLines = []; // pickable Line objects with userData.sig
+  let edgeLines = []; // one pickable/rendered LineSegments batch per body
   let solidMesh = null; // the shaded mesh, for face raycasts
   let faceRanges = []; // [{t0, t1, faceId}] triangle ranges per B-rep face
   let faceByHash = new Map(); // faceId -> serializable planar-face metadata
   let bodyMeshes = new Map(); // body id -> independently selectable shaded mesh
+  let bodyTemplateCache = new Map(); // source key -> reusable GPU geometry and topology
+  let sectionCapObjects = [];
+  let sectionCapFingerprint = null;
+  let sceneBatchFingerprint = null;
+  let sceneSolidBatchEntries = new Map();
+
+  function edgeBatch(edges = []) {
+    const positions = [];
+    const entries = [];
+    for (const edge of edges) {
+      const points = edge.points || [];
+      const start = positions.length / 3;
+      for (let offset = 0; offset + 5 < points.length; offset += 3) {
+        positions.push(
+          points[offset], points[offset + 1], points[offset + 2],
+          points[offset + 3], points[offset + 4], points[offset + 5],
+        );
+      }
+      const count = positions.length / 3 - start;
+      if (count) entries.push({ start, count, sig: edge.sig });
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    return { geometry, entries };
+  }
+
+  const edgeSignatureKey = (signature) => JSON.stringify(signature || null);
+  function edgeSignatureForHit(hit) {
+    const entries = hit?.object?.userData?.edgeEntries || [];
+    const vertexIndex = Number(hit?.index ?? -1);
+    return entries.find((entry) => vertexIndex >= entry.start && vertexIndex < entry.start + entry.count)?.sig || null;
+  }
+  function edgeSignaturesForLine(line) {
+    return (line.userData.edgeEntries || []).map((entry) => entry.sig).filter(Boolean);
+  }
+  function clearEdgeSelectionOverlay(line) {
+    const overlay = line.userData.selectionOverlay;
+    if (!overlay) return;
+    line.remove(overlay);
+    overlay.geometry?.dispose?.();
+    overlay.material?.dispose?.();
+    line.userData.selectionOverlay = null;
+  }
+  function setEdgePickedSignatures(line, signatures = []) {
+    line.userData.pickedSignatures = new Set(signatures.map(edgeSignatureKey));
+    line.material.color.set(line.userData.baseColor || 0x30475c);
+    clearEdgeSelectionOverlay(line);
+    if (!line.userData.pickedSignatures.size) return;
+    const source = line.geometry?.getAttribute?.('position');
+    if (!source) return;
+    const positions = [];
+    for (const entry of line.userData.edgeEntries || []) {
+      if (!line.userData.pickedSignatures.has(edgeSignatureKey(entry.sig))) continue;
+      for (let index = entry.start; index < entry.start + entry.count; index++) {
+        positions.push(source.getX(index), source.getY(index), source.getZ(index));
+      }
+    }
+    if (!positions.length) return;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const material = EDGE_MAT.clone();
+    material.color.set(0xe67e22);
+    material.clippingPlanes = line.material.clippingPlanes;
+    material.clipIntersection = line.material.clipIntersection;
+    const overlay = new THREE.LineSegments(geometry, material);
+    overlay.renderOrder = 2;
+    line.add(overlay);
+    line.userData.selectionOverlay = overlay;
+  }
+
+  function clearSceneBatches() {
+    for (const object of [...sceneBatchObjects, ...sceneInteractiveBatchObjects]) {
+      object.parent?.remove(object);
+      object.material?.dispose?.();
+      object.geometry?.dispose?.();
+      object.dispose?.();
+    }
+    sceneBatchObjects = [];
+    sceneInteractiveBatchObjects = [];
+    sceneProxyObjects = [];
+    sceneBatchFingerprint = null;
+    sceneSolidBatchEntries = new Map();
+    sceneInteractiveSolidBatchEntries = new Map();
+    sceneInteractiveTriangleCount = 0;
+  }
+
+  const clippingStyle = (material) => (material?.clippingPlanes || [])
+    .map((plane) => [plane.normal.x, plane.normal.y, plane.normal.z, plane.constant]);
+
+  // BatchedMesh relies on WEBGL_multi_draw for one physical draw. Chrome's
+  // software renderer and older integrated GPUs do not expose that extension,
+  // so a 160-body assembly silently falls back to hundreds of draws. Merge the
+  // already-tessellated instance geometry instead: exact per-body meshes stay
+  // available as hidden picking proxies, while each visible material bucket is
+  // one physical draw on every WebGL2 implementation.
+  function mergedMeshGeometry(meshes, includeColors = false) {
+    const positions = [];
+    const normals = [];
+    const colors = [];
+    const indices = [];
+    const entries = [];
+    const hasNormals = meshes.every((mesh) => Boolean(mesh.geometry.getAttribute('normal')));
+    const point = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    const normalMatrix = new THREE.Matrix3();
+    let vertexOffset = 0;
+    for (const mesh of meshes) {
+      const source = mesh.geometry.getAttribute('position');
+      const sourceNormal = mesh.geometry.getAttribute('normal');
+      const sourceIndex = mesh.geometry.getIndex();
+      normalMatrix.getNormalMatrix(mesh.matrix);
+      const start = vertexOffset;
+      for (let index = 0; index < source.count; index++) {
+        point.set(source.getX(index), source.getY(index), source.getZ(index)).applyMatrix4(mesh.matrix);
+        positions.push(point.x, point.y, point.z);
+        if (hasNormals) {
+          normal.set(sourceNormal.getX(index), sourceNormal.getY(index), sourceNormal.getZ(index)).applyNormalMatrix(normalMatrix);
+          normals.push(normal.x, normal.y, normal.z);
+        }
+        if (includeColors) colors.push(mesh.material.color.r, mesh.material.color.g, mesh.material.color.b);
+      }
+      if (sourceIndex) {
+        for (let index = 0; index < sourceIndex.count; index++) indices.push(vertexOffset + sourceIndex.getX(index));
+      } else {
+        for (let index = 0; index < source.count; index++) indices.push(vertexOffset + index);
+      }
+      vertexOffset += source.count;
+      entries.push({ bodyId: mesh.userData.bodyId, start, count: source.count, colorHex: mesh.material.color.getHex() });
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    if (hasNormals) geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    else geometry.computeVertexNormals();
+    if (includeColors) geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    return { geometry, entries };
+  }
+
+  function syncSolidBatchColors(meshes, entries) {
+    const touched = new Set();
+    for (const mesh of meshes) {
+      const entry = entries.get(mesh.userData.bodyId);
+      const colorHex = mesh.material.color.getHex();
+      if (!entry || entry.colorHex === colorHex) continue;
+      const attribute = entry.batch.geometry.getAttribute('color');
+      for (let index = entry.start; index < entry.start + entry.count; index++) {
+        attribute.setXYZ(index, mesh.material.color.r, mesh.material.color.g, mesh.material.color.b);
+      }
+      entry.colorHex = colorHex;
+      touched.add(attribute);
+    }
+    for (const attribute of touched) attribute.needsUpdate = true;
+  }
+
+  function syncSceneSolidBatchColors(meshes) {
+    syncSolidBatchColors(meshes, sceneSolidBatchEntries);
+    syncSolidBatchColors(meshes, sceneInteractiveSolidBatchEntries);
+  }
+
+  function interactionBoundsGeometry(mesh) {
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    const bounds = mesh.geometry.boundingBox;
+    if (!bounds || bounds.isEmpty()) return null;
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    // Avoid zero-area boxes for sheet-like imported geometry while keeping
+    // the preview faithful to the body's actual local bounds.
+    size.set(Math.max(size.x, 0.02), Math.max(size.y, 0.02), Math.max(size.z, 0.02));
+    const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+    geometry.translate(center.x, center.y, center.z);
+    return geometry;
+  }
+
+  function buildInteractiveSolidBatch(meshes) {
+    const proxies = [];
+    for (const mesh of meshes) {
+      const geometry = interactionBoundsGeometry(mesh);
+      if (!geometry) continue;
+      const proxy = new THREE.Mesh(geometry, mesh.material);
+      proxy.matrix.copy(mesh.matrix);
+      proxy.matrixAutoUpdate = false;
+      proxy.userData.bodyId = mesh.userData.bodyId;
+      proxies.push(proxy);
+    }
+    if (!proxies.length) return;
+    const merged = mergedMeshGeometry(proxies, true);
+    for (const proxy of proxies) proxy.geometry.dispose();
+    const material = meshes[0].material.clone();
+    material.color.set(0xffffff);
+    material.emissive?.setHex(0x000000);
+    material.vertexColors = true;
+    const batch = new THREE.Mesh(merged.geometry, material);
+    for (const entry of merged.entries) sceneInteractiveSolidBatchEntries.set(entry.bodyId, { batch, ...entry });
+    batch.frustumCulled = false;
+    batch.visible = false;
+    batch.userData.sceneInteractiveSolidBatch = true;
+    partGroup.add(batch);
+    sceneInteractiveBatchObjects.push(batch);
+    sceneInteractiveTriangleCount += merged.geometry.getIndex()?.count / 3 || 0;
+  }
+
+  function rebuildSceneBatches() {
+    const visibleMeshes = [...bodyMeshes.values()].filter((entry) => entry.visible);
+    const visibleLines = edgeLines.filter((entry) => entry.visible);
+    const fingerprint = JSON.stringify({
+      solids: visibleMeshes.map((mesh) => [mesh.userData.bodyId, mesh.geometry.uuid, mesh.matrix.toArray(), clippingStyle(mesh.material), mesh.material.wireframe, mesh.material.metalness, mesh.material.roughness, mesh.material.opacity, mesh.material.transparent, mesh.material.depthWrite]),
+      edges: visibleLines.map((line) => [line.userData.bodyId, line.geometry.uuid, line.matrix.toArray(), clippingStyle(line.material), line.material.clipIntersection, line.userData.baseColor]),
+    });
+    if (fingerprint === sceneBatchFingerprint && sceneBatchObjects.length) {
+      syncSceneSolidBatchColors(visibleMeshes);
+      return;
+    }
+    clearSceneBatches();
+    sceneBatchFingerprint = fingerprint;
+    sceneProxyObjects = [...bodyMeshes.values(), ...edgeLines];
+    const solidBuckets = new Map();
+    for (const mesh of visibleMeshes) {
+      const material = mesh.material;
+      const key = JSON.stringify({
+        wireframe: material.wireframe, metalness: material.metalness, roughness: material.roughness,
+        opacity: material.opacity, transparent: material.transparent, depthWrite: material.depthWrite,
+        clipIntersection: material.clipIntersection, clipping: clippingStyle(material),
+      });
+      const bucket = solidBuckets.get(key) || [];
+      bucket.push(mesh); solidBuckets.set(key, bucket);
+    }
+    for (const meshes of solidBuckets.values()) {
+      const material = meshes[0].material.clone();
+      material.color.set(0xffffff);
+      material.emissive?.setHex(0x000000);
+      material.vertexColors = true;
+      const merged = mergedMeshGeometry(meshes, true);
+      const batch = new THREE.Mesh(merged.geometry, material);
+      for (const entry of merged.entries) sceneSolidBatchEntries.set(entry.bodyId, { batch, ...entry });
+      batch.frustumCulled = false;
+      batch.visible = false;
+      batch.userData.sceneSolidBatch = true;
+      partGroup.add(batch); sceneBatchObjects.push(batch);
+      buildInteractiveSolidBatch(meshes);
+    }
+    const edgeBuckets = new Map();
+    for (const line of visibleLines) {
+      const key = JSON.stringify({ clipIntersection: line.material.clipIntersection, clipping: clippingStyle(line.material) });
+      const bucket = edgeBuckets.get(key) || [];
+      bucket.push(line); edgeBuckets.set(key, bucket);
+    }
+    for (const lines of edgeBuckets.values()) {
+      const positions = [];
+      const colors = [];
+      const color = new THREE.Color();
+      for (const line of lines) {
+        const source = line.geometry.getAttribute('position');
+        const matrix = line.matrix.elements;
+        const selected = line.userData.pickedSignatures || new Set();
+        for (const entry of line.userData.edgeEntries || []) {
+          color.set(selected.has(edgeSignatureKey(entry.sig)) ? 0xe67e22 : line.userData.baseColor || 0x30475c);
+          for (let index = entry.start; index < entry.start + entry.count; index++) {
+            const x = source.getX(index); const y = source.getY(index); const z = source.getZ(index);
+            positions.push(
+              matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12],
+              matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13],
+              matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14],
+            );
+            colors.push(color.r, color.g, color.b);
+          }
+        }
+      }
+      if (!positions.length) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      const material = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        clippingPlanes: lines[0].material.clippingPlanes,
+        clipIntersection: lines[0].material.clipIntersection,
+      });
+      const batch = new THREE.LineSegments(geometry, material);
+      batch.frustumCulled = false;
+      batch.visible = false;
+      batch.userData.sceneEdgeBatch = true;
+      partGroup.add(batch); sceneBatchObjects.push(batch);
+    }
+  }
 
   function setMeshData(mesh) {
     // A document rebuild can finish while a new Press / Pull draft is already
     // visible. Replace only committed geometry so that late kernel output does
     // not erase the live draft preview underneath the user's pointer.
     const draftPreviews = partGroup.children.filter((child) => child.userData?.pressPullPreview);
+    clearSceneBatches();
     for (const c of [...partGroup.children]) {
       partGroup.remove(c);
       if (draftPreviews.includes(c)) continue;
@@ -2310,6 +3169,11 @@
     bodyMeshes = new Map();
     faceRanges = [];
     faceByHash = new Map();
+    for (const template of bodyTemplateCache.values()) {
+      template.geometry.dispose();
+      template.edgeGeometry?.dispose();
+    }
+    bodyTemplateCache = new Map();
     meshBounds = mesh?.bounds ?? null;
     if (!mesh) {
       for (const preview of draftPreviews) partGroup.add(preview);
@@ -2327,11 +3191,14 @@
     }
     for (const face of mesh.planarFaces || []) faceByHash.set(face.faceId, face);
     // Exact B-rep edge polylines and signatures were extracted in the worker.
-    for (const edge of mesh.edges || []) {
-      const lineGeometry = new THREE.BufferGeometry();
-      lineGeometry.setAttribute('position', new THREE.BufferAttribute(edge.points, 3));
-      const line = new THREE.Line(lineGeometry, EDGE_MAT.clone());
-      line.userData.sig = edge.sig;
+    // Render them as one disconnected LineSegments batch so a complex part
+    // does not become one GPU draw call per topological edge.
+    const edges = edgeBatch(mesh.edges || []);
+    if (edges.entries.length) {
+      const line = new THREE.LineSegments(edges.geometry, EDGE_MAT.clone());
+      line.userData.edgeEntries = edges.entries;
+      line.userData.baseColor = 0x30475c;
+      setEdgePickedSignatures(line);
       partGroup.add(line);
       edgeLines.push(line);
     }
@@ -2345,10 +3212,16 @@
     return null;
   }
 
-  function cadMatrixToScene(matrix) {
+    function cadMatrixToScene(matrix) {
     const cadToScene = [1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1];
     const sceneToCad = [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1];
     return v5AssemblyTools.studioV5MultiplyMatrices(cadToScene, v5AssemblyTools.studioV5MultiplyMatrices(matrix, sceneToCad));
+  }
+
+  function sceneMatrixToCad(matrix) {
+    const cadToScene = [1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1];
+    const sceneToCad = [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1];
+    return v5AssemblyTools.studioV5MultiplyMatrices(sceneToCad, v5AssemblyTools.studioV5MultiplyMatrices(matrix, cadToScene));
   }
 
   function activeSectionPlanes(result) {
@@ -2367,6 +3240,105 @@
       return new THREE.Plane(normal, -normal.dot(point));
     });
     return { planes, intersection: section.kind !== 'plane', cap: section.definition.cap !== false };
+  }
+
+  function clearSectionCaps(resetFingerprint = true) {
+    const geometries = new Set();
+    for (const object of sectionCapObjects) {
+      object.parent?.remove(object);
+      object.material?.map?.dispose?.();
+      object.material?.dispose?.();
+      if (object.geometry) geometries.add(object.geometry);
+      object.dispose?.();
+    }
+    for (const geometry of geometries) geometry.dispose?.();
+    sectionCapObjects = [];
+    if (resetFingerprint) sectionCapFingerprint = null;
+  }
+
+  function sectionHatchTexture(hatch, worldSize = 64) {
+    const size = 64;
+    const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size;
+    const context = canvas.getContext('2d');
+    context.fillStyle = hatch.fillColor || '#d7e0e5'; context.fillRect(0, 0, size, size);
+    context.translate(size / 2, size / 2); context.rotate(Number(hatch.angle || 45) * Math.PI / 180); context.translate(-size / 2, -size / 2);
+    context.strokeStyle = hatch.color || '#243746'; context.lineWidth = 2;
+    const spacing = Math.max(4, Math.min(32, Number(hatch.spacing || 8)));
+    for (let x = -size; x <= size * 2; x += spacing) { context.beginPath(); context.moveTo(x, -size); context.lineTo(x, size * 2); context.stroke(); }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(Math.max(1, worldSize / size), Math.max(1, worldSize / size));
+    return texture;
+  }
+
+  function rebuildSectionCaps() {
+    if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') {
+      clearSectionCaps();
+      return;
+    }
+    const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
+    const section = assembly.sectionViews.find((entry) => entry.id === assembly.metadata?.activeSectionViewId);
+    if (!section?.definition?.cap) {
+      clearSectionCaps();
+      return;
+    }
+    const scope = section.definition.scopeOccurrenceIds || [];
+    const eligible = [...bodyMeshes].filter(([bodyId, mesh]) => {
+      const result = lastBodyResults.find((entry) => entry.bodyId === bodyId);
+      return mesh.visible && (!scope.length || scope.some((occurrenceId) => result?.occurrenceInstance?.occurrencePath?.includes(occurrenceId)));
+    });
+    if (!eligible.length) {
+      clearSectionCaps();
+      return;
+    }
+    const fingerprint = JSON.stringify({
+      section: section.definition,
+      eligible: eligible.map(([bodyId, mesh]) => [bodyId, mesh.geometry.uuid, mesh.matrix.toArray()]),
+    });
+    if (fingerprint === sectionCapFingerprint && sectionCapObjects.length) return;
+    clearSectionCaps(false);
+    sectionCapFingerprint = fingerprint;
+    const capBounds = new THREE.Box3();
+    for (const [, mesh] of eligible) capBounds.expandByObject(mesh);
+    const capCenter = capBounds.getCenter(new THREE.Vector3());
+    const capSpan = capBounds.getSize(new THREE.Vector3());
+    const capSize = Math.max(10, capSpan.length() * 1.15);
+    const sampleResult = lastBodyResults.find((entry) => entry.bodyId === eligible[0][0]);
+    const sectionState = activeSectionPlanes(sampleResult);
+    for (const [planeIndex, plane] of sectionState.planes.entries()) {
+      const stencilGeometry = mergedMeshGeometry(eligible.map(([, mesh]) => mesh)).geometry;
+      for (const [side, operation] of [[THREE.BackSide, THREE.IncrementWrapStencilOp], [THREE.FrontSide, THREE.DecrementWrapStencilOp]]) {
+        const material = new THREE.MeshBasicMaterial({
+          depthWrite: false, depthTest: false, colorWrite: false, side, clippingPlanes: sectionState.planes,
+          stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc,
+          stencilFail: operation, stencilZFail: operation, stencilZPass: operation,
+        });
+        const stencil = new THREE.Mesh(stencilGeometry, material);
+        stencil.frustumCulled = false;
+        stencil.renderOrder = planeIndex + 1;
+        stencil.userData.sectionCapStencil = true;
+        stencil.userData.sectionCapStencilBatch = true;
+        stencil.userData.sectionCapStencilCount = eligible.length;
+        partGroup.add(stencil); sectionCapObjects.push(stencil);
+      }
+      const hatch = section.definition.hatch || {};
+      const capMaterial = new THREE.MeshBasicMaterial({
+        map: hatch.enabled === false ? null : sectionHatchTexture(hatch, capSize), color: hatch.fillColor || '#d7e0e5', side: THREE.DoubleSide,
+        clippingPlanes: sectionState.planes.filter((_, index) => index !== planeIndex),
+        stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
+        stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp,
+      });
+      const cap = new THREE.Mesh(new THREE.PlaneGeometry(capSize, capSize), capMaterial);
+      const point = plane.projectPoint(capCenter, new THREE.Vector3());
+      cap.position.copy(point);
+      cap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), plane.normal.clone().normalize());
+      cap.userData.sectionCapCenter = capCenter.clone();
+      cap.userData.sectionPlaneNormal = plane.normal.clone();
+      cap.userData.sectionPlaneIndex = planeIndex;
+      cap.renderOrder = planeIndex + 1.1; cap.userData.sectionCapPlane = true;
+      cap.onAfterRender = (activeRenderer) => activeRenderer.clearStencil();
+      scene.add(cap); sectionCapObjects.push(cap);
+    }
   }
 
   function bodyAppearance(result) {
@@ -2403,6 +3375,10 @@
     mesh.material.clipIntersection = section.intersection;
     mesh.material.clipShadows = section.cap === true;
     const appearance = bodyAppearance(result);
+    const displayMode = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc).metadata?.displayMode || 'shaded-edges'
+      : 'shaded-edges';
+    mesh.material.wireframe = displayMode === 'wireframe';
     if (appearance) {
       mesh.material.metalness = Math.max(0, Math.min(1, Number(appearance.metallic ?? 0.16)));
       mesh.material.roughness = Math.max(0, Math.min(1, Number(appearance.roughness ?? 0.56)));
@@ -2412,12 +3388,25 @@
     } else {
       mesh.material.metalness = 0.16; mesh.material.roughness = 0.56; mesh.material.opacity = 1; mesh.material.transparent = false; mesh.material.depthWrite = true;
     }
+    if (displayMode === 'ghost') {
+      mesh.material.opacity = Math.min(mesh.material.opacity, 0.24);
+      mesh.material.transparent = true;
+      mesh.material.depthWrite = false;
+    } else if (displayMode === 'hidden-line') {
+      mesh.material.metalness = 0;
+      mesh.material.roughness = 1;
+      mesh.material.opacity = 0.12;
+      mesh.material.transparent = true;
+      mesh.material.depthWrite = true;
+    }
+    mesh.userData.displayMode = displayMode;
     return appearance;
   }
 
   function syncBodyMeshState() {
     const isAssembly = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly';
     const part = v5RuntimeTools.isStudioV5Project(doc) && !isAssembly ? v5RuntimeTools.studioV5RootPart(doc) : null;
+    const linesByBody = new Map(edgeLines.map((line) => [line.userData.bodyId, line]));
     for (const [bodyId, mesh] of bodyMeshes) {
       const result = lastBodyResults.find((entry) => entry.bodyId === bodyId);
       const instance = result?.patternInstance;
@@ -2425,24 +3414,36 @@
       const pattern = !isAssembly && instance ? (part?.bodyPatterns || []).find((entry) => entry.id === instance.patternId) : null;
       const occurrenceSelected = selectedOccurrenceId && result?.occurrenceInstance?.occurrencePath?.includes(selectedOccurrenceId);
       const occurrenceIsolated = appEl?.dataset.isolateOccurrence && result?.occurrenceInstance?.occurrencePath?.includes(appEl.dataset.isolateOccurrence);
+      const replacedByFusion = !instance && !isAssembly && (part?.bodyPatterns || []).some((entry) =>
+        entry.sourceBodyId === bodyId && entry.outputMode === 'union' && entry.visible !== false && !entry.suppressed);
       const shown = isAssembly
         ? Boolean(result && result.visible !== false && !result.suppressed && (!isolatedBodyId || isolatedBodyId === bodyId) && (!appEl?.dataset.isolateOccurrence || occurrenceIsolated))
-        : Boolean(source && source.visible && !source.suppressed && (!instance || (pattern && pattern.visible !== false && !pattern.suppressed)) &&
+        : Boolean(source && source.visible && !source.suppressed && !replacedByFusion && (!instance || (pattern && pattern.visible !== false && !pattern.suppressed)) &&
           (!isolatedBodyId || isolatedBodyId === bodyId || (instance && isolatedBodyId === source.id)));
       mesh.visible = shown;
       const appearance = syncInspectionDisplay(bodyId, mesh, result);
       const selected = bodyId === selectedBodyId || occurrenceSelected;
       mesh.material.color.set(selected ? 0x67b7f0 : bodyBuildErrors.has(bodyId) ? 0xc47168 : appearance?.baseColor || 0xa7b8c9);
       mesh.material.emissive?.setHex(selected ? 0x102f46 : 0x000000);
-      for (const line of edgeLines) if (line.userData.bodyId === bodyId) {
-        line.visible = shown;
+      const line = linesByBody.get(bodyId);
+      if (line) {
+        line.visible = shown && !['shaded', 'ghost', 'wireframe'].includes(mesh.userData.displayMode);
         line.matrix.copy(mesh.matrix); line.matrixAutoUpdate = false;
-        line.material.color.set(appearance?.edgeColor || 0x30475c);
+        line.userData.baseColor = appearance?.edgeColor || 0x30475c;
+        if (!line.userData.pickedSignatures?.size) line.material.color.set(line.userData.baseColor);
         const section = activeSectionPlanes(result);
         line.material.clippingPlanes = section.planes;
         line.material.clipIntersection = section.intersection;
+        if (line.userData.selectionOverlay) {
+          line.userData.selectionOverlay.material.clippingPlanes = section.planes;
+          line.userData.selectionOverlay.material.clipIntersection = section.intersection;
+        }
       }
     }
+    // Demand-driven rendering may not submit a frame before callers perform
+    // picking or query rendered bounds. Keep the CAD-to-scene parent rotation
+    // and every reused child transform current at the same state boundary.
+    partGroup.updateMatrixWorld(true);
     const activeBodyId = part?.metadata?.activeBodyId;
     const activeMesh = bodyMeshes.get(activeBodyId);
     const selectedMesh = bodyMeshes.get(selectedBodyId);
@@ -2464,71 +3465,114 @@
       }
     }
     meshBounds = Number.isFinite(aggregate[0][0]) ? aggregate : null;
+    rebuildSectionCaps();
+    rebuildSceneBatches();
+    requestSceneRender();
   }
 
   function setBodyMeshData(bodies) {
     const draftPreviews = partGroup.children.filter((child) => child.userData?.pressPullPreview);
-    for (const child of [...partGroup.children]) {
+    clearSceneBatches();
+    clearSectionCaps();
+    const previousMeshes = bodyMeshes;
+    const previousLines = edgeLines;
+    const previousLinesByBody = new Map(previousLines.map((line) => [line.userData.bodyId, line]));
+    const previouslyManaged = new Set([...previousMeshes.values(), ...previousLines, ...draftPreviews]);
+    for (const child of [...partGroup.children]) if (!previouslyManaged.has(child)) {
       partGroup.remove(child);
-      if (draftPreviews.includes(child)) continue;
-      child.geometry?.dispose();
+      child.geometry?.dispose?.();
       if (child.material && child.material !== MAT && child.material !== EDGE_MAT) child.material.dispose?.();
     }
-    edgeLines = [];
+    const nextLines = [];
     solidMesh = null;
-    bodyMeshes = new Map();
+    const nextMeshes = new Map();
     faceRanges = [];
     faceByHash = new Map();
-    const templates = new Map();
     for (const bodyResult of bodies.filter((entry) => entry.mesh)) {
       const mesh = bodyResult.mesh;
+      const sourceKey = bodyResult.renderSourceKey || bodyResult.sourceKey || bodyResult.sourceBodyId || bodyResult.bodyId;
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
       if (mesh.normals) geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
       geometry.setIndex(new THREE.BufferAttribute(mesh.triangles, 1));
       if (!mesh.normals) geometry.computeVertexNormals();
-      const edgeTemplates = (mesh.edges || []).map((edge) => {
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(edge.points, 3));
-        return { geometry, sig: edge.sig };
+      const edges = edgeBatch(mesh.edges || []);
+      const previous = bodyTemplateCache.get(sourceKey);
+      if (previous) {
+        previous.geometry.dispose();
+        previous.edgeGeometry?.dispose();
+      }
+      bodyTemplateCache.set(sourceKey, {
+        geometry, faceGroups: mesh.faceGroups || [], planarFaces: mesh.planarFaces || [],
+        edgeGeometry: edges.geometry, edgeEntries: edges.entries,
       });
-      templates.set(bodyResult.bodyId, { geometry, faceGroups: mesh.faceGroups || [], planarFaces: mesh.planarFaces || [], edgeTemplates });
+    }
+    const usedSourceKeys = new Set(bodies.map((bodyResult) => bodyResult.renderSourceKey || bodyResult.sourceKey || bodyResult.sourceBodyId || bodyResult.bodyId));
+    for (const [sourceKey, template] of bodyTemplateCache) if (!usedSourceKeys.has(sourceKey)) {
+      template.geometry.dispose();
+      template.edgeGeometry?.dispose();
+      bodyTemplateCache.delete(sourceKey);
     }
     for (const bodyResult of bodies) {
-      const template = bodyResult.mesh ? templates.get(bodyResult.bodyId) : templates.get(bodyResult.renderSourceBodyId);
+      const sourceKey = bodyResult.renderSourceKey || bodyResult.sourceKey || bodyResult.sourceBodyId || bodyResult.bodyId;
+      const template = bodyTemplateCache.get(sourceKey);
       if (!template) continue;
-      const material = MAT.clone();
-      const shaded = new THREE.Mesh(template.geometry, material);
+      const shaded = previousMeshes.get(bodyResult.bodyId) || new THREE.Mesh(template.geometry, MAT.clone());
+      shaded.geometry = template.geometry;
       shaded.userData.bodyId = bodyResult.bodyId;
       shaded.userData.bounds = bodyResult.geometry?.bounds || bodyResult.mesh?.bounds || null;
       shaded.userData.solvedMatrix = Array.isArray(bodyResult.renderTransform) && bodyResult.renderTransform.length === 16 ? [...bodyResult.renderTransform] : v5AssemblyTools.studioV5IdentityMatrix();
       if (Array.isArray(bodyResult.renderTransform) && bodyResult.renderTransform.length === 16) {
         shaded.matrix.fromArray(bodyResult.renderTransform);
         shaded.matrixAutoUpdate = false;
+      } else {
+        shaded.matrix.identity();
+        shaded.matrixAutoUpdate = false;
       }
-      partGroup.add(shaded);
-      bodyMeshes.set(bodyResult.bodyId, shaded);
+      if (shaded.parent !== partGroup) partGroup.add(shaded);
+      nextMeshes.set(bodyResult.bodyId, shaded);
       for (const group of template.faceGroups) {
         faceRanges.push({ t0: group.start / 3, t1: (group.start + group.count) / 3, faceId: group.faceId, bodyId: bodyResult.bodyId, mesh: shaded });
       }
       for (const face of template.planarFaces) {
         faceByHash.set(bodyResult.bodyId + ':' + face.faceId, { ...face, bodyId: bodyResult.bodyId });
       }
-      for (const edge of template.edgeTemplates) {
-        const line = new THREE.Line(edge.geometry, EDGE_MAT.clone());
-        line.userData.sig = edge.sig;
+      if (template.edgeEntries.length) {
+        const line = previousLinesByBody.get(bodyResult.bodyId) || new THREE.LineSegments(template.edgeGeometry, EDGE_MAT.clone());
+        line.geometry = template.edgeGeometry;
+        line.userData.edgeEntries = template.edgeEntries;
         line.userData.bodyId = bodyResult.bodyId;
+        line.userData.baseColor ||= 0x30475c;
+        setEdgePickedSignatures(line);
         line.userData.solvedMatrix = [...shaded.userData.solvedMatrix];
         if (Array.isArray(bodyResult.renderTransform) && bodyResult.renderTransform.length === 16) {
           line.matrix.fromArray(bodyResult.renderTransform);
           line.matrixAutoUpdate = false;
+        } else {
+          line.matrix.identity();
+          line.matrixAutoUpdate = false;
         }
-        partGroup.add(line);
-        edgeLines.push(line);
+        if (line.parent !== partGroup) partGroup.add(line);
+        nextLines.push(line);
       }
     }
-    for (const preview of draftPreviews) partGroup.add(preview);
-    syncBodyMeshState();
+    for (const [bodyId, mesh] of previousMeshes) if (!nextMeshes.has(bodyId)) {
+      partGroup.remove(mesh);
+      mesh.material?.dispose?.();
+    }
+    const retainedLines = new Set(nextLines);
+    for (const line of previousLines) if (!retainedLines.has(line)) {
+      clearEdgeSelectionOverlay(line);
+      partGroup.remove(line);
+      line.material?.dispose?.();
+    }
+    bodyMeshes = nextMeshes;
+    edgeLines = nextLines;
+    for (const preview of draftPreviews) if (preview.parent !== partGroup) partGroup.add(preview);
+    // rebuild() immediately follows this geometry swap with renderHistory(),
+    // whose body-tree pass synchronizes visibility, appearance, placement,
+    // bounds, and section caps. Running the same pass here rebuilt every
+    // section stencil twice for each exact edit.
   }
 
   const faceForRange = (range) => range && faceByHash.get(range.bodyId ? range.bodyId + ':' + range.faceId : range.faceId);
@@ -2551,19 +3595,22 @@
     try { resolution = v5ModelingTools.resolveStudioV5Datums(doc, part.id); } catch {}
     if (summary) summary.textContent = part.referenceGeometry.length + ' reference' + (part.referenceGeometry.length === 1 ? '' : 's');
     for (const datum of part.referenceGeometry) {
+      const datumError = resolution?.errors?.get(datum.id);
       const row = document.createElement('div');
       row.className = 'datum-row';
       row.dataset.datumId = datum.id;
-      row.dataset.broken = String(Boolean(resolution?.errors?.has(datum.id)));
+      row.dataset.broken = String(Boolean(datumError));
+      setTreeItemSemantics(row, { selected: datum.id === selectedDatumId, suppressed: datum.suppressed, failed: Boolean(datumError), label: datum.name });
       const select = document.createElement('button');
       select.type = 'button';
       select.dataset.datumAction = 'select';
-      select.innerHTML = '<span>' + datum.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</span><small>' + datum.kind + (datum.suppressed ? ' · suppressed' : '') + '</small>';
+      select.innerHTML = '<span>' + datum.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</span><small>' + datum.kind + (datum.suppressed ? ' · suppressed' : '') + (datumError ? ' · repair required' : '') + '</small>';
+      if (datumError) select.title = String(datumError?.message || datumError);
       const edit = document.createElement('button');
       edit.type = 'button';
       edit.dataset.datumAction = 'edit';
-      edit.textContent = '⋯';
-      edit.title = 'Edit ' + datum.name;
+      edit.textContent = datumError ? 'Repair' : '⋯';
+      edit.title = (datumError ? 'Repair ' : 'Edit ') + datum.name;
       row.append(select, edit);
       tree.appendChild(row);
     }
@@ -2584,6 +3631,7 @@
       const row = document.createElement('div');
       row.className = 'datum-row';
       row.dataset.sketchId = sketch.id;
+      setTreeItemSemantics(row, { selected: sketch.id === selectedSketchId, suppressed: sketch.suppressed, label: sketch.name });
       const select = document.createElement('button');
       select.type = 'button'; select.dataset.sketchAction = 'select';
       select.innerHTML = '<span>' + sketch.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</span><small>' + sketch.extensions.studioRole + ' · ' + (sketch.entities[0]?.kind || 'curve') + '</small>';
@@ -2607,23 +3655,31 @@
     if (summary) summary.textContent = patterns.length + ' pattern' + (patterns.length === 1 ? '' : 's');
     for (const pattern of patterns) {
       const row = document.createElement('div');
-      row.className = 'datum-row pattern-row';
+      row.className = 'datum-row pattern-row' + (buildErrors.has(pattern.id) ? ' is-broken' : '');
       row.dataset.patternId = pattern.id;
       const select = document.createElement('button');
       select.type = 'button'; select.dataset.patternAction = 'edit';
-      const generated = lastBodyResults.filter((entry) => entry.patternInstance?.patternId === pattern.id);
-      select.innerHTML = '<span>' + pattern.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</span><small>' + pattern.kind + ' · ' + (generated.length + 1) + ' active instances</small>';
+      const generated = lastBodyResults.filter((entry) => entry.patternInstance?.patternId === pattern.id && entry.visible !== false);
+      setTreeItemSemantics(row, {
+        selected: generated.some((entry) => entry.bodyId === selectedBodyId), expanded: true,
+        hidden: pattern.visible === false, failed: buildErrors.has(pattern.id), count: generated.length + 1, label: pattern.name,
+      });
+      select.innerHTML = '<span>' + pattern.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</span><small>' +
+        (buildErrors.has(pattern.id) ? 'FAILED · Repair references' : pattern.kind + ' · ' + (pattern.outputMode === 'union' ? 'fused solid' : (generated.length + 1) + ' active instances')) + '</small>';
       const visibility = document.createElement('button');
       visibility.type = 'button'; visibility.dataset.patternAction = 'visibility'; visibility.textContent = pattern.visible === false ? '○' : '●'; visibility.title = pattern.visible === false ? 'Show pattern' : 'Hide pattern';
       const remove = document.createElement('button');
       remove.type = 'button'; remove.dataset.patternAction = 'delete'; remove.textContent = '×'; remove.title = 'Delete ' + pattern.name;
-      row.append(select, visibility, remove); tree.appendChild(row);
+      const dissolve = document.createElement('button');
+      dissolve.type = 'button'; dissolve.dataset.patternAction = 'dissolve'; dissolve.textContent = 'D'; dissolve.title = 'Dissolve generated occurrences into independent exact bodies';
+      row.append(select, visibility, dissolve, remove); tree.appendChild(row);
       for (const result of generated) {
         const child = document.createElement('div');
         child.className = 'pattern-instance-row' + (result.bodyId === selectedBodyId ? ' is-selected' : '');
         child.dataset.patternInstanceId = result.bodyId;
         child.dataset.patternId = pattern.id;
         child.dataset.patternIndex = String(result.patternInstance.index);
+        setTreeItemSemantics(child, { level: 2, selected: result.bodyId === selectedBodyId, hidden: result.visible === false, label: result.bodyName });
         const button = document.createElement('button');
         button.type = 'button'; button.dataset.patternInstanceAction = 'select'; button.textContent = result.bodyName;
         const exportLabel = document.createElement('label');
@@ -2633,13 +3689,16 @@
         exportLabel.appendChild(exportBox);
         const skip = document.createElement('button');
         skip.type = 'button'; skip.dataset.patternInstanceAction = 'skip'; skip.textContent = 'Skip';
-        child.append(button, exportLabel, skip); tree.appendChild(child);
+        const independent = document.createElement('button');
+        independent.type = 'button'; independent.dataset.patternInstanceAction = 'independent'; independent.textContent = 'Independent';
+        child.append(button, exportLabel, skip, independent); tree.appendChild(child);
       }
     }
   }
 
   function renderAssemblyTree() {
     const isAssembly = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly';
+    if (appEl) appEl.dataset.documentKind = isAssembly ? 'assembly' : 'part';
     const partOnly = ['bw-part-origin'];
     for (const id of partOnly) if ($(id)) $(id).hidden = isAssembly;
     document.querySelector('.ws-datums')?.toggleAttribute('hidden', isAssembly);
@@ -2672,6 +3731,12 @@
       const row = document.createElement('div');
       row.className = 'assembly-row' + (occurrence.id === selectedOccurrenceId ? ' is-selected' : '') + (occurrence.suppressed ? ' is-suppressed' : '');
       row.dataset.occurrenceId = occurrence.id;
+      const occurrenceResults = lastBodyResults.filter((entry) => entry.occurrenceInstance?.occurrencePath?.[0] === occurrence.id);
+      const occurrenceLeafCount = new Set(occurrenceResults.map((entry) => entry.occurrenceInstance?.occurrenceId).filter(Boolean)).size;
+      setTreeItemSemantics(row, {
+        selected: occurrence.id === selectedOccurrenceId, expanded: true, hidden: occurrence.visible === false,
+        suppressed: occurrence.suppressed, failed: !definitionName(occurrence.definition), count: Math.max(1, occurrenceLeafCount), label: occurrence.name,
+      });
       const select = document.createElement('button');
       select.type = 'button'; select.dataset.occurrenceAction = 'select';
       const dof = lastEvaluationTrace?.degreesOfFreedom?.[occurrence.id];
@@ -2692,16 +3757,18 @@
         const child = document.createElement('div');
         child.className = 'assembly-leaf-row' + (runtimeOccurrenceId === selectedOccurrenceId ? ' is-selected' : '');
         child.dataset.runtimeOccurrenceId = runtimeOccurrenceId;
+        setTreeItemSemantics(child, { level: 2, selected: runtimeOccurrenceId === selectedOccurrenceId, hidden: results.every((entry) => entry.visible === false), label: results[0].bodyName });
         const button = document.createElement('button');
         button.type = 'button'; button.dataset.runtimeOccurrenceAction = 'select'; button.textContent = results[0].bodyName.split(' / ').slice(0, -1).join(' / ') || results[0].bodyName;
         const exportLabel = document.createElement('label'); exportLabel.title = 'Select component solids for export';
         const exportBox = document.createElement('input'); exportBox.type = 'checkbox'; exportBox.dataset.occurrenceExport = runtimeOccurrenceId;
-        exportBox.checked = results.every((entry) => exportBodyIds.has(entry.bodyId)); exportLabel.appendChild(exportBox);
+        exportBox.checked = results.every((entry) => exportBodyIds.has(entry.bodyId)); exportBox.setAttribute('aria-label', 'Select ' + (results[0].bodyName || runtimeOccurrenceId) + ' solids for export'); exportLabel.appendChild(exportBox);
         child.append(button, exportLabel); tree.appendChild(child);
       }
     }
     for (const pattern of assembly.occurrencePatterns) {
       const row = document.createElement('div'); row.className = 'assembly-pattern-row'; row.dataset.occurrencePatternId = pattern.id;
+      setTreeItemSemantics(row, { expanded: true, count: pattern.generatedCount, label: pattern.name });
       row.innerHTML = '<span>' + escapeHtml(pattern.name) + '</span><small>' + pattern.kind + ' · ' + pattern.generatedCount + ' generated</small>';
       tree.appendChild(row);
       const generated = new Map();
@@ -2714,11 +3781,12 @@
         const child = document.createElement('div');
         child.className = 'assembly-leaf-row' + (occurrenceId === selectedOccurrenceId ? ' is-selected' : '');
         child.dataset.runtimeOccurrenceId = occurrenceId;
+        setTreeItemSemantics(child, { level: 2, selected: occurrenceId === selectedOccurrenceId, hidden: results.every((entry) => entry.visible === false), label: results[0].bodyName });
         const button = document.createElement('button'); button.type = 'button'; button.dataset.runtimeOccurrenceAction = 'select';
         button.textContent = results[0].bodyName.split(' / ').slice(0, -1).join(' / ') || results[0].bodyName;
         const exportLabel = document.createElement('label'); exportLabel.title = 'Select generated component solids for export';
         const exportBox = document.createElement('input'); exportBox.type = 'checkbox'; exportBox.dataset.occurrenceExport = occurrenceId;
-        exportBox.checked = results.every((entry) => exportBodyIds.has(entry.bodyId)); exportLabel.appendChild(exportBox);
+        exportBox.checked = results.every((entry) => exportBodyIds.has(entry.bodyId)); exportBox.setAttribute('aria-label', 'Select ' + (results[0].bodyName || occurrenceId) + ' solids for export'); exportLabel.appendChild(exportBox);
         child.append(button, exportLabel); tree.appendChild(child);
       }
     }
@@ -2727,27 +3795,35 @@
       row.className = 'mate-row' + (mate.id === selectedMateId ? ' is-selected' : '') + (mate.suppressed ? ' is-suppressed' : '') +
         (lastEvaluationTrace?.conflicts?.some((set) => set.includes(mate.id)) ? ' is-failed' : '');
       row.dataset.mateId = mate.id;
+      setTreeItemSemantics(row, {
+        selected: mate.id === selectedMateId, suppressed: mate.suppressed,
+        failed: lastEvaluationTrace?.conflicts?.some((set) => set.includes(mate.id)), label: mate.name,
+      });
       const select = document.createElement('button'); select.type = 'button'; select.dataset.mateAction = 'select';
       select.innerHTML = '<span>' + escapeHtml(mate.name) + '</span><small>' + mate.kind + (mate.value != null ? ' · ' + escapeHtml(mate.value) : '') + '</small>';
       const suppress = document.createElement('button'); suppress.type = 'button'; suppress.dataset.mateAction = 'suppress'; suppress.textContent = mate.suppressed ? 'R' : 'S'; suppress.title = mate.suppressed ? 'Restore mate' : 'Suppress mate';
-      const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.mateAction = 'delete'; remove.textContent = '×'; remove.title = 'Delete mate';
+      suppress.setAttribute('aria-label', suppress.title + ' ' + mate.name);
+      const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.mateAction = 'delete'; remove.textContent = '×'; remove.title = 'Delete mate'; remove.setAttribute('aria-label', 'Delete mate ' + mate.name);
       row.append(select, suppress, remove); mateTree.appendChild(row);
     }
     const stageGroups = v5InspectionTools.studioV5AxialStageGroups(doc);
-    const savedCount = assembly.sectionViews.length + assembly.explodedViews.length + stageGroups.length;
+    const savedMeasurements = v5InspectionTools.studioV5Measurements(doc);
+    const savedCount = assembly.sectionViews.length + assembly.explodedViews.length + stageGroups.length + savedMeasurements.length;
     if ($('bw-inspection-summary')) $('bw-inspection-summary').textContent = savedCount + ' saved';
     const addViewRow = (record, kindLabel, active, kind) => {
       const row = document.createElement('div'); row.className = 'inspection-row' + (active ? ' is-active' : '');
       row.dataset.inspectionKind = kind; row.dataset.inspectionId = record.id;
+      setTreeItemSemantics(row, { selected: active, label: record.name + ', ' + kindLabel });
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.dataset.inspectionAction = 'toggle';
       toggle.innerHTML = '<span>' + escapeHtml(record.name) + '</span><small>' + kindLabel + (active ? ' · active' : '') + '</small>';
-      const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.inspectionAction = 'delete'; remove.textContent = '×'; remove.title = 'Delete saved ' + kindLabel;
+      const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.inspectionAction = 'delete'; remove.textContent = '×'; remove.title = 'Delete saved ' + kindLabel; remove.setAttribute('aria-label', remove.title + ' ' + record.name);
       row.append(toggle, remove); inspectionTree.appendChild(row);
     };
     for (const section of assembly.sectionViews) addViewRow(section, section.kind + ' section', assembly.metadata?.activeSectionViewId === section.id, 'section');
     for (const exploded of assembly.explodedViews) addViewRow(exploded, 'exploded view', assembly.metadata?.activeExplodedViewId === exploded.id, 'explode');
     for (const group of stageGroups) {
       const row = document.createElement('div'); row.className = 'inspection-row stage-group-row'; row.dataset.inspectionKind = 'stage'; row.dataset.inspectionId = group.id;
+      setTreeItemSemantics(row, { expanded: true, hidden: !group.visible, count: group.occurrenceIds.length, label: group.name });
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.dataset.inspectionAction = 'visibility';
       toggle.innerHTML = '<span>' + escapeHtml(group.name) + '</span><small>' + group.occurrenceIds.length + ' stages · ' + group.spacing + ' mm · ' + (group.visible ? 'shown' : 'hidden') + '</small>';
       const less = document.createElement('button'); less.type = 'button'; less.dataset.inspectionAction = 'spacing-less'; less.textContent = '−'; less.title = 'Reduce stage spacing by 5 mm';
@@ -2757,9 +3833,21 @@
         const occurrence = assembly.occurrences.find((entry) => entry.id === occurrenceId);
         const mate = assembly.mates.find((entry) => entry.id === group.distanceMateIds[index]);
         const child = document.createElement('div'); child.className = 'assembly-leaf-row stage-leaf-row';
+        setTreeItemSemantics(child, { level: 2, hidden: !group.visible, label: occurrence?.name || occurrenceId });
         child.innerHTML = '<span>' + escapeHtml(occurrence?.name || occurrenceId) + '</span><small>' + escapeHtml(mate?.value ?? 'missing') + ' mm</small>';
         inspectionTree.appendChild(child);
       });
+    }
+    for (const measurement of savedMeasurements) {
+      const result = lastInspection?.measurementResults?.find((entry) => entry.id === measurement.id);
+      const row = document.createElement('div'); row.className = 'inspection-row measurement-row' + (result?.valid === false ? ' is-failed' : '');
+      row.dataset.inspectionKind = 'measurement'; row.dataset.inspectionId = measurement.id;
+      setTreeItemSemantics(row, { failed: result?.valid === false, label: measurement.name + ', ' + measurement.kind + ' measurement' });
+      const evaluate = document.createElement('button'); evaluate.type = 'button'; evaluate.dataset.inspectionAction = 'evaluate';
+      const value = result?.valid ? (Array.isArray(result.value) ? result.value.map((entry) => Number(entry).toFixed(3)).join(' × ') : Number(result.value).toFixed(3)) + ' ' + result.unit : result?.error || 'saved';
+      evaluate.innerHTML = '<span>' + escapeHtml(measurement.name) + '</span><small>' + escapeHtml(measurement.kind) + ' · ' + escapeHtml(value) + '</small>';
+      const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.inspectionAction = 'delete'; remove.textContent = '×'; remove.title = 'Delete saved measurement'; remove.setAttribute('aria-label', 'Delete saved measurement ' + measurement.name);
+      row.append(evaluate, remove); inspectionTree.appendChild(row);
     }
   }
 
@@ -2802,6 +3890,10 @@
         (body.suppressed ? ' is-suppressed' : '') +
         (bodyBuildErrors.has(body.id) ? ' is-failed' : '');
       item.dataset.bodyId = body.id;
+      setTreeItemSemantics(item, {
+        selected: body.id === selectedBodyId, hidden: body.visible === false, suppressed: body.suppressed,
+        failed: bodyBuildErrors.has(body.id), label: body.name + (body.id === activeBodyId ? ', active body' : ''),
+      });
 
       const select = document.createElement('button');
       select.type = 'button';
@@ -2852,6 +3944,7 @@
   }
 
   function selectBody(bodyId) {
+    pulseInteractiveResolution();
     selectedBodyId = bodyId;
     const result = lastBodyResults.find((entry) => entry.bodyId === bodyId);
     if (result?.occurrenceInstance) selectedOccurrenceId = result.occurrenceInstance.occurrenceId;
@@ -2863,16 +3956,31 @@
     renderBodies();
     renderHistory();
     renderContext();
+    if (result) {
+      const occurrencePath = result.occurrenceInstance?.occurrencePath?.join(' / ');
+      say('Selected ' + (result.occurrenceInstance ? 'component body' : 'body') + ': ' + result.bodyName + (occurrencePath ? ' · occurrence path ' + occurrencePath : '') + '.');
+    }
   }
 
   function selectOccurrence(occurrenceId) {
+    pulseInteractiveResolution();
     selectedOccurrenceId = occurrenceId;
     selectedMateId = null;
     const result = lastBodyResults.find((entry) => entry.occurrenceInstance?.occurrenceId === occurrenceId);
     selectedBodyId = result?.bodyId || null;
-    renderHistory();
+    for (const row of document.querySelectorAll('[data-occurrence-id], [data-runtime-occurrence-id]')) {
+      const rowOccurrenceId = row.dataset.occurrenceId || row.dataset.runtimeOccurrenceId;
+      const selected = rowOccurrenceId === selectedOccurrenceId;
+      row.classList.toggle('is-selected', selected);
+      row.setAttribute('aria-selected', String(selected));
+    }
+    for (const row of document.querySelectorAll('[data-mate-id]')) {
+      row.classList.remove('is-selected');
+      row.setAttribute('aria-selected', 'false');
+    }
     renderContext();
     syncBodyMeshState();
+    if (result) say('Selected component occurrence: ' + (result.occurrenceInstance?.occurrencePath?.join(' / ') || occurrenceId) + ' · exact body.');
   }
 
   $('bw-bodies')?.addEventListener('change', (event) => {
@@ -2955,6 +4063,26 @@
     else exportBodyIds.delete(checkbox.dataset.bodyExport);
   });
 
+  async function materializePatternOccurrences(pattern, bodyIds, dissolve) {
+    if (pattern.outputMode === 'union') return say('Switch this pattern to Linked occurrences before dissolving or making one occurrence independent.');
+    const sourceRevision = documentRevision;
+    const sourceHash = v5RuntimeTools.studioV5CanonicalHash(doc);
+    const freezePrefix = 'materialized-' + newId();
+    try {
+      const response = await kernelCall('freeze-pattern-v5', documentRevision, { bodyIds, freezePrefix });
+      if (documentRevision !== sourceRevision || v5RuntimeTools.studioV5CanonicalHash(doc) !== sourceHash) {
+        throw new Error('The project changed while exact pattern bodies were being materialized. Run the command again.');
+      }
+      if (response.errors?.length) throw new Error(response.errors[0].message);
+      const next = v5RuntimeTools.materializeStudioV5PatternOccurrences(doc, pattern.id, response.records, { dissolve });
+      commit(dissolve ? 'Dissolve ' + pattern.name : 'Make pattern occurrence independent', () => next);
+      const bodyId = response.records.at(-1)?.body?.id;
+      if (bodyId) selectBody(bodyId);
+    } catch (error) {
+      say('Pattern materialization failed: ' + String(error?.message || error));
+    }
+  }
+
   $('bw-pattern-tree')?.addEventListener('click', (event) => {
     if (!v5RuntimeTools.isStudioV5Project(doc)) return;
     const part = v5RuntimeTools.studioV5RootPart(doc);
@@ -2969,6 +4097,11 @@
         commit('Skip ' + pattern.name + ' occurrence ' + instance.dataset.patternIndex, () => v5RuntimeTools.updateStudioV5BodyPattern(doc, pattern.id, { skippedIndices }));
         return;
       }
+      if (instanceAction === 'independent') {
+        const pattern = (part.bodyPatterns || []).find((entry) => entry.id === instance.dataset.patternId);
+        if (pattern) materializePatternOccurrences(pattern, [instance.dataset.patternInstanceId], false);
+        return;
+      }
     }
     const row = event.target.closest('[data-pattern-id]');
     const action = event.target.closest('[data-pattern-action]')?.dataset.patternAction;
@@ -2977,6 +4110,12 @@
     if (!pattern) return;
     if (action === 'edit') return openV5Command('pattern', null, null, null, pattern.id);
     if (action === 'visibility') return commit((pattern.visible === false ? 'Show ' : 'Hide ') + pattern.name, () => v5RuntimeTools.updateStudioV5BodyPattern(doc, pattern.id, { visible: pattern.visible === false }));
+    if (action === 'dissolve') {
+      const bodyIds = lastBodyResults.filter((entry) => entry.patternInstance?.patternId === pattern.id && !entry.patternInstance?.fused && entry.visible !== false).map((entry) => entry.bodyId);
+      if (!bodyIds.length) return say('This pattern has no active linked occurrences to dissolve.');
+      materializePatternOccurrences(pattern, bodyIds, true);
+      return;
+    }
     if (action === 'delete') commit('Delete ' + pattern.name, () => v5RuntimeTools.deleteStudioV5BodyPattern(doc, pattern.id));
   });
 
@@ -3013,7 +4152,7 @@
     const mate = v5RuntimeTools.studioV5RootAssembly(doc).mates.find((entry) => entry.id === row.dataset.mateId);
     if (!mate) return;
     if (action === 'select') {
-      selectedMateId = mate.id; selectedOccurrenceId = null; selectedBodyId = null; renderHistory(); renderContext(); return;
+      selectedMateId = mate.id; selectedOccurrenceId = null; selectedBodyId = null; renderHistory(); renderContext(); say('Selected ' + mate.kind + ' mate: ' + mate.name + '.'); return;
     }
     if (action === 'suppress') return commit((mate.suppressed ? 'Restore ' : 'Suppress ') + mate.name, () => v5RuntimeTools.updateStudioV5AssemblyMate(doc, mate.id, { suppressed: !mate.suppressed }));
     if (action === 'delete') return commit('Delete ' + mate.name, () => v5RuntimeTools.deleteStudioV5AssemblyMate(doc, mate.id));
@@ -3042,6 +4181,10 @@
       if (action === 'visibility') return commit((group.visible ? 'Hide ' : 'Show ') + group.name, () => v5InspectionTools.updateStudioV5AxialStageGroup(doc, id, { visible: !group.visible }));
       if (action === 'spacing-less' || action === 'spacing-more') return commit('Edit ' + group.name + ' spacing', () => v5InspectionTools.updateStudioV5AxialStageGroup(doc, id, { spacing: group.spacing + (action === 'spacing-more' ? 5 : -5) }));
     }
+    if (row.dataset.inspectionKind === 'measurement') {
+      if (action === 'evaluate') return runV5Inspection('measurements');
+      if (action === 'delete') return commit('Delete measurement', () => v5InspectionTools.deleteStudioV5Measurement(doc, id));
+    }
   });
 
   // --- history panel -------------------------------------------------------
@@ -3059,12 +4202,16 @@
     if ($('bw-project-name')) $('bw-project-name').textContent = doc.title;
     if ($('bw-tab-project-name')) $('bw-tab-project-name').textContent = doc.title;
     if ($('bw-tree-project-name')) $('bw-tree-project-name').textContent = doc.title;
-    const featureMark = { extrude: 'EX', cut: 'CU', revolve: 'RV', fillet: 'FL', chamfer: 'CH', shell: 'SH', boolean: 'BO', transform: 'TR', loft: 'LF', sweep: 'SW' };
+    const featureMark = { extrude: 'EX', cut: 'CU', revolve: 'RV', draft: 'DR', thicken: 'TH', 'boolean-split-side': 'SP', 'imported-step': 'BR', fillet: 'FL', chamfer: 'CH', shell: 'SH', boolean: 'BO', transform: 'TR', loft: 'LF', sweep: 'SW' };
+    const historyPart = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part' ? v5RuntimeTools.studioV5RootPart(doc) : null;
+    const rollbackFeatureId = historyPart?.metadata?.rollbackFeatureId || null;
+    const rollbackIndex = rollbackFeatureId ? doc.features.findIndex((feature) => feature.id === rollbackFeatureId) : -1;
     doc.features.forEach((f, i) => {
       const li = document.createElement('li');
-      li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '') + (f.id === selectedFeatureId ? ' sel' : '');
+      li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '') + (f.id === selectedFeatureId ? ' sel' : '') + (f.id === rollbackFeatureId ? ' rollback' : '') + (rollbackIndex >= 0 && i > rollbackIndex ? ' rolled-back' : '');
       li.dataset.sel = f.id;
       li.dataset.feature = f.type;
+      li.draggable = Boolean(historyPart);
       const dims =
         f.type === 'loft'
           ? f.sections.length + ' sections · ' + (f.guideSketchIds?.length || 0) + ' guide'
@@ -3074,12 +4221,20 @@
           ? (f.transform?.mode || f.operation || 'transform') + (f.resultPolicy?.kind === 'new-body' ? ' · linked body' : ' · ' + (f.resultPolicy?.targetBodyIds?.length || 1) + ' body')
         : f.type === 'boolean'
           ? (f.operation || f.resultPolicy?.kind || 'boolean') + ' · ' + (f.toolBodyIds?.length || 0) + ' tool body'
-          : f.type === 'fillet' || f.type === 'chamfer'
-          ? 'r ' + f.r + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
+        : f.type === 'draft'
+          ? f.angle + '° · ' + f.faces.length + ' face' + (f.faces.length === 1 ? '' : 's')
+        : f.type === 'thicken'
+          ? f.thickness + ' mm · linked face body'
+        : f.type === 'boolean-split-side'
+          ? f.side + ' side · body tool'
+        : f.type === 'imported-step'
+          ? 'independent exact B-rep · no parametric source history'
+        : f.type === 'fillet' || f.type === 'chamfer'
+          ? (f.variableRadii?.length ? 'r ' + f.variableRadii[0].startRadius + '→' + f.variableRadii[0].endRadius : 'r ' + f.r) + ' mm · ' + f.edges.length + ' edge' + (f.edges.length === 1 ? '' : 's')
           : f.type === 'shell'
             ? f.t + ' mm walls · ' + f.faces.length + ' opening' + (f.faces.length === 1 ? '' : 's')
             : f.type === 'revolve'
-              ? 'profile ×' + f.sketch.shapes.length
+              ? f.profileSketchId ? f.angle + '° partial · editable profile' : 'profile ×' + f.sketch.shapes.length
               : (f.through ? 'through' : f.h + ' mm') + ' · ' + f.sketch.shapes.length + ' shape' + (f.sketch.shapes.length === 1 ? '' : 's') + (f.onFace ? ' · on face' : '') + (f.pattern?.n > 1 ? ' · ×' + f.pattern.n : '');
       li.innerHTML =
         '<button type="button" class="hi-sel" data-sel="' + f.id + '" aria-pressed="' + (f.id === selectedFeatureId) + '">' +
@@ -3087,7 +4242,9 @@
         '<span class="hi-n">' + (i + 1) + '. ' + OP_LABEL[f.type] + '</span>' +
         '<span class="hi-d">' + dims + (buildErrors.has(f.id) ? ' · FAILED' : '') + '</span>' +
         '</button>' +
-        '<span class="hi-a">' + (f.type === 'boolean' ? '' : '<button data-edit="' + f.id + '">Edit</button>') + '<button data-del="' + f.id + '">×</button></span>';
+        '<span class="hi-a">' +
+        (historyPart ? '<button data-move-feature="up" title="Move earlier" aria-label="Move ' + OP_LABEL[f.type] + ' earlier"' + (i === 0 ? ' disabled' : '') + '>↑</button><button data-move-feature="down" title="Move later" aria-label="Move ' + OP_LABEL[f.type] + ' later"' + (i === doc.features.length - 1 ? ' disabled' : '') + '>↓</button><button data-rollback-feature="' + f.id + '" title="' + (f.id === rollbackFeatureId ? 'Clear rollback marker' : 'Roll back after this feature') + '" aria-pressed="' + (f.id === rollbackFeatureId) + '">⏮</button>' : '') +
+        (f.type === 'boolean' || f.type === 'boolean-split-side' || f.type === 'imported-step' ? '' : '<button data-edit="' + f.id + '">' + (buildErrors.has(f.id) ? 'Repair' : 'Edit') + '</button>') + '<button data-del="' + f.id + '">×</button></span>';
       list.appendChild(li);
     });
     $('bw-hist-empty').hidden = doc.features.length > 0;
@@ -3099,13 +4256,33 @@
     // at a feature row while that happens, rebind its highlight to the fresh
     // node instead of leaving the walkthrough visibly detached.
     const openTour = $('bw-tour');
-    if (openTour && !openTour.hidden) requestAnimationFrame(() => {
+    if (openTour && !openTour.hidden) queueMicrotask(() => {
       if (!openTour.hidden) refreshTourTarget();
     });
   }
 
   $('bw-history').addEventListener('click', (e) => {
     const editId = e.target.dataset?.edit, delId = e.target.dataset?.del;
+    const moveDirection = e.target.dataset?.moveFeature;
+    const rollbackId = e.target.dataset?.rollbackFeature;
+    if (moveDirection || rollbackId) {
+      if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'part') return;
+      try {
+        if (rollbackId) {
+          const part = v5RuntimeTools.studioV5RootPart(doc);
+          return commit(part.metadata?.rollbackFeatureId === rollbackId ? 'Clear rollback marker' : 'Set rollback marker', () =>
+            v5RuntimeTools.setStudioV5RollbackMarker(doc, part.metadata?.rollbackFeatureId === rollbackId ? null : rollbackId));
+        }
+        const row = e.target.closest('.hist-item');
+        const index = doc.features.findIndex((feature) => feature.id === row?.dataset.sel);
+        if (index < 0) return;
+        const beforeFeatureId = moveDirection === 'up'
+          ? doc.features[index - 1]?.id
+          : doc.features[index + 2]?.id || null;
+        commit('Reorder feature history', () => v5RuntimeTools.reorderStudioV5Feature(doc, row.dataset.sel, beforeFeatureId));
+      } catch (error) { say('Cannot reorder history: ' + String(error?.message || error)); }
+      return;
+    }
     if (!editId && !delId) {
       const li = e.target.closest('.hist-item');
       if (li) {
@@ -3125,8 +4302,37 @@
       const f = doc.features.find((x) => x.id === editId);
       if (f?.type === 'transform') openV5Command(f.transform?.mode || f.operation || 'move', null, f.id);
       else if (f?.type === 'loft' || f?.type === 'sweep') openV5Command(f.type, null, f.id);
+      else if (f?.type === 'revolve' && f.profileSketchId) openV5Command('revolve-advanced', null, f.id);
+      else if (f?.type === 'draft' || f?.type === 'thicken' || (f?.type === 'fillet' && Array.isArray(f.variableRadii))) openV5Command(f.type === 'fillet' ? 'variable-fillet' : f.type, null, f.id);
       else if (f) startOperation(() => openEditorFor(f));
     }
+  });
+
+  let draggedHistoryFeatureId = null;
+  $('bw-history').addEventListener('dragstart', (event) => {
+    const row = event.target.closest('.hist-item');
+    if (!row?.draggable) return;
+    draggedHistoryFeatureId = row.dataset.sel;
+    row.classList.add('dragging');
+    event.dataTransfer?.setData('text/plain', draggedHistoryFeatureId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  });
+  $('bw-history').addEventListener('dragover', (event) => {
+    if (!draggedHistoryFeatureId || !event.target.closest('.hist-item')) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  });
+  $('bw-history').addEventListener('drop', (event) => {
+    const target = event.target.closest('.hist-item');
+    if (!draggedHistoryFeatureId || !target || target.dataset.sel === draggedHistoryFeatureId) return;
+    event.preventDefault();
+    try {
+      commit('Reorder feature history', () => v5RuntimeTools.reorderStudioV5Feature(doc, draggedHistoryFeatureId, target.dataset.sel));
+    } catch (error) { say('Cannot reorder history: ' + String(error?.message || error)); }
+  });
+  $('bw-history').addEventListener('dragend', () => {
+    draggedHistoryFeatureId = null;
+    $('bw-history').querySelectorAll('.dragging').forEach((row) => row.classList.remove('dragging'));
   });
 
   // --- parameters panel ----------------------------------------------------
@@ -3273,7 +4479,7 @@
       const importProjectId = projectId;
       const importRevision = documentRevision;
       try {
-        const response = await kernelCall('import-step-v5', importRevision, { blob: file, filename: file.name });
+        const response = await importStepWithKernelRecovery(file, file.name, importRevision);
         if (projectId !== importProjectId || documentRevision !== importRevision) {
           return say('STEP import was discarded because the project changed while the file was loading.');
         }
@@ -3304,7 +4510,11 @@
       hideWelcome();
       say(importManifest
         ? 'STEP imported as ' + importManifest.bodyCount + ' exact bod' + (importManifest.bodyCount === 1 ? 'y definition' : 'y definitions') +
-          (importManifest.importMode === 'bomwiki-solved-hierarchy' ? ' with solved assembly hierarchy.' : ' with a flat solid fallback; external product hierarchy was not available.')
+          (importManifest.importMode === 'bomwiki-solved-hierarchy'
+            ? ' with solved assembly hierarchy.'
+            : importManifest.importMode === 'external-product-hierarchy'
+              ? ' with recovered external product hierarchy.'
+              : ' with a flat solid fallback; external product hierarchy was not available.')
         : 'Project opened.');
     });
   });
@@ -4154,9 +5364,8 @@
       openedR = $('bw-pick-r').value;
       // Preselect edges whose signature still matches (edit case).
       for (const line of edgeLines) {
-        const on = line.userData.sig && f.edges.some((sig) => sigMatches2(sig, line.userData.sig));
-        line.material.color.setHex(on ? SEL : 0x2c3e50);
-        line.userData.picked = on;
+        const selected = edgeSignaturesForLine(line).filter((candidate) => f.edges.some((sig) => sigMatches2(sig, candidate)));
+        setEdgePickedSignatures(line, selected);
       }
       syncCount();
       // A deferred command handoff can leave focus in the now-hidden sketch
@@ -4177,7 +5386,8 @@
           return say('Radius: ' + String(err?.message || err));
         }
         feature.r = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
-        const picked = edgeLines.filter((l) => l.userData.picked).map((l) => l.userData.sig);
+        const picked = edgeLines.flatMap((line) => edgeSignaturesForLine(line)
+          .filter((signature) => line.userData.pickedSignatures?.has(edgeSignatureKey(signature))));
         if (picked.length) feature.edges = picked;
         else if (isNew) return say('Pick at least one edge (click the dark lines on the part).');
         // else: editing — the feature's own rounding replaced the original
@@ -4191,13 +5401,13 @@
           run = () =>
             commitFeatureDraft((wasNew ? 'Add ' : 'Edit ') + OP_LABEL[draft.type].toLowerCase(), draft, wasNew);
         }
-        for (const line of edgeLines) line.userData.picked = false;
+        for (const line of edgeLines) setEdgePickedSignatures(line);
         bar.hidden = true;
         feature = null;
         setMode({ kind: 'idle' });
         if (run) run();
       } else {
-        for (const line of edgeLines) line.material.color.setHex(0x2c3e50);
+        for (const line of edgeLines) setEdgePickedSignatures(line);
         bar.hidden = true;
         feature = null;
         setMode({ kind: 'idle' });
@@ -4208,7 +5418,7 @@
     $('bw-pick-apply').addEventListener('click', () => close(true));
     $('bw-pick-cancel').addEventListener('click', () => close(false));
     function syncCount() {
-      const n = edgeLines.filter((l) => l.userData.picked).length;
+      const n = edgeLines.reduce((total, line) => total + (line.userData.pickedSignatures?.size || 0), 0);
       $('bw-pick-count').textContent = n + ' picked';
       if (feature) setMode({ kind: 'picking-edges', feat: feature.type, count: n });
     }
@@ -4229,10 +5439,13 @@
       );
       ray.setFromCamera(ptr, camera);
       const hit = ray.intersectObjects(edgeLines, false)[0];
-      if (!hit || !hit.object.userData.sig) return;
+      const signature = edgeSignatureForHit(hit);
+      if (!hit || !signature) return;
       const line = hit.object;
-      line.userData.picked = !line.userData.picked;
-      line.material.color.setHex(line.userData.picked ? SEL : 0x2c3e50);
+      const selected = new Set(line.userData.pickedSignatures || []);
+      const key = edgeSignatureKey(signature);
+      if (selected.has(key)) selected.delete(key); else selected.add(key);
+      setEdgePickedSignatures(line, edgeSignaturesForLine(line).filter((candidate) => selected.has(edgeSignatureKey(candidate))));
       touched = true;
       syncCount();
     });
@@ -4247,12 +5460,79 @@
 
   // Debug handle for automated tests; not part of the public surface.
   window.__bwStudio = {
-    edges: () => edgeLines.length,
+    edges: () => edgeLines.reduce((total, line) => total + edgeSignaturesForLine(line).length, 0),
+    edgeDrawObjects: () => edgeLines.length,
+    sceneBatchDrawObjects: () => sceneBatchObjects.length
+      + sectionCapObjects.filter((entry) => entry.userData.sectionCapStencil).length
+      + sectionCapObjects.filter((entry) => entry.userData.sectionCapPlane).length,
+    sceneBatchBodyCount: () => sceneSolidBatchEntries.size,
+    sceneInteractiveBatchDrawObjects: () => sceneInteractiveBatchObjects.length,
+    sceneInteractiveBodyCount: () => sceneInteractiveSolidBatchEntries.size,
+    sceneInteractiveTriangleCount: () => sceneInteractiveTriangleCount,
+    sceneBatchesExtensionIndependent: () => [...sceneBatchObjects, ...sceneInteractiveBatchObjects, ...sectionCapObjects]
+      .every((entry) => !entry.isBatchedMesh),
+    renderResolutionState: () => ({
+      rendererName, softwareWebgl, devicePixelRatio, fullPixelRatio, interactivePixelRatio, currentPixelRatio,
+      interactionLodActive: softwareWebgl && currentPixelRatio === interactivePixelRatio && sceneInteractiveBatchObjects.length > 0,
+    }),
+    beginInteractiveResolutionForTest: beginInteractiveResolution,
+    endInteractiveResolutionForTest: endInteractiveResolution,
     visible: () => stageVisible,
+    gizmoState: () => ({
+      attached: Boolean(transformPreview?.object && transformControls.object),
+      bodyId: transformPreview?.bodyId || null,
+      mode: transformControls.mode,
+      translationSnap: transformControls.translationSnap,
+      rotationSnapDegrees: transformControls.rotationSnap == null ? null : transformControls.rotationSnap * 180 / Math.PI,
+      helperVisible: transformHelper.visible,
+      occurrenceId: transformPreview?.occurrenceId || null,
+    }),
+    gizmoTranslateForTest: (translation) => {
+      if (!transformPreview?.object || !['move', 'copy', 'assembly-transform'].includes(transformPreview.command)) return false;
+      transformPreview.object.position.copy(transformPreview.position).add(new THREE.Vector3(...translation));
+      transformPreview.object.updateMatrixWorld(true);
+      transformControls.dispatchEvent({ type: 'objectChange' });
+      return true;
+    },
+    gizmoRotateForTest: (axis, degrees) => {
+      if (!transformPreview?.object || !['rotate', 'assembly-transform'].includes(transformPreview.command)) return false;
+      const delta = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...axis).normalize(), degrees * Math.PI / 180);
+      transformPreview.object.quaternion.copy(transformPreview.quaternion).multiply(delta);
+      transformPreview.object.updateMatrixWorld(true);
+      transformControls.dispatchEvent({ type: 'objectChange' });
+      return true;
+    },
     frame: () => {
       orbit.update();
-      renderer.render(scene, camera);
+      renderScene();
     },
+    captureFrameForTest: () => {
+      const previousPixelRatio = currentPixelRatio;
+      if (currentPixelRatio !== devicePixelRatio) {
+        currentPixelRatio = devicePixelRatio;
+        renderer.setPixelRatio(currentPixelRatio);
+      }
+      resize(); orbit.update(); renderScene();
+      const captured = {
+        dataUrl: renderer.domElement.toDataURL('image/png'),
+        width: renderer.domElement.width, height: renderer.domElement.height,
+        stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
+      };
+      if (currentPixelRatio !== previousPixelRatio) {
+        currentPixelRatio = previousPixelRatio;
+        renderer.setPixelRatio(currentPixelRatio);
+        requestSceneRender();
+      }
+      return captured;
+    },
+    setViewForTest: (name) => { setView(name); renderScene(); },
+    setCameraDirectionForTest: (direction, scale = 1.6) => {
+      const { c, r } = partView();
+      const d = new THREE.Vector3(...direction).normalize().multiplyScalar(r * Number(scale || 1.6));
+      camera.position.copy(c.clone().add(d)); orbit.target.copy(c); orbit.update(); renderScene();
+      return { position: camera.position.toArray(), target: orbit.target.toArray() };
+    },
+    selectionFilter: () => selectionFilter,
     top: () => {
       if (Array.isArray(meshBounds) && meshBounds.length === 2) return meshBounds[1][2];
       if (Array.isArray(meshBounds) && meshBounds.length === 6) return meshBounds[5];
@@ -4305,7 +5585,7 @@
       };
     },
     importStepForTest: async (blob, filename = 'import.step') => {
-      const response = await kernelCall('import-step-v5', documentRevision, { blob, filename });
+      const response = await importStepWithKernelRecovery(blob, filename, documentRevision);
       return { project: response.project, manifest: response.manifest };
     },
     undoLabels: () => undoStack.map((e) => e.label),
@@ -4324,6 +5604,12 @@
     bodyResults: () => deepCopy(lastBodyResults),
     patternInstanceIds: () => lastBodyResults.filter((entry) => entry.patternInstance).map((entry) => entry.bodyId),
     renderGeometryCount: () => new Set([...bodyMeshes.values()].map((mesh) => mesh.geometry)).size,
+    renderBufferBytes: () => [...new Set([...bodyMeshes.values()].map((mesh) => mesh.geometry))].reduce((total, geometry) => {
+      const attributes = Object.values(geometry.attributes || {});
+      return total + attributes.reduce((sum, attribute) => sum + (attribute.array?.byteLength || 0), 0) + (geometry.index?.array?.byteLength || 0);
+    }, 0),
+    preRenderedAssemblyTreeReuseCount: () => preRenderedAssemblyTreeReuseCount,
+    kernelMemoryForTest: async () => (await kernelCall('memory-stats', documentRevision)).memory,
     renderedBodyBounds: (bodyId) => {
       const mesh = bodyMeshes.get(bodyId);
       if (!mesh) return null;
@@ -4335,6 +5621,41 @@
     activeSectionViewId: () => v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly' ? v5RuntimeTools.studioV5RootAssembly(doc).metadata?.activeSectionViewId || null : null,
     activeExplodedViewId: () => v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly' ? v5RuntimeTools.studioV5RootAssembly(doc).metadata?.activeExplodedViewId || null : null,
     axialStageGroups: () => v5InspectionTools.studioV5AxialStageGroups(doc),
+    measurements: () => v5InspectionTools.studioV5Measurements(doc),
+    displayMode: () => v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly' ? v5RuntimeTools.studioV5RootAssembly(doc).metadata?.displayMode || 'shaded-edges' : 'shaded-edges',
+    sectionCapState: () => ({
+      planes: sectionCapObjects.filter((entry) => entry.userData.sectionCapPlane).length,
+      capPositions: sectionCapObjects.filter((entry) => entry.userData.sectionCapPlane)
+        .map((entry) => entry.position.toArray()),
+      stencilMeshes: sectionCapObjects.filter((entry) => entry.userData.sectionCapStencil)
+        .reduce((total, entry) => total + (entry.userData.sectionCapStencilCount || 1), 0),
+      stencilDrawObjects: sectionCapObjects.filter((entry) => entry.userData.sectionCapStencil).length,
+      extensionIndependent: sectionCapObjects.filter((entry) => entry.userData.sectionCapStencil)
+        .every((entry) => !entry.isBatchedMesh),
+    }),
+    sectionPlaneOffsetForTest: (offset) => {
+      pulseInteractiveResolution();
+      const nextOffset = Number(offset || 0);
+      let updated = 0;
+      const materials = new Set([
+        ...[...bodyMeshes.values()].map((mesh) => mesh.material),
+        ...edgeLines.map((line) => line.material),
+        ...sceneBatchObjects.map((object) => object.material),
+        ...sceneInteractiveBatchObjects.map((object) => object.material),
+        ...sectionCapObjects.map((object) => object.material),
+      ]);
+      for (const material of materials) for (const plane of material?.clippingPlanes || []) {
+        plane.constant = -nextOffset;
+        updated++;
+      }
+      for (const cap of sectionCapObjects.filter((object) => object.userData.sectionCapPlane)) {
+        const normal = cap.userData.sectionPlaneNormal;
+        const center = cap.userData.sectionCapCenter;
+        if (normal && center) cap.position.copy(center).addScaledVector(normal, nextOffset - normal.dot(center));
+      }
+      requestSceneRender();
+      return updated;
+    },
     rootKind: () => v5RuntimeTools.isStudioV5Project(doc) ? doc.rootDocument?.kind : 'legacy-part',
     bodyIds: () => v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part' ? v5RuntimeTools.studioV5RootPart(doc).bodies.map((body) => body.id) : lastBodyResults.map((body) => body.bodyId),
     datumIds: () => v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part' ? v5RuntimeTools.studioV5RootPart(doc).referenceGeometry.map((datum) => datum.id) : [],
@@ -4352,6 +5673,11 @@
     visibleBodyIds: () => [...bodyMeshes].filter(([, mesh]) => mesh.visible).map(([bodyId]) => bodyId),
     selectBodyForTest: (bodyId) => selectBody(bodyId),
     selectOccurrenceForTest: (occurrenceId) => selectOccurrence(occurrenceId),
+    openAssemblyTransformForTest: (occurrenceId) => {
+      selectOccurrence(occurrenceId);
+      openAssemblyCommand('transform');
+      return Boolean(transformPreview?.command === 'assembly-transform');
+    },
     attemptBodyBooleanForTest: (operation, targetBodyId, toolBodyId) => attemptBodyBoolean(operation, targetBodyId, toolBodyId),
     ndcOfBodyCenter: (bodyId) => {
       const mesh = bodyMeshes.get(bodyId);
@@ -4384,7 +5710,8 @@
       ray.params.Line = { threshold: 1.5 };
       ray.setFromCamera(new THREE.Vector2(fx * 2 - 1, -(fy * 2 - 1)), camera);
       const hit = ray.intersectObjects(edgeLines, false)[0];
-      return hit ? { sig: hit.object.userData.sig, dist: hit.distance } : null;
+      const signature = edgeSignatureForHit(hit);
+      return hit && signature ? { sig: signature, dist: hit.distance } : null;
     },
     faces: () => faceByHash.size,
     ndcOfOrigin: () => {
@@ -4406,11 +5733,14 @@
       // Toggle the first n distinct pickable edges directly (test shortcut).
       const out = [];
       for (const l of edgeLines) {
-        if (out.length >= n) break;
-        if (l.userData.sig) {
-          l.userData.picked = true;
-          out.push(l.userData.sig);
+        const selected = edgeSignaturesForLine(l).filter((signature) => l.userData.pickedSignatures?.has(edgeSignatureKey(signature)));
+        for (const signature of edgeSignaturesForLine(l)) {
+          if (out.length >= n) break;
+          if (!selected.some((candidate) => edgeSignatureKey(candidate) === edgeSignatureKey(signature))) selected.push(signature);
+          out.push(signature);
         }
+        setEdgePickedSignatures(l, selected);
+        if (out.length >= n) break;
       }
       return out;
     },
@@ -4783,10 +6113,10 @@
 
   let bodyPickDown = null;
   renderer.domElement.addEventListener('pointerdown', (event) => {
-    if (mode.kind === 'idle' && bodyMeshes.size) bodyPickDown = [event.clientX, event.clientY];
+    if (!gizmoPointerActive && mode.kind === 'idle' && bodyMeshes.size) bodyPickDown = [event.clientX, event.clientY];
   });
   renderer.domElement.addEventListener('pointerup', (event) => {
-    if (!bodyPickDown || mode.kind !== 'idle' || Math.hypot(event.clientX - bodyPickDown[0], event.clientY - bodyPickDown[1]) > 5) {
+    if (gizmoPointerActive || !bodyPickDown || mode.kind !== 'idle' || Math.hypot(event.clientX - bodyPickDown[0], event.clientY - bodyPickDown[1]) > 5) {
       bodyPickDown = null;
       return;
     }
@@ -4797,8 +6127,22 @@
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     ), camera);
-    const hit = ray.intersectObjects([...bodyMeshes.values()].filter((mesh) => mesh.visible), false)[0];
-    if (hit?.object?.userData?.bodyId) selectBody(hit.object.userData.bodyId);
+    const hit = ray.intersectObjects(
+      selectionFilter === 'edge' ? edgeLines.filter((line) => line.visible) : [...bodyMeshes.values()].filter((mesh) => mesh.visible),
+      false,
+    )[0];
+    if (hit?.object?.userData?.bodyId) {
+      const bodyId = hit.object.userData.bodyId;
+      const result = lastBodyResults.find((entry) => entry.bodyId === bodyId);
+      if (selectionFilter === 'component' && result?.occurrenceInstance?.occurrenceId) selectOccurrence(result.occurrenceInstance.occurrenceId);
+      else {
+        selectBody(bodyId);
+        if (selectionFilter === 'face') {
+          const range = rangeForHit(hit);
+          say('Selected face ' + (range?.faceId || 'geometry') + ' on ' + (result?.bodyName || bodyId) + '.');
+        } else if (selectionFilter === 'edge') say('Selected edge ' + (edgeSignatureForHit(hit)?.kind || 'geometry') + ' on ' + (result?.bodyName || bodyId) + '.');
+      }
+    }
   });
 
   // Double-click a flat face in idle: align the view to its normal.
@@ -5138,7 +6482,8 @@
     selectedFeatureId = null;
     afterDocumentChange('Restored previous part');
     resetAgentForProjectChange('Restored previous project');
-    requestAnimationFrame(() => renderer.domElement.focus());
+    focusActiveWorkspace();
+    requestAnimationFrame(focusActiveWorkspace);
     showTransitionToast('Previous part restored', '“' + openedTitle + '” remains available in Recover.');
   }
   async function openTemplateNow(template) {
@@ -5159,7 +6504,6 @@
     closeTemplateLibrary(true);
     afterDocumentChange('Started from ' + template.name);
     resetAgentForProjectChange('Opened a template');
-    requestAnimationFrame(() => renderer.domElement.focus());
     showTransitionToast(
       'Opened “' + template.name + '”',
       previous
@@ -5169,6 +6513,11 @@
         : 'Ready to edit.',
       previous ? () => restoreTemplateTransition(previous, template.name) : null,
     );
+    // The project title and dialog state update synchronously. Restore focus
+    // in that same transition so keyboard navigation cannot observe a loaded
+    // template whose active element is the now-closed dialog control.
+    focusActiveWorkspace();
+    requestAnimationFrame(focusActiveWorkspace);
     if (!hasFlag(TOUR_SEEN)) setTimeout(() => startTour('part'), 350);
   }
   async function useTemplate(template) {
@@ -5325,6 +6674,8 @@
     renderHistory();
     renderBodies();
     renderContext();
+    const feature = doc.features.find((entry) => entry.id === id);
+    if (feature) say('Selected feature: ' + (feature.name || OP_LABEL[feature.type] || feature.type) + ' · ' + feature.type + '.');
   }
 
   async function attemptBodyBoolean(operation, targetBodyId, toolBodyId) {
@@ -5389,7 +6740,7 @@
       : null;
     if (mode.kind === 'idle' && lastInspection) {
       if (empty) empty.hidden = true;
-      if (kind) kind.textContent = lastInspection.mode === 'interference' ? 'Interference results' : lastInspection.mode === 'clearance' ? 'Clearance result' : 'Mass & geometry health';
+      if (kind) kind.textContent = lastInspection.mode === 'interference' ? 'Interference results' : lastInspection.mode === 'clearance' ? 'Clearance result' : lastInspection.mode === 'measurements' ? 'Saved measurements' : 'Mass & geometry health';
       const aggregate = lastInspection.aggregate;
       const pairs = lastInspection.pairs || [];
       const massText = aggregate.massKg == null
@@ -5404,6 +6755,8 @@
         (lastInspection.errors?.length ? '<p class="err-msg">' + escapeHtml(lastInspection.errors[0].message) + (lastInspection.errors.length > 1 ? ' · ' + (lastInspection.errors.length - 1) + ' more' : '') + '</p>' : '') +
         (pairs.length ? '<div class="inspection-results">' + pairs.map((pair) => '<p class="ctx-stat">' + escapeHtml(pair.leftBodyId) + ' ↔ ' + escapeHtml(pair.rightBodyId) + ': ' +
           (pair.interferenceVolumeMm3 > 1e-8 ? Number(pair.interferenceVolumeMm3).toFixed(3) + ' mm³ interference' : Number(pair.minimumClearanceMm ?? 0).toFixed(3) + ' mm clearance') + '</p>').join('') + '</div>' : '') +
+        (lastInspection.measurementResults?.length ? '<div class="inspection-results">' + lastInspection.measurementResults.map((measurement) => '<p class="ctx-stat">' + escapeHtml(measurement.name) + ': ' +
+          (measurement.valid ? escapeHtml(Array.isArray(measurement.value) ? measurement.value.map((entry) => Number(entry).toFixed(3)).join(' × ') : Number(measurement.value).toFixed(3)) + ' ' + escapeHtml(measurement.unit) : escapeHtml(measurement.error)) + '</p>').join('') + '</div>' : '') +
         '<div class="ctx-body-actions"><button type="button" data-inspection-context="clear">Close results</button></div>';
       holder.hidden = false;
       panel.querySelector('[data-inspection-context="clear"]')?.addEventListener('click', () => { lastInspection = null; renderContext(); });
@@ -5452,7 +6805,8 @@
         '<p class="ctx-stat">Exact bodies: ' + selectedOccurrenceResults.length + '</p>' +
         (occurrence ? '<p class="ctx-stat">Delete affects: ' + affectedMates + ' mate(s), ' + affectedPatterns + ' pattern(s)</p>' : '') +
         (occurrence ? '<div class="ctx-body-actions"><button type="button" data-occurrence-context="visibility">' + (occurrence.visible ? 'Hide' : 'Show') + '</button><button type="button" data-occurrence-context="suppress">' + (occurrence.suppressed ? 'Restore' : 'Suppress') + '</button><button type="button" data-occurrence-context="isolate">' + (appEl?.dataset.isolateOccurrence ? 'Show all' : 'Isolate') + '</button>' +
-          (occurrence.definition.kind === 'part' ? '<button type="button" data-occurrence-context="edit">Edit in context</button><button type="button" data-occurrence-context="independent">Make independent</button>' : '') +
+          (occurrence.definition.kind === 'part' ? '<button type="button" data-occurrence-context="edit">Edit in context</button><button type="button" data-occurrence-context="variant">Component variant</button><button type="button" data-occurrence-context="independent">Make independent</button>' : '') +
+          '<button type="button" data-occurrence-context="transform">Move / rotate</button>' +
           '<button type="button" data-occurrence-context="linked">Linked duplicate</button><button type="button" class="is-danger" data-occurrence-context="delete">Delete component</button></div>' : '') +
         '<div class="ctx-body-actions"><button type="button" data-occurrence-context="export">Select component for export</button></div>';
       holder.hidden = false;
@@ -5470,6 +6824,8 @@
           else appEl.dataset.isolateOccurrence = occurrence.id;
           syncBodyMeshState(); renderContext();
         } else if (action === 'edit') commit('Edit ' + occurrence.name + ' in context', () => v5RuntimeTools.enterStudioV5AssemblyContext(doc, occurrence.id));
+        else if (action === 'transform') openAssemblyCommand('transform');
+        else if (action === 'variant') openAssemblyCommand('variant');
         else if (action === 'independent') openAssemblyCommand('independent');
         else if (action === 'linked') openAssemblyCommand('linked');
         else if (action === 'delete') commit('Delete ' + occurrence.name, () => v5RuntimeTools.deleteStudioV5ComponentOccurrence(doc, occurrence.id));
@@ -5576,9 +6932,17 @@
         '<label class="ctx-check"><input type="checkbox" data-cxthrough="1"' + (f.through ? ' checked' : '') + ' /> Through all</label>';
       if (!f.through) fields += field('Depth (mm)', 'h', f.h ?? 10);
     } else if (f.type === 'revolve') {
-      fields += stat('Profile shapes', f.sketch.shapes.length);
+      fields += f.profileSketchId
+        ? stat('Profile sketch', f.profileSketchId) + stat('Axis', f.axisDatumId) + stat('Angle', f.angle + '°') + stat('Start angle', f.startAngle + '°')
+        : stat('Profile shapes', f.sketch.shapes.length);
+    } else if (f.type === 'draft') {
+      fields += stat('Neutral plane', f.neutralPlaneDatumId) + stat('Angle', f.angle + '°') + stat('Faces', f.faces.length);
+    } else if (f.type === 'thicken') {
+      fields += stat('Source body', f.sourceBodyId) + stat('Thickness', f.thickness + ' mm') + stat('Faces', f.faces.length);
     } else if (f.type === 'fillet' || f.type === 'chamfer') {
-      fields += field('Radius (mm)', 'r', f.r) + stat('Edges', f.edges.length);
+      fields += f.variableRadii?.length
+        ? stat('Start radius', f.variableRadii[0].startRadius + ' mm') + stat('End radius', f.variableRadii[0].endRadius + ' mm') + stat('Edges', f.edges.length)
+        : field('Radius (mm)', 'r', f.r) + stat('Edges', f.edges.length);
     } else if (f.type === 'shell') {
       fields += field('Walls (mm)', 't', f.t) + stat('Openings', f.faces.length);
     }
@@ -5698,6 +7062,8 @@
     panel.querySelector('[data-cxedit]')?.addEventListener('click', () => {
       if (f.type === 'transform') openV5Command(f.transform?.mode || f.operation || 'move', null, f.id);
       else if (f.type === 'loft' || f.type === 'sweep') openV5Command(f.type, null, f.id);
+      else if (f.type === 'revolve' && f.profileSketchId) openV5Command('revolve-advanced', null, f.id);
+      else if (f.type === 'draft' || f.type === 'thicken' || (f.type === 'fillet' && Array.isArray(f.variableRadii))) openV5Command(f.type === 'fillet' ? 'variable-fillet' : f.type, null, f.id);
       else startOperation(() => openEditorFor(f));
     });
     panel.querySelector('[data-cxdel]').addEventListener('click', () => {
@@ -5723,6 +7089,101 @@
     else if (mode.kind === 'press-pull') sketch.applyPressPull();
     else if (mode.kind === 'picking-edges') $('bw-pick-apply').click();
     else if (mode.kind === 'picking-faces') $('bw-shell-apply').click();
+  }
+  function selectedDirectOccurrence() {
+    if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') return null;
+    return v5RuntimeTools.studioV5RootAssembly(doc).occurrences.find((entry) => entry.id === selectedOccurrenceId) || null;
+  }
+  function isolateKeyboardSelection() {
+    const occurrence = selectedDirectOccurrence();
+    if (occurrence) {
+      if (appEl.dataset.isolateOccurrence === occurrence.id) delete appEl.dataset.isolateOccurrence;
+      else appEl.dataset.isolateOccurrence = occurrence.id;
+      isolatedBodyId = null; syncBodyMeshState(); renderContext();
+      say(appEl.dataset.isolateOccurrence ? 'Isolated component ' + occurrence.name + '.' : 'All components restored.');
+      return true;
+    }
+    if (selectedBodyId) {
+      isolatedBodyId = isolatedBodyId === selectedBodyId ? null : selectedBodyId;
+      if (appEl?.dataset.isolateOccurrence) delete appEl.dataset.isolateOccurrence;
+      syncBodyMeshState(); renderBodies(); renderContext();
+      const body = lastBodyResults.find((entry) => entry.bodyId === selectedBodyId);
+      say(isolatedBodyId ? 'Isolated body ' + (body?.bodyName || selectedBodyId) + '.' : 'All bodies restored.');
+      return true;
+    }
+    say('Select a body or direct component before using Isolate.');
+    return false;
+  }
+  function hideKeyboardSelection() {
+    const occurrence = selectedDirectOccurrence();
+    if (occurrence) {
+      commit('Hide ' + occurrence.name, () => v5RuntimeTools.updateStudioV5ComponentOccurrence(doc, occurrence.id, { visible: false }));
+      return true;
+    }
+    if (selectedBodyId && v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part') {
+      commitHumanOperations('Hide selected body', [{ kind: 'body.setVisibility', input: { bodyId: selectedBodyId, visible: false } }]);
+      return true;
+    }
+    say('Select a body or direct component before using Hide.');
+    return false;
+  }
+  function showAllKeyboardSelection() {
+    isolatedBodyId = null;
+    if (appEl?.dataset.isolateOccurrence) delete appEl.dataset.isolateOccurrence;
+    if (v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part') {
+      const hidden = v5RuntimeTools.studioV5RootPart(doc).bodies.filter((entry) => !entry.visible);
+      if (hidden.length) commitHumanOperations('Show all bodies', hidden.map((body) => ({ kind: 'body.setVisibility', input: { bodyId: body.id, visible: true } })));
+      else { syncBodyMeshState(); renderBodies(); }
+    } else if (v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly') {
+      const hidden = v5RuntimeTools.studioV5RootAssembly(doc).occurrences.filter((entry) => !entry.visible);
+      if (hidden.length) commit('Show all components', () => hidden.reduce((candidate, occurrence) => v5RuntimeTools.updateStudioV5ComponentOccurrence(candidate, occurrence.id, { visible: true }), doc));
+      else syncBodyMeshState();
+    }
+    say('All model items are visible.');
+  }
+  function toggleKeyboardSection() {
+    if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') return say('Section views require an assembly document.');
+    const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
+    const section = assembly.sectionViews.find((entry) => entry.id === assembly.metadata?.activeSectionViewId) || assembly.sectionViews[0];
+    if (!section) return say('Save a section view before using Shift+S.');
+    const active = assembly.metadata?.activeSectionViewId === section.id;
+    commit((active ? 'Turn off ' : 'Activate ') + section.name, () => v5InspectionTools.activateStudioV5SectionView(doc, active ? null : section.id));
+  }
+  function editKeyboardSelection() {
+    if (selectedMateId && v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly') {
+      const mate = v5RuntimeTools.studioV5RootAssembly(doc).mates.find((entry) => entry.id === selectedMateId);
+      if (mate) { openAssemblyCommand('mate', mate.kind, mate.id); return true; }
+    }
+    if (selectedFeatureId) {
+      const edit = $('bw-history')?.querySelector('[data-edit="' + CSS.escape(selectedFeatureId) + '"]');
+      if (edit) { edit.click(); return true; }
+    }
+    say('Select an editable feature or mate before using Edit.');
+    return false;
+  }
+  function suppressKeyboardSelection() {
+    if (selectedMateId && v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly') {
+      const mate = v5RuntimeTools.studioV5RootAssembly(doc).mates.find((entry) => entry.id === selectedMateId);
+      if (mate) { commit((mate.suppressed ? 'Restore ' : 'Suppress ') + mate.name, () => v5RuntimeTools.updateStudioV5AssemblyMate(doc, mate.id, { suppressed: !mate.suppressed })); return true; }
+    }
+    const occurrence = selectedDirectOccurrence();
+    if (occurrence) { commit((occurrence.suppressed ? 'Restore ' : 'Suppress ') + occurrence.name, () => v5RuntimeTools.updateStudioV5ComponentOccurrence(doc, occurrence.id, { suppressed: !occurrence.suppressed })); return true; }
+    if (selectedBodyId && v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part') {
+      const body = v5RuntimeTools.studioV5RootPart(doc).bodies.find((entry) => entry.id === selectedBodyId);
+      if (body) { commitHumanOperations((body.suppressed ? 'Restore ' : 'Suppress ') + body.name, [{ kind: 'body.suppress', input: { bodyId: body.id, suppressed: !body.suppressed } }]); return true; }
+    }
+    if (selectedFeatureId) {
+      const feature = doc.features.find((entry) => entry.id === selectedFeatureId);
+      if (feature) { commitHumanOperations((feature.suppressed ? 'Restore ' : 'Suppress ') + (feature.name || feature.type), [{ kind: 'feature.suppress', input: { featureId: feature.id, suppressed: !feature.suppressed } }]); return true; }
+    }
+    say('Select a feature, body, component, or mate before using Suppress.');
+    return false;
+  }
+  function cycleSelectionFilter() {
+    const filters = ['auto', 'component', 'body', 'face', 'edge'];
+    selectionFilter = filters[(filters.indexOf(selectionFilter) + 1) % filters.length];
+    if (appEl) appEl.dataset.selectionFilter = selectionFilter;
+    say('Selection filter: ' + ({ auto: 'Auto', component: 'Components', body: 'Bodies', face: 'Faces', edge: 'Edges' }[selectionFilter]) + '.');
   }
   $('bw-cmd-apply')?.addEventListener('click', () => applyCurrent());
   $('bw-cmd-cancel')?.addEventListener('click', () => cancelCurrent());
@@ -5758,6 +7219,21 @@
         if (mode.kind === 'press-pull') sketch.applyPressPull();
       }
       return; // every other global key defers to the field
+    }
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && mode.kind === 'idle') {
+      const key = e.key.toLowerCase();
+      if (e.key === 'F6') { e.preventDefault(); cycleSelectionFilter(); return; }
+      if (key === 'i' && !e.shiftKey) { e.preventDefault(); isolateKeyboardSelection(); return; }
+      if (key === 'h') { e.preventDefault(); e.shiftKey ? showAllKeyboardSelection() : hideKeyboardSelection(); return; }
+      if (key === 'm') {
+        e.preventDefault();
+        if (e.shiftKey) openInspectionCommand('measure');
+        else if (selectedDirectOccurrence()) openAssemblyCommand('transform');
+        else openV5Command('move');
+        return;
+      }
+      if (key === 's' && e.shiftKey) { e.preventDefault(); toggleKeyboardSection(); return; }
+      if (key === 'e') { e.preventDefault(); e.shiftKey ? suppressKeyboardSelection() : editKeyboardSelection(); return; }
     }
     if (e.key === 'Enter') applyCurrent();
     else if ((e.key === 'Delete' || e.key === 'Backspace') && mode.kind === 'idle' && selectedFeatureId) {

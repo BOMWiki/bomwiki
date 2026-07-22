@@ -1474,6 +1474,10 @@ body.cadstudio-route > main {
   border-color: #4c9aff;
   box-shadow: 0 0 0 1px #4c9aff inset;
 }
+.hist-item.rollback { border-style: double; border-width: 3px; }
+.hist-item.rollback .hi-n::after { content: '  · rollback'; color: #8fc1f5; font-weight: 500; }
+.hist-item.rolled-back { opacity: .52; border-style: dashed; }
+.hist-item.dragging { opacity: .35; }
 /* selection is marked by shape as well as colour */
 .hist-item.sel .hi-n::before {
   content: '\25B8 ';
@@ -1515,6 +1519,8 @@ body.cadstudio-route > main {
   color: #d7e1eb;
   cursor: pointer;
 }
+.hist-item .hi-a button[aria-pressed='true'] { border-color: #8fc1f5; color: #fff; }
+.hist-item .hi-a button:disabled { opacity: .35; cursor: default; }
 
 /* Schema-5 body rows reuse the existing model-tree density and palette. */
 .ws-bodies-panel { flex: 0 1 auto; max-height: 42%; overflow-y: auto; border-bottom: 1px solid var(--v3-line-soft); }
@@ -2487,6 +2493,14 @@ body.cadstudio-route > main {
   width: 28px;
   text-align: center;
 }
+.datum-row[data-broken='true'] [data-datum-action='edit'] {
+  width: auto;
+  min-height: 28px;
+  padding: 0 7px;
+  color: #ffcbc5;
+  font-size: 9px;
+  text-transform: uppercase;
+}
 .pattern-row { grid-template-columns: 1fr 28px 28px; }
 .pattern-row > button:not(:first-child) {
   width: 28px;
@@ -2640,6 +2654,15 @@ body.cadstudio-route > main {
 .ws-v5-command footer { display: flex; justify-content: flex-end; gap: 8px; }
 .ws-v5-command footer button { min-height: 34px; padding: 0 15px; border: 1px solid #3a5470; border-radius: 3px; background: #22303f; color: #d7e1eb; cursor: pointer; }
 .ws-v5-command footer .ws-primary { background: #0b5cad; border-color: #0b5cad; color: #fff; }
+.ws-v5-command.with-gizmo {
+  position: fixed;
+  inset: auto 18px 52px auto;
+  width: min(430px, calc(100vw - 36px));
+  margin: 0;
+  z-index: 20;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, .46);
+}
+.ws-v5-command.with-gizmo::backdrop { background: transparent; }
 .ws-origin button:hover {
   background: #1b2c3b;
   color: #e2edf7;
@@ -3171,6 +3194,30 @@ body.cadstudio-route > main {
     border-radius: 9px 9px 0 0;
     background: #172634;
     box-shadow: 0 -10px 28px rgba(0,0,0,.42);
+  }
+  .cadstudio-app[data-document-kind='assembly'].m-open-history .ws-tree {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--bw-sheet-bottom, 0px);
+    z-index: 30;
+    max-height: 54%;
+    overflow-y: auto;
+    padding: 6px 10px 12px;
+    border-top: 1px solid #405b72;
+    border-radius: 9px 9px 0 0;
+    background: #172634;
+    box-shadow: 0 -10px 28px rgba(0,0,0,.42);
+  }
+  .cadstudio-app[data-document-kind='assembly'].m-open-history .ws-tree > .ws-assemblies,
+  .cadstudio-app[data-document-kind='assembly'].m-open-history .ws-tree > .ws-mates,
+  .cadstudio-app[data-document-kind='assembly'].m-open-history .ws-tree > .ws-inspection {
+    display: block;
+  }
+  .cadstudio-app[data-document-kind='assembly'].m-open-history .ws-tree .datum-tree button,
+  .cadstudio-app[data-document-kind='assembly'].m-open-history .ws-tree summary {
+    min-height: 44px;
   }
   .ws-mtabs {
     display: grid;
