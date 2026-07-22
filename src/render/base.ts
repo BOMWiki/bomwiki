@@ -106,7 +106,7 @@ ${opts.body}
       <p class="pf-links">
         <a href="/project">the project</a> · <a href="/project/engine">engine</a> · <a href="/about/">about</a> ·
         <a href="/about/governance">governance</a> · <a href="/about/verification">verification</a> ·
-        <a href="/intelligence">intelligence</a> · <a href="/policies">policies</a> ·
+        <a href="/intelligence">intelligence</a> · <a href="/research">research</a> · <a href="/policies">policies</a> ·
         <a href="/help/editing">how to edit</a> · <a href="/products">all products</a> ·
         <a href="/cad">3D models</a> ·
         <a href="https://github.com/BOMWiki" rel="noopener">GitHub</a>

@@ -22,6 +22,7 @@ import {
   intelligencePage,
   policiesPage,
   projectPage,
+  researchPage,
   verificationPage,
 } from './render/static-pages.ts';
 import {
@@ -139,6 +140,8 @@ const STATIC_TYPES: Record<string, string> = {
   '.png': 'image/png',
   // The CAD studio's OpenCascade kernel (vendor/replicad_single.wasm).
   '.wasm': 'application/wasm',
+  // The GenBOM technical report (genbom.pdf), also served at /research/genbom.pdf.
+  '.pdf': 'application/pdf',
 };
 
 function send(res: http.ServerResponse, status: number, type: string, body: string): void {
@@ -450,7 +453,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (path === '/sitemap.xml') {
     // Only indexable URLs: home, domain hubs, and nodes that clear the tier +
     // content floor in isIndexableNode (currently substantive products).
-    const urls: string[] = ["https://bomwiki.com/", "https://bomwiki.com/products", "https://bomwiki.com/cad", "https://bomwiki.com/cad/studio", "https://bomwiki.com/project", "https://bomwiki.com/project/engine", "https://bomwiki.com/help/editing"];
+    const urls: string[] = ["https://bomwiki.com/", "https://bomwiki.com/products", "https://bomwiki.com/cad", "https://bomwiki.com/cad/studio", "https://bomwiki.com/project", "https://bomwiki.com/project/engine", "https://bomwiki.com/help/editing", "https://bomwiki.com/research"];
     for (const d of DOMAINS) {
       if (productsByDomain(d.slug).length > 0) urls.push(`https://bomwiki.com/domain/${d.slug}/`);
     }
@@ -1259,6 +1262,19 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (path === '/intelligence') return sendCacheableHtml(res, intelligencePage());
   if (path === '/about/numbers' || path === '/about/numbers/') return redirectPermanent(res, '/about/');
   if (path === '/policies') return sendCacheableHtml(res, policiesPage());
+  if (path === '/research' || path === '/research/') return sendCacheableHtml(res, researchPage());
+  if (path === '/research/genbom.pdf') {
+    // The GenBOM technical report. Served from static/ under a stable, shareable
+    // URL; immutable content, so let the edge cache it for a day.
+    const pdf = readFileSync(join(staticDir, 'genbom.pdf'));
+    res.writeHead(200, {
+      'content-type': 'application/pdf',
+      'content-length': pdf.length,
+      'cache-control': 'public, max-age=86400, stale-while-revalidate=86400',
+    });
+    res.end(pdf);
+    return;
+  }
 
   const domain = path.match(/^\/domain\/([a-z0-9-]+)(\/?)$/);
   if (domain) {

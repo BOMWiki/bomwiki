@@ -79,6 +79,7 @@ const PAGES = [
   { key: 'new', title: 'Create a page', tagline: 'Start a new product, assembly, or part from scratch.', motif: 'plus' },
   { key: 'cad', title: '3D models & CAD files', tagline: 'Real geometry on real hardware pages. Openly licensed, free to download.', motif: 'solid' },
   { key: 'cad-studio', title: 'CAD Studio', tagline: 'Parametric CAD in your browser. No account, no install, free.', motif: 'extrude' },
+  { key: 'research', title: 'GenBOM', tagline: 'Benchmarking and auditing the generated catalog. Read the paper.', motif: 'page' },
 ];
 
 function esc(s) {

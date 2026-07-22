@@ -450,3 +450,46 @@ export function policiesPage(): string {
     extraCss: ['/static/edit.css'],
   });
 }
+
+export function researchPage(): string {
+  return page({
+    title: 'Research | GenBOM: benchmarking the generated catalog | BOMwiki',
+    description:
+      'GenBOM is the technical report behind BOMwiki: a benchmark and audit of the 192,471-node generated product-structure graph, validated against human-authored BOMs. Read the paper.',
+    path: '/research',
+    ogImage: '/og/page/research.png',
+    indexable: true,
+    body: `<div class="review">
+      <h1>GenBOM: benchmarking the generated catalog</h1>
+      <p>BOMwiki's catalog began as machine-generated content, and the site says so on every unverified page. GenBOM is the technical report where we measure what that content is actually worth: a benchmark and audit built from the catalog itself, validated against a corpus of human-authored bills of materials collected for the purpose.</p>
+      <p><b><a href="/research/genbom.pdf">Download the paper (PDF, 10 pages)</a></b> &middot; MathproBro and protosphinx, ERP&#8226;AI Research Team, July 2026.</p>
+
+      <h2 class="si-h">The question</h2>
+      <p>Can a generative model author usable engineering data? The dataset under study is the frozen v1.0 snapshot of this site's graph: 192,471 nodes and 263,907 edges, covering 4,879 products decomposed into 50,843 assemblies and 136,749 parts across 53 domains. Rather than assuming the answer, the paper instruments it: fixed tasks, fixed splits, a typed registry of the generator's own mistakes, and a human-authored control corpus to compare against.</p>
+
+      <h2 class="si-h">What the benchmark contains</h2>
+      <ul class="rv-lines">
+        <li><b>Four tasks.</b> BOM completion (predict a missing child part), where-used retrieval (find the products a part appears in), domain transfer, and graph repair (detect corrupted or implausible edges).</li>
+        <li><b>Evaluation built for catalogs.</b> A few heavily reused parts (bearings, fasteners, connectors) dominate any real catalog, and a ranker that just predicts the popular part looks better than it is. The benchmark ships leakage-audited splits, negatives matched by part popularity, and a feasibility floor that makes scores meaningful on hub-heavy graphs.</li>
+        <li><b>An artifact registry.</b> 1,350 defects found in the generated graph (inconsistent typing, quantity outliers, duplicate-name clusters, self-loops) are labeled and shipped as part of the benchmark rather than silently repaired.</li>
+        <li><b>A human control corpus.</b> 75 human-authored BOM trees harvested from license-verified public projects, plus deep CAD assemblies, each with recorded provenance and its original license.</li>
+      </ul>
+
+      <h2 class="si-h">The three findings</h2>
+      <ul class="rv-lines">
+        <li><b>Structure alone does not give the generated graph away.</b> A classifier restricted to structural features cannot tell generated product trees from human ones on a matched sample (AUC 0.510, chance level).</li>
+        <li><b>Writing style gives it away completely.</b> The same populations separate almost perfectly on text features (AUC 1.000). Generated pages are recognizable by how they are written.</li>
+        <li><b>Skill does not transfer yet.</b> Completion models trained on the generated graph reach MRR 0.62 on held-out generated products but only 0.10 on the human corpus. Looking structurally plausible and standing in for real data are different properties, and the paper measures the gap between them.</li>
+      </ul>
+      <p>The report states its limits plainly: the graph is a benchmark object, not industrial ground truth, and nothing in it should be used for real sourcing or engineering decisions. The position it argues is that generated engineering data becomes usable as a scientific object when its provenance, failure modes, and verification path ship with it.</p>
+
+      <h2 class="si-h">What happens next on the wiki</h2>
+      <p>The paper freezes a plausibility-audit framework (a three-way rubric, a 617-item audit packet, an annotation harness) designed to be executed as <a href="/about/verification">community verification</a> on this site: lightweight judgments on displayed BOM edges, aggregated with the same integrity rules. Verified status appears on pages as labels accumulate, and label versions will be added to the benchmark. The deterministic checks described in the paper run today in <a href="/intelligence">bomwiki-intelligence</a>, the analysis engine that screens every proposed edit.</p>
+
+      <h2 class="si-h">Cite</h2>
+      <p>MathproBro and protosphinx. <i>GenBOM: Benchmarking and Auditing a Large Generated Product-Structure Graph.</i> ERP&#8226;AI Research Team, technical report, July 2026. Dataset v1.0, frozen 2026-06-22. <a href="/research/genbom.pdf">bomwiki.com/research/genbom.pdf</a></p>
+      <p>Questions and discussion: <a href="https://x.com/MathproBro" rel="noopener">@MathproBro</a> and <a href="https://x.com/protosphinx" rel="me noopener">@protosphinx</a> on X.</p>
+    </div>`,
+    extraCss: ['/static/edit.css'],
+  });
+}
