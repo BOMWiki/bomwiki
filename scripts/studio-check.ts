@@ -660,6 +660,11 @@ const undoBeforeApply = await SC<number>('(s) => s.undoDepth()');
 await pageC.click('[data-feat="fillet"]');
 await pageC.click('#bw-draft-apply');
 check('dirty draft: Apply and continue commits then switches', (await SC<string>('(s) => s.mode().kind')) === 'picking-edges' && (await SC<number>('(s) => s.undoDepth()')) === undoBeforeApply + 1);
+await pageC.waitForFunction(() =>
+  (window as any).__bwStudio.mode().kind === 'picking-edges'
+  && document.activeElement?.tagName === 'CANVAS',
+);
+check('dirty draft: Apply and continue transfers keyboard focus to the active command', await pageC.evaluate(() => document.activeElement?.tagName === 'CANVAS'));
 await pageC.keyboard.press('Escape');
 await pageC.waitForFunction(() => {
   const studio = (window as any).__bwStudio;
@@ -1291,7 +1296,7 @@ const v3Shell = await pageV.evaluate(() => {
     documentName: document.getElementById('bw-tab-project-name')?.textContent,
   };
 });
-check('ribbon exposes the six video-derived application tabs', v3Shell.tabs === 6 && v3Shell.tabLabels === 'Home,Sketch,3D Tools,View,Manage,Output', JSON.stringify(v3Shell));
+check('ribbon exposes the seven production application tabs', v3Shell.tabs === 7 && v3Shell.tabLabels === 'Home,Sketch,3D Tools,Assembly,View,Manage,Output', JSON.stringify(v3Shell));
 check('3D Tools is the single initial workspace', v3Shell.selected === 'solid' && v3Shell.visiblePanels.join(',') === 'solid', JSON.stringify(v3Shell));
 check('model tree, canvas and inspector form one aligned workspace', v3Shell.ordered && v3Shell.heightsAligned, JSON.stringify(v3Shell));
 check('desktop chrome uses a compact title-tab-ribbon-document hierarchy',

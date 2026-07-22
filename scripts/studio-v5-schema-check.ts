@@ -247,6 +247,19 @@ bodyProject.partDefinitions[0] = {
 const validBodyProject = prepareStudioV5Project(bodyProject);
 check('body ownership and result-policy references validate', validBodyProject.partDefinitions[0].bodies[0].featureIds.length === 2);
 
+const validBodyPatternProject = deepCopy(bodyProject);
+validBodyPatternProject.partDefinitions[0].referenceGeometry.push({
+  id: 'datum-rotor-axis', name: 'Rotor axis', kind: 'axis', suppressed: false,
+  definition: { mode: 'principal', origin: [0, 0, 0], direction: [1, 0, 0] },
+});
+validBodyPatternProject.partDefinitions[0].bodyPatterns = [{
+  id: 'pattern-rotor-blades', name: 'Rotor blades', kind: 'circular', sourceBodyId: 'body-main',
+  references: [{ ownerKind: 'datum', ownerId: 'datum-rotor-axis', semanticPath: { role: 'axis' }, signature: { role: 'axis' } }],
+  definition: { count: 12, distribution: 'full', symmetric: false, orientation: 'rotate', totalAngle: 360, spacingAngle: 30, angles: [], radialOffset: 0, axialOffset: 0 },
+  skippedIndices: [], suppressed: false, visible: true,
+}];
+check('linked body-pattern source, role, policy, and occurrence budget validate', prepareStudioV5Project(validBodyPatternProject).partDefinitions[0].bodyPatterns?.length === 1);
+
 const validAssemblyGeometryReference = deepCopy(bodyProject);
 validAssemblyGeometryReference.assemblyDefinitions = [{
   ...emptyAssembly(),
@@ -307,6 +320,30 @@ check(
 );
 
 const rejectionFixtures: Array<[string, StudioV5Project | Record<string, unknown>, string]> = [];
+
+const missingBodyPatternSource = deepCopy(validBodyPatternProject);
+missingBodyPatternSource.partDefinitions[0].bodyPatterns![0].sourceBodyId = 'body-missing';
+rejectionFixtures.push(['body patterns require a canonical source body', missingBodyPatternSource, 'MISSING_REFERENCE']);
+
+const wrongBodyPatternRole = deepCopy(validBodyPatternProject);
+wrongBodyPatternRole.partDefinitions[0].bodyPatterns![0].references[0].semanticPath = { role: 'direction' };
+wrongBodyPatternRole.partDefinitions[0].bodyPatterns![0].references[0].signature = { role: 'direction' };
+rejectionFixtures.push(['body pattern references must match their kind-specific role', wrongBodyPatternRole, 'INVALID_PATTERN']);
+
+const wrongBodyPatternDatumKind = deepCopy(validBodyPatternProject);
+wrongBodyPatternDatumKind.partDefinitions[0].referenceGeometry[0].kind = 'plane';
+rejectionFixtures.push(['body pattern references must resolve to kind-compatible geometry', wrongBodyPatternDatumKind, 'INVALID_PATTERN']);
+
+const shortBodyPatternTable = deepCopy(validBodyPatternProject);
+shortBodyPatternTable.partDefinitions[0].bodyPatterns![0].definition = {
+  ...shortBodyPatternTable.partDefinitions[0].bodyPatterns![0].definition,
+  distribution: 'table', angles: [30],
+};
+rejectionFixtures.push(['body pattern tables require one value per generated occurrence', shortBodyPatternTable, 'INVALID_PATTERN']);
+
+const excessiveBodyPattern = deepCopy(validBodyPatternProject);
+excessiveBodyPattern.partDefinitions[0].bodyPatterns![0].definition.count = 5001;
+rejectionFixtures.push(['body pattern count is bounded before generation', excessiveBodyPattern, 'INVALID_PATTERN']);
 
 const older = deepCopy(baseProject()) as unknown as Record<string, unknown>;
 older.schemaVersion = 4;
@@ -485,6 +522,26 @@ badMate.assemblyDefinitions[0].mates.push({
   suppressed: false,
 });
 rejectionFixtures.push(['mates cannot reference missing occurrences', badMate, 'MISSING_REFERENCE']);
+
+const nonRigidOccurrence = assemblyProject();
+nonRigidOccurrence.assemblyDefinitions[0].occurrences[0].baseTransform[0] = 2;
+rejectionFixtures.push(['component transforms reject hidden scale and shear', nonRigidOccurrence, 'INVALID_TRANSFORM']);
+
+const reflectedOccurrence = assemblyProject();
+reflectedOccurrence.assemblyDefinitions[0].occurrences[0].baseTransform[0] = -1;
+rejectionFixtures.push(['component transforms reject left-handed reflections', reflectedOccurrence, 'INVALID_TRANSFORM']);
+
+const incompleteBinaryMate = assemblyProject();
+incompleteBinaryMate.assemblyDefinitions[0].mates.push({
+  id: 'mate-incomplete-binary',
+  name: 'Incomplete distance mate',
+  kind: 'distance',
+  occurrenceIds: ['occurrence-part-1'],
+  references: [],
+  value: 10,
+  suppressed: false,
+});
+rejectionFixtures.push(['binary mates require exactly two component occurrences and references', incompleteBinaryMate, 'INVALID_MATE']);
 
 const duplicateMateOccurrence = assemblyProject();
 duplicateMateOccurrence.assemblyDefinitions[0].mates.push({

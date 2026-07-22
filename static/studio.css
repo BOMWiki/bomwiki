@@ -2451,6 +2451,195 @@ body.cadstudio-route > main {
   text-align: left;
   cursor: pointer;
 }
+
+.datum-tree {
+  display: grid;
+  gap: 2px;
+  padding: 2px 6px 7px 18px;
+}
+.datum-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #bccbda;
+}
+.datum-row > button {
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.datum-row small {
+  color: #7890a7;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.datum-row[data-broken='true'] {
+  border-color: #9a514d;
+  color: #ffb4a9;
+}
+.datum-row [data-datum-action='edit'] {
+  width: 28px;
+  text-align: center;
+}
+.pattern-row { grid-template-columns: 1fr 28px 28px; }
+.pattern-row > button:not(:first-child) {
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  text-align: center;
+}
+.pattern-instance-row {
+  display: grid;
+  grid-template-columns: 1fr 28px 42px;
+  align-items: center;
+  min-height: 27px;
+  margin-left: 14px;
+  border-left: 1px solid #31485e;
+  color: #91a9bf;
+}
+.pattern-instance-row.is-selected { color: #d8ecff; background: rgba(82, 118, 155, .18); }
+.pattern-instance-row button {
+  min-width: 0;
+  min-height: 27px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.pattern-instance-row button:last-child { color: #7890a7; text-align: center; }
+.pattern-instance-row label { display: grid; place-items: center; min-height: 27px; }
+.assembly-row,
+.mate-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 28px;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #b8c9d9;
+}
+.assembly-row.is-selected,
+.assembly-leaf-row.is-selected,
+.mate-row.is-selected { color: #d8ecff; background: rgba(82, 118, 155, .18); }
+.assembly-row.is-suppressed,
+.mate-row.is-suppressed { opacity: .55; }
+.mate-row.is-failed { border-color: #9a514d; color: #ffb4a9; }
+.assembly-row button,
+.mate-row button,
+.assembly-leaf-row button {
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.assembly-row > button:not(:first-child),
+.mate-row > button:not(:first-child) { padding: 0; text-align: center; }
+.assembly-row span,
+.mate-row span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assembly-row small,
+.mate-row small,
+.assembly-pattern-row small { display: block; color: #7890a7; font-size: 9px; text-transform: uppercase; }
+.assembly-leaf-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  min-height: 27px;
+  margin-left: 14px;
+  border-left: 1px solid #31485e;
+  color: #91a9bf;
+}
+.assembly-leaf-row label { display: grid; place-items: center; min-height: 27px; }
+.assembly-pattern-row { min-height: 30px; padding: 4px 6px; border-top: 1px solid rgba(255,255,255,.035); color: #a8bdd0; font-size: 10px; }
+.inspection-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  min-height: 30px;
+  color: #adc0d1;
+  border-left: 2px solid transparent;
+}
+.inspection-row.stage-group-row { grid-template-columns: minmax(0, 1fr) 28px 28px; }
+.inspection-row.is-active { color: #d9edff; background: rgba(74, 127, 166, .17); border-left-color: #67b7f0; }
+.inspection-row button {
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.inspection-row > button:not(:first-child) { padding: 0; text-align: center; }
+.inspection-row span,
+.inspection-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspection-row small,
+.stage-leaf-row small { color: #7890a7; font-size: 9px; text-transform: uppercase; }
+.stage-leaf-row { padding: 3px 6px 3px 12px; grid-template-columns: minmax(0, 1fr) auto; font-size: 10px; }
+.inspection-results { max-height: 190px; overflow: auto; border-top: 1px solid rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.08); }
+@media (max-width: 760px) {
+  .pattern-row { grid-template-columns: minmax(0, 1fr) 44px 44px; min-height: 44px; }
+  .pattern-row > button:first-child,
+  .pattern-row > button:not(:first-child),
+  .pattern-instance-row button,
+  .pattern-instance-row label { min-width: 44px; min-height: 44px; }
+  .pattern-instance-row { grid-template-columns: minmax(0, 1fr) 44px 52px; min-height: 44px; }
+  .assembly-row,
+  .mate-row { grid-template-columns: minmax(0, 1fr) 44px 44px; min-height: 44px; }
+  .assembly-leaf-row { grid-template-columns: minmax(0, 1fr) 44px; min-height: 44px; }
+  .assembly-row button,
+  .mate-row button,
+  .assembly-leaf-row button,
+  .assembly-leaf-row label { min-width: 44px; min-height: 44px; }
+  .inspection-row { grid-template-columns: minmax(0, 1fr) 44px; min-height: 44px; }
+  .inspection-row.stage-group-row { grid-template-columns: minmax(0, 1fr) 44px 44px; }
+  .inspection-row button { min-width: 44px; min-height: 44px; }
+  [data-workspace='assembly'] { display: none; }
+}
+
+.ws-v5-command {
+  width: min(520px, calc(100vw - 28px));
+  padding: 0;
+  border: 1px solid #52769b;
+  border-radius: 5px;
+  background: #1b2937;
+  color: #d7e1eb;
+  box-shadow: 0 18px 70px rgba(0, 0, 0, .55);
+}
+.ws-v5-command::backdrop { background: rgba(6, 12, 18, .68); }
+.ws-v5-command form > header,
+.ws-v5-command form > footer { padding: 14px 16px; background: #15212d; }
+.ws-v5-command form > header span { color: #8fc1f5; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.ws-v5-command h2 { margin: 3px 0 0; font-size: 18px; }
+.ws-v5-command-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; padding: 16px; }
+.ws-v5-command-fields label { display: grid; gap: 5px; color: #a9bacb; font-size: 11px; }
+.ws-v5-command-fields .is-wide { grid-column: 1 / -1; }
+.ws-v5-command-fields p { margin: 0; color: #8fa6bb; font-size: 11px; }
+.ws-v5-command-fields input,
+.ws-v5-command-fields select,
+.ws-v5-command-fields textarea { min-height: 34px; border: 1px solid #3a5470; border-radius: 3px; background: #111b26; color: #eef5fc; padding: 5px 8px; font: inherit; }
+.ws-v5-command-fields textarea { min-height: 132px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.45; }
+.ws-v5-command-fields select[multiple] { min-height: 112px; }
+.ws-v5-command-error { min-height: 18px; margin: 0; padding: 0 16px 10px; color: #ffb4a9; font-size: 11px; }
+.ws-v5-command footer { display: flex; justify-content: flex-end; gap: 8px; }
+.ws-v5-command footer button { min-height: 34px; padding: 0 15px; border: 1px solid #3a5470; border-radius: 3px; background: #22303f; color: #d7e1eb; cursor: pointer; }
+.ws-v5-command footer .ws-primary { background: #0b5cad; border-color: #0b5cad; color: #fff; }
 .ws-origin button:hover {
   background: #1b2c3b;
   color: #e2edf7;

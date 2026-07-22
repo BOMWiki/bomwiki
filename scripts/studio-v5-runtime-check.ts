@@ -258,7 +258,7 @@ async function waitForStudio(page: Page, options: { bodyCount?: number; revision
     if (bodyCount != null && studio.bodyResults().filter((body: any) => body.geometry).length !== bodyCount) return false;
     if (revisionAfter != null && studio.appliedRevision() <= revisionAfter) return false;
     return true;
-  }, { timeout }, options);
+  }, { timeout, polling: 250 }, options);
 }
 
 async function drawExactBody(page: Page, name: string, dimensions: { w?: number; h?: number; d?: number; x: number; y: number; depth: number }): Promise<void> {
@@ -306,7 +306,7 @@ async function selectBodyVisible(page: Page, bodyId: string): Promise<void> {
   const selected = await page.evaluate(() => (window as any).__bwStudio.selectedBodyId());
   if (selected === bodyId) await clickBodyAction(page, bodyId, 'select');
   await clickBodyAction(page, bodyId, 'select');
-  await page.waitForFunction((id) => (window as any).__bwStudio.selectedBodyId() === id, {}, bodyId);
+  await page.waitForFunction((id) => (window as any).__bwStudio.selectedBodyId() === id, { polling: 250 }, bodyId);
 }
 
 async function keyCommand(page: Page, key: 'z' | 'y'): Promise<void> {
@@ -380,7 +380,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     booleanSelection.active === ids.Housing && booleanSelection.selected === ids.Tool && booleanSelection.controls.includes('subtract'), booleanSelection);
   const beforeBooleanRevision = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
   await page.click('#bw-context [data-body-context="subtract"]');
-  await page.waitForFunction(() => JSON.parse((window as any).__bwStudio.docJson()).partDefinitions[0].features.some((feature: any) => feature.type === 'boolean'), { timeout: 60_000 });
+  await page.waitForFunction(() => JSON.parse((window as any).__bwStudio.docJson()).partDefinitions[0].features.some((feature: any) => feature.type === 'boolean'), { timeout: 60_000, polling: 250 });
   await waitForStudio(page, { revisionAfter: beforeBooleanRevision });
   const afterBoolean = await page.evaluate(() => ({ doc: JSON.parse((window as any).__bwStudio.docJson()), bodies: (window as any).__bwStudio.bodyResults() }));
   check('browser 4/10 visibly subtracts Tool from Housing while retaining Shaft',
@@ -450,14 +450,14 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     };
   });
   await page.click('#bw-save-file');
-  await page.waitForFunction(() => Boolean((window as any).__slice5aSavedText));
+  await page.waitForFunction(() => Boolean((window as any).__slice5aSavedText), { polling: 250 });
   const savedText = await page.evaluate(() => (window as any).__slice5aSavedText as string);
   const fixtureDir = mkdtempSync(join(tmpdir(), 'bomwiki-slice-5a-'));
   const projectFile = join(fixtureDir, 'project.bomcad.json');
   writeFileSync(projectFile, savedText);
   const fileInput = await page.$('#bw-open-file') as ElementHandle<HTMLInputElement> | null;
   await fileInput!.uploadFile(projectFile);
-  await page.waitForFunction((hash) => (window as any).__bwStudio.canonicalHash() === hash, { timeout: 60_000 }, beforeSave.hash);
+  await page.waitForFunction((hash) => (window as any).__bwStudio.canonicalHash() === hash, { timeout: 60_000, polling: 250 }, beforeSave.hash);
   await waitForStudio(page, { bodyCount: 3 });
   const reopened = await page.evaluate(() => ({
     hash: (window as any).__bwStudio.canonicalHash(),
@@ -514,7 +514,7 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     };
   });
   await page.click('#bw-context [data-body-context="subtract"]');
-  await page.waitForFunction(() => document.getElementById('bw-studio-msg')?.textContent?.includes('does not intersect'), { timeout: 60_000 });
+  await page.waitForFunction(() => document.getElementById('bw-studio-msg')?.textContent?.includes('does not intersect'), { timeout: 60_000, polling: 250 });
   const afterFailure = await page.evaluate(() => {
     const studio = (window as any).__bwStudio;
     return {

@@ -35,11 +35,12 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 const PARAMETER_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DOCUMENT_KINDS = new Set(['part', 'assembly']);
 const BODY_KINDS = new Set(['solid', 'surface']);
-const OWNER_KINDS = new Set(['part', 'body', 'feature', 'occurrence']);
+const OWNER_KINDS = new Set(['part', 'body', 'feature', 'datum', 'sketch', 'occurrence']);
 const RESULT_KINDS = new Set(['new-body', 'add', 'subtract', 'intersect', 'surface']);
 const REFERENCE_KINDS = new Set(['plane', 'axis', 'point', 'coordinate-system']);
 const MATE_KINDS = new Set(['fixed', 'coincident', 'concentric', 'distance', 'angle', 'parallel', 'perpendicular', 'tangent', 'revolute', 'slider']);
 const PATTERN_KINDS = new Set(['linear', 'circular', 'curve']);
+const BODY_PATTERN_KINDS = new Set(['linear', 'circular', 'curve', 'mirror']);
 const SECTION_KINDS = new Set(['plane', 'quarter', 'box']);
 const RESOURCE_MIME_TYPES = new Set(['text/plain', 'text/csv', 'application/dxf', 'application/step', 'model/step', 'image/svg+xml']);
 
@@ -283,7 +284,7 @@ function validateGeometryReference(reference, path) {
   }
 }
 
-function validatePartReferenceContext(reference, path, partId, bodyIds, featureIds) {
+function validatePartReferenceContext(reference, path, partId, bodyIds, featureIds, datumIds, sketchIds) {
   if (reference.occurrencePath?.length) return;
   if (reference.ownerKind === 'part' && reference.ownerId !== partId) {
     fail('MISSING_REFERENCE', path + ' references another part without an occurrence path.');
@@ -293,6 +294,12 @@ function validatePartReferenceContext(reference, path, partId, bodyIds, featureI
   }
   if (reference.ownerKind === 'feature' && !featureIds.has(reference.ownerId)) {
     fail('MISSING_REFERENCE', path + ' references a feature outside this part without an occurrence path.');
+  }
+  if (reference.ownerKind === 'datum' && !datumIds.has(reference.ownerId)) {
+    fail('MISSING_REFERENCE', path + ' references a datum outside this part without an occurrence path.');
+  }
+  if (reference.ownerKind === 'sketch' && !sketchIds.has(reference.ownerId)) {
+    fail('MISSING_REFERENCE', path + ' references a sketch outside this part without an occurrence path.');
   }
   if (reference.ownerKind === 'occurrence') {
     fail('INVALID_REFERENCE', path + ' must include an occurrence path in a part definition.');
@@ -432,6 +439,125 @@ function validateBody(body, path, seenIds, globalIds, featureIds, materialIds) {
   validateOptionalRecord(body.extensions, path + '.extensions');
 }
 
+function validateBodyPattern(pattern, path, partId, bodyIds, featureIds, datumIds, sketchIds, datumKinds, sketchRoles, parameterValues, seenIds, globalIds, counters) {
+  requireRecord(pattern, path);
+  const id = requireId(pattern.id, path + '.id');
+  addUnique(seenIds, id, path, 'body pattern');
+  addUnique(globalIds, id, path, 'project pattern');
+  requireName(pattern.name, path + '.name');
+  if (!BODY_PATTERN_KINDS.has(pattern.kind)) fail('INVALID_PATTERN', path + '.kind is unsupported.');
+  const sourceBodyId = requireId(pattern.sourceBodyId, path + '.sourceBodyId');
+  if (!bodyIds.has(sourceBodyId)) fail('MISSING_REFERENCE', path + '.sourceBodyId does not resolve in this part.');
+  const references = requireArray(pattern.references, path + '.references', 4);
+  references.forEach((reference, index) => validatePartReferenceContext(
+    reference,
+    path + '.references[' + index + ']',
+    partId,
+    bodyIds,
+    featureIds,
+    datumIds,
+    sketchIds,
+  ));
+  requireRecord(pattern.definition, path + '.definition');
+  const expressionValue = (value, suffix) => parseSafeExpression(value, path + '.definition.' + suffix, new Set(parameterValues.keys()))
+    .evaluate((parameterName) => parameterValues.get(parameterName));
+  const count = expressionValue(pattern.definition.count, 'count');
+  if (!Number.isInteger(count) || count < 2 || count > STUDIO_V5_PROJECT_LIMITS.generatedOccurrences) {
+    fail('INVALID_PATTERN', path + '.definition.count must evaluate to an integer from 2 to 5,000.');
+  }
+  let occurrenceCount = count;
+  const roles = references.map((reference, index) => {
+    if (reference.occurrencePath?.length) fail('INVALID_PATTERN', path + '.references[' + index + '] cannot cross an assembly occurrence.');
+    const role = reference.semanticPath?.role;
+    if (typeof role !== 'string' || reference.signature?.role !== role) fail('INVALID_PATTERN', path + '.references[' + index + '] must carry one matching semantic role.');
+    return role;
+  });
+  const expectRoles = (expected) => {
+    if (roles.length !== expected.length || expected.some((role) => !roles.includes(role)) || new Set(roles).size !== roles.length) {
+      fail('INVALID_PATTERN', path + '.references must contain exactly ' + expected.join(' and ') + '.');
+    }
+  };
+  const expectReferenceKinds = (ownerKind, expectedRoles) => {
+    expectRoles(expectedRoles);
+    references.forEach((reference, index) => {
+      if (reference.ownerKind !== ownerKind) fail('INVALID_PATTERN', path + '.references[' + index + '] must reference a ' + ownerKind + '.');
+    });
+  };
+  const referenceForRole = (role) => references.find((reference) => reference.semanticPath?.role === role);
+  const validateTable = (values, suffix, tableCount = count) => {
+    const entries = requireArray(values, path + '.definition.' + suffix, tableCount - 1);
+    if (entries.length !== tableCount - 1) fail('INVALID_PATTERN', path + '.definition.' + suffix + ' must contain one value per generated occurrence in that direction.');
+    entries.forEach((value, index) => expressionValue(value, suffix + '[' + index + ']'));
+  };
+  if (pattern.kind === 'linear') {
+    const linearRoles = roles.includes('direction-2') ? ['direction', 'direction-2'] : ['direction'];
+    expectReferenceKinds('datum', linearRoles);
+    linearRoles.forEach((role) => {
+      if (!['axis', 'coordinate-system'].includes(datumKinds.get(referenceForRole(role).ownerId))) fail('INVALID_PATTERN', path + '.references role ' + role + ' must resolve to an axis or coordinate system.');
+    });
+    if (!['spacing', 'extent', 'table'].includes(pattern.definition.distribution)) fail('INVALID_PATTERN', path + '.definition.distribution is unsupported for a linear pattern.');
+    if (!['preserve', 'alternating'].includes(pattern.definition.orientation)) fail('INVALID_PATTERN', path + '.definition.orientation is unsupported for a linear pattern.');
+    if (pattern.definition.distribution === 'spacing' && Math.abs(expressionValue(pattern.definition.spacing, 'spacing')) <= 1e-9) fail('INVALID_PATTERN', path + '.definition.spacing must be nonzero.');
+    if (pattern.definition.distribution === 'extent' && Math.abs(expressionValue(pattern.definition.extent, 'extent')) <= 1e-9) fail('INVALID_PATTERN', path + '.definition.extent must be nonzero.');
+    if (pattern.definition.distribution === 'table') validateTable(pattern.definition.positions, 'positions');
+    if (linearRoles.length === 2) {
+      const count2 = expressionValue(pattern.definition.count2, 'count2');
+      if (!Number.isInteger(count2) || count2 < 2 || count * count2 > STUDIO_V5_PROJECT_LIMITS.generatedOccurrences) {
+        fail('INVALID_PATTERN', path + '.definition.count2 must produce from 4 to 5,000 total occurrences.');
+      }
+      occurrenceCount = count * count2;
+      if (!['spacing', 'extent', 'table'].includes(pattern.definition.distribution2)) fail('INVALID_PATTERN', path + '.definition.distribution2 is unsupported for a linear pattern.');
+      if (pattern.definition.distribution2 === 'spacing' && Math.abs(expressionValue(pattern.definition.spacing2, 'spacing2')) <= 1e-9) fail('INVALID_PATTERN', path + '.definition.spacing2 must be nonzero.');
+      if (pattern.definition.distribution2 === 'extent' && Math.abs(expressionValue(pattern.definition.extent2, 'extent2')) <= 1e-9) fail('INVALID_PATTERN', path + '.definition.extent2 must be nonzero.');
+      if (pattern.definition.distribution2 === 'table') validateTable(pattern.definition.positions2, 'positions2', count2);
+    }
+  } else if (pattern.kind === 'circular') {
+    expectReferenceKinds('datum', ['axis']);
+    if (!['axis', 'coordinate-system'].includes(datumKinds.get(referenceForRole('axis').ownerId))) fail('INVALID_PATTERN', path + '.references role axis must resolve to an axis or coordinate system.');
+    if (!['full', 'spacing', 'extent', 'table'].includes(pattern.definition.distribution)) fail('INVALID_PATTERN', path + '.definition.distribution is unsupported for a circular pattern.');
+    if (!['rotate', 'preserve', 'alternating'].includes(pattern.definition.orientation)) fail('INVALID_PATTERN', path + '.definition.orientation is unsupported for a circular pattern.');
+    expressionValue(pattern.definition.radialOffset ?? 0, 'radialOffset');
+    expressionValue(pattern.definition.axialOffset ?? 0, 'axialOffset');
+    if (pattern.definition.distribution === 'spacing' && Math.abs(expressionValue(pattern.definition.spacingAngle, 'spacingAngle')) <= 1e-9) fail('INVALID_PATTERN', path + '.definition.spacingAngle must be nonzero.');
+    if (pattern.definition.distribution === 'extent' && Math.abs(expressionValue(pattern.definition.totalAngle, 'totalAngle')) <= 1e-9) fail('INVALID_PATTERN', path + '.definition.totalAngle must be nonzero.');
+    if (pattern.definition.distribution === 'table') validateTable(pattern.definition.angles, 'angles');
+  } else if (pattern.kind === 'curve') {
+    expectReferenceKinds('sketch', ['path']);
+    if (sketchRoles.get(referenceForRole('path').ownerId) !== 'path') fail('INVALID_PATTERN', path + '.references role path must resolve to an editable path sketch.');
+    if (!['equal', 'spacing', 'extent', 'table'].includes(pattern.definition.distribution)) fail('INVALID_PATTERN', path + '.definition.distribution is unsupported for a curve pattern.');
+    if (!['tangent', 'fixed'].includes(pattern.definition.orientation)) fail('INVALID_PATTERN', path + '.definition.orientation is unsupported for a curve pattern.');
+    if (pattern.definition.distribution === 'spacing' && expressionValue(pattern.definition.spacing, 'spacing') <= 0) fail('INVALID_PATTERN', path + '.definition.spacing must be positive.');
+    if (pattern.definition.distribution === 'extent' && expressionValue(pattern.definition.extent, 'extent') <= 0) fail('INVALID_PATTERN', path + '.definition.extent must be positive.');
+    if (pattern.definition.distribution === 'table') {
+      validateTable(pattern.definition.parameters, 'parameters');
+      pattern.definition.parameters.forEach((value, index) => {
+        const parameter = expressionValue(value, 'parameters[' + index + ']');
+        if (!(parameter >= 0 && parameter <= 1)) fail('INVALID_PATTERN', path + '.definition.parameters[' + index + '] must evaluate from 0 to 1.');
+      });
+    }
+  } else {
+    expectReferenceKinds('datum', ['plane']);
+    if (datumKinds.get(referenceForRole('plane').ownerId) !== 'plane') fail('INVALID_PATTERN', path + '.references role plane must resolve to a plane datum.');
+    if (count !== 2 || pattern.definition.distribution !== 'mirror' || pattern.definition.orientation !== 'mirror') {
+      fail('INVALID_PATTERN', path + '.definition must describe one mirror occurrence.');
+    }
+  }
+  counters.generatedOccurrences += occurrenceCount - 1;
+  if (counters.generatedOccurrences > STUDIO_V5_PROJECT_LIMITS.generatedOccurrences) {
+    fail('LIMIT_GENERATED_OCCURRENCES', 'Project exceeds the 5,000-generated-occurrence limit.');
+  }
+  const skipped = requireArray(pattern.skippedIndices, path + '.skippedIndices', occurrenceCount - 1);
+  const seenSkipped = new Set();
+  skipped.forEach((value, index) => {
+    if (!Number.isInteger(value) || value < 1 || value >= occurrenceCount) fail('INVALID_PATTERN', path + '.skippedIndices[' + index + '] is outside the generated occurrence range.');
+    if (seenSkipped.has(value)) fail('DUPLICATE_REFERENCE', path + '.skippedIndices repeats occurrence ' + value + '.');
+    seenSkipped.add(value);
+  });
+  requireBoolean(pattern.suppressed, path + '.suppressed');
+  requireBoolean(pattern.visible, path + '.visible');
+  validateOptionalRecord(pattern.extensions, path + '.extensions');
+}
+
 function validateSketch(sketch, path, counters, seenIds, globalIds) {
   requireRecord(sketch, path);
   const id = requireId(sketch.id, path + '.id');
@@ -469,7 +595,7 @@ function validatePart(part, path, counters, projectIds, materialIds, projectPara
   const partId = requireId(part.id, path + '.id');
   addUnique(projectIds.partIds, partId, path, 'part');
   requireName(part.name, path + '.name');
-  validateParameterArray(part.parameters, path + '.parameters', counters.parameters, projectIds.parameterIds, projectParameterValues);
+  const partParameterValues = validateParameterArray(part.parameters, path + '.parameters', counters.parameters, projectIds.parameterIds, projectParameterValues);
 
   const datumIds = new Set();
   requireArray(part.referenceGeometry, path + '.referenceGeometry', STUDIO_V5_PROJECT_LIMITS.featuresPerPart)
@@ -526,6 +652,26 @@ function validatePart(part, path, counters, projectIds, materialIds, projectPara
   const bodyIds = new Set();
   requireArray(part.bodies, path + '.bodies', STUDIO_V5_PROJECT_LIMITS.featuresPerPart)
     .forEach((body, index) => validateBody(body, path + '.bodies[' + index + ']', bodyIds, projectIds.bodyIds, featureIds, materialIds));
+
+  const bodyPatternIds = new Set();
+  const datumKinds = new Map(part.referenceGeometry.map((datum) => [datum.id, datum.kind]));
+  const sketchRoles = new Map(part.sketches.map((sketch) => [sketch.id, sketch.extensions?.studioRole]));
+  requireArray(part.bodyPatterns === undefined ? [] : part.bodyPatterns, path + '.bodyPatterns', STUDIO_V5_PROJECT_LIMITS.featuresPerPart)
+    .forEach((pattern, index) => validateBodyPattern(
+      pattern,
+      path + '.bodyPatterns[' + index + ']',
+      partId,
+      bodyIds,
+      featureIds,
+      datumIds,
+      sketchIds,
+      datumKinds,
+      sketchRoles,
+      partParameterValues,
+      bodyPatternIds,
+      projectIds.patternIds,
+      counters,
+    ));
 
   for (const [index, body] of part.bodies.entries()) {
     let previousOrder = -1;
@@ -590,6 +736,25 @@ function validatePart(part, path, counters, projectIds, materialIds, projectPara
         seenTools.add(id);
         for (const targetBodyId of policy.targetBodyIds) bodyDependencies.get(targetBodyId).add(id);
       });
+    } else if (feature.type === 'transform') {
+      const sourceBodyId = requireId(feature.sourceBodyId, path + '.features[' + index + '].sourceBodyId');
+      const sourceBody = bodyById.get(sourceBodyId);
+      if (!sourceBody) fail('MISSING_REFERENCE', path + '.features[' + index + '].sourceBodyId does not resolve in this part.');
+      const sourceCreationOrder = orderIndex.get(sourceBody.createdByFeatureId);
+      if (sourceCreationOrder >= orderIndex.get(feature.id)) {
+        fail('INVALID_FEATURE_ORDER', path + '.features[' + index + '] must come after its source body creation feature.');
+      }
+      const mode = feature.transform?.mode || feature.operation;
+      if (!['move', 'translate', 'copy', 'rotate', 'align', 'mirror', 'scale'].includes(mode)) {
+        fail('INVALID_FEATURE', path + '.features[' + index + '] has an unsupported transform mode.');
+      }
+      if (policy.kind === 'new-body') {
+        const createdBody = part.bodies.find((body) => body.createdByFeatureId === feature.id);
+        if (!createdBody || createdBody.id === sourceBodyId) fail('INVALID_FEATURE', path + '.features[' + index + '] must create a distinct linked body.');
+        bodyDependencies.get(createdBody.id).add(sourceBodyId);
+      } else if (!policy.targetBodyIds.includes(sourceBodyId)) {
+        fail('INVALID_FEATURE', path + '.features[' + index + '] must target its source body unless it creates a copy.');
+      }
     }
   }
 
@@ -619,13 +784,15 @@ function validatePart(part, path, counters, projectIds, materialIds, projectPara
         partId,
         bodyIds,
         featureIds,
+        datumIds,
+        sketchIds,
       );
     }
   }
 
   for (const [index, sketch] of part.sketches.entries()) {
     if (sketch.support != null) {
-      validatePartReferenceContext(sketch.support, path + '.sketches[' + index + '].support', partId, bodyIds, featureIds);
+      validatePartReferenceContext(sketch.support, path + '.sketches[' + index + '].support', partId, bodyIds, featureIds, datumIds, sketchIds);
     }
   }
 
@@ -645,6 +812,18 @@ function validateOccurrence(occurrence, path, seenIds, globalIds, parameterValue
   const matrix = requireArray(occurrence.baseTransform, path + '.baseTransform', 16);
   if (matrix.length !== 16 || !matrix.every((value) => typeof value === 'number' && Number.isFinite(value))) {
     fail('INVALID_TRANSFORM', path + '.baseTransform must contain 16 finite numbers.');
+  }
+  if (matrix.length === 16) {
+    const columns = [[matrix[0], matrix[1], matrix[2]], [matrix[4], matrix[5], matrix[6]], [matrix[8], matrix[9], matrix[10]]];
+    const dot3 = (left, right) => left.reduce((total, value, index) => total + value * right[index], 0);
+    const determinant =
+      columns[0][0] * (columns[1][1] * columns[2][2] - columns[1][2] * columns[2][1]) -
+      columns[1][0] * (columns[0][1] * columns[2][2] - columns[0][2] * columns[2][1]) +
+      columns[2][0] * (columns[0][1] * columns[1][2] - columns[0][2] * columns[1][1]);
+    const rigid = columns.every((column) => Math.abs(dot3(column, column) - 1) <= 1e-8) &&
+      Math.abs(dot3(columns[0], columns[1])) <= 1e-8 && Math.abs(dot3(columns[0], columns[2])) <= 1e-8 && Math.abs(dot3(columns[1], columns[2])) <= 1e-8 &&
+      Math.abs(determinant - 1) <= 1e-8 && Math.abs(matrix[3]) <= 1e-10 && Math.abs(matrix[7]) <= 1e-10 && Math.abs(matrix[11]) <= 1e-10 && Math.abs(matrix[15] - 1) <= 1e-10;
+    if (!rigid) fail('INVALID_TRANSFORM', path + '.baseTransform must be a rigid right-handed transform without scale, shear, reflection, or perspective.');
   }
   requireBoolean(occurrence.fixed, path + '.fixed');
   requireBoolean(occurrence.suppressed, path + '.suppressed');
@@ -668,7 +847,7 @@ function validateMate(mate, path, occurrenceIds, seenIds, globalIds, parameterVa
   requireName(mate.name, path + '.name');
   if (!MATE_KINDS.has(mate.kind)) fail('INVALID_MATE', path + '.kind is unsupported.');
   const selectedOccurrences = requireArray(mate.occurrenceIds, path + '.occurrenceIds', STUDIO_V5_PROJECT_LIMITS.occurrences);
-  if (selectedOccurrences.length === 0) fail('INVALID_MATE', path + '.occurrenceIds must not be empty.');
+  const expectedOccurrences = mate.kind === 'fixed' ? 1 : 2;
   const selectedOccurrenceIds = new Set();
   selectedOccurrences.forEach((occurrenceId, index) => {
     const idValue = requireId(occurrenceId, path + '.occurrenceIds[' + index + ']');
@@ -676,8 +855,11 @@ function validateMate(mate, path, occurrenceIds, seenIds, globalIds, parameterVa
     if (selectedOccurrenceIds.has(idValue)) fail('DUPLICATE_REFERENCE', path + '.occurrenceIds repeats occurrence "' + idValue + '".');
     selectedOccurrenceIds.add(idValue);
   });
-  requireArray(mate.references, path + '.references', 10)
-    .forEach((reference, index) => validateGeometryReference(reference, path + '.references[' + index + ']'));
+  if (selectedOccurrences.length !== expectedOccurrences) fail('INVALID_MATE', path + '.occurrenceIds must contain exactly ' + expectedOccurrences + ' occurrence' + (expectedOccurrences === 1 ? '' : 's') + ' for a ' + mate.kind + ' mate.');
+  const references = requireArray(mate.references, path + '.references', 10);
+  const expectedReferences = mate.kind === 'fixed' ? [0, 1] : [2];
+  if (!expectedReferences.includes(references.length)) fail('INVALID_MATE', path + '.references has the wrong number of explicit references for a ' + mate.kind + ' mate.');
+  references.forEach((reference, index) => validateGeometryReference(reference, path + '.references[' + index + ']'));
   if (mate.value != null) {
     parseSafeExpression(mate.value, path + '.value', new Set(parameterValues.keys())).evaluate((parameterName) => parameterValues.get(parameterName));
   }
@@ -884,9 +1066,13 @@ function canonicalBase64DecodedBytes(data, path) {
 function validateGeometryReferenceResolution(parts, assemblies, projectIds) {
   const featurePartId = new Map();
   const bodyPartId = new Map();
+  const datumPartId = new Map();
+  const sketchPartId = new Map();
   for (const part of parts) {
     part.features.forEach((feature) => featurePartId.set(feature.id, part.id));
     part.bodies.forEach((body) => bodyPartId.set(body.id, part.id));
+    part.referenceGeometry.forEach((datum) => datumPartId.set(datum.id, part.id));
+    part.sketches.forEach((sketch) => sketchPartId.set(sketch.id, part.id));
   }
   const occurrenceById = new Map();
   const occurrenceAssemblyId = new Map();
@@ -901,6 +1087,8 @@ function validateGeometryReferenceResolution(parts, assemblies, projectIds) {
     if (reference.ownerKind === 'part') return reference.ownerId;
     if (reference.ownerKind === 'body') return bodyPartId.get(reference.ownerId);
     if (reference.ownerKind === 'feature') return featurePartId.get(reference.ownerId);
+    if (reference.ownerKind === 'datum') return datumPartId.get(reference.ownerId);
+    if (reference.ownerKind === 'sketch') return sketchPartId.get(reference.ownerId);
     return undefined;
   }
 
@@ -911,6 +1099,10 @@ function validateGeometryReferenceResolution(parts, assemblies, projectIds) {
         ? projectIds.bodyIds
         : reference.ownerKind === 'feature'
           ? projectIds.featureIds
+          : reference.ownerKind === 'datum'
+            ? projectIds.datumIds
+            : reference.ownerKind === 'sketch'
+              ? projectIds.sketchIds
           : projectIds.occurrenceIds;
     if (!ownerSet.has(reference.ownerId)) fail('MISSING_REFERENCE', path + ' does not resolve to an existing ' + reference.ownerKind + ' owner.');
 
@@ -1212,6 +1404,7 @@ export function migrateStudioPartToV5(candidate, options = {}) {
       referenceGeometry: [],
       sketches: [],
       bodies,
+      bodyPatterns: [],
       features,
       featureOrder,
       metadata: { migratedFromSchema: sourceSchema },
@@ -1270,6 +1463,7 @@ export function createEmptyStudioV5PartProject(options = {}) {
       referenceGeometry: [],
       sketches: [],
       bodies: [],
+      bodyPatterns: [],
       features: [],
       featureOrder: [],
     }],

@@ -16,7 +16,7 @@ export type StudioV5FeatureResultPolicy =
   | { kind: 'surface'; bodyName?: string };
 
 export interface StudioV5GeometryReference {
-  ownerKind: 'part' | 'body' | 'feature' | 'occurrence';
+  ownerKind: 'part' | 'body' | 'feature' | 'datum' | 'sketch' | 'occurrence';
   ownerId: StudioV5Id;
   semanticPath?: Record<string, unknown>;
   signature: Record<string, unknown>;
@@ -84,6 +84,19 @@ export interface StudioV5BodyDefinition {
   extensions?: Record<string, unknown>;
 }
 
+export interface StudioV5BodyPattern {
+  id: StudioV5Id;
+  name: string;
+  kind: 'linear' | 'circular' | 'curve' | 'mirror';
+  sourceBodyId: StudioV5Id;
+  references: StudioV5GeometryReference[];
+  definition: Record<string, unknown>;
+  skippedIndices: number[];
+  suppressed: boolean;
+  visible: boolean;
+  extensions?: Record<string, unknown>;
+}
+
 export interface StudioV5PartDefinition {
   id: StudioV5Id;
   name: string;
@@ -91,6 +104,7 @@ export interface StudioV5PartDefinition {
   referenceGeometry: StudioV5ReferenceGeometry[];
   sketches: StudioV5SketchDefinition[];
   bodies: StudioV5BodyDefinition[];
+  bodyPatterns?: StudioV5BodyPattern[];
   features: StudioV5PartFeature[];
   featureOrder: StudioV5Id[];
   defaultAppearanceId?: StudioV5Id;
