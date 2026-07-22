@@ -455,45 +455,130 @@ export function researchPage(): string {
   return page({
     title: 'Research | GenBOM and BOMwiki-Bench | BOMwiki',
     description:
-      'BOMwiki publishes research on its own catalog. GenBOM benchmarks and audits the 192,471-node generated product-structure graph behind this site against human-authored BOMs. Read the paper.',
+      'GenBOM benchmarks and audits the 192,471-node generated product-structure graph behind BOMwiki against human-authored BOMs. Structure is indistinguishable; writing style is perfectly separable; skill does not transfer. Read the paper.',
     path: '/research',
     ogImage: '/og/page/research.png',
     indexable: true,
     body: `<div class="review bi">
       <h1>Research</h1>
-      <p>BOMwiki publishes research on its own catalog. The catalog began as machine-generated content, the site says so on every unverified page, and the honest next step is to measure what that content is worth under adversarial evaluation rather than assert it. The first report is <b>GenBOM</b>; the instrument it builds is <b>BOMwiki-Bench</b>.</p>
+      <p>Generated engineering data is usually either accepted uncritically or dismissed as unusable. The position taken here is that a generated corpus can be a scientific object: measurable, auditable, and improvable, provided its provenance, failure modes, and verification path ship with it. <b>GenBOM</b> is the first report in that program. <b>BOMwiki-Bench</b> is the instrument it builds, from the frozen v1.0 snapshot of this site's own graph: 192,471 nodes, 263,907 quantity-bearing edges, 4,879 products decomposed into 50,843 assemblies and 136,749 parts across 53 domains, all authored by a documented model pipeline.</p>
+      <p><i>GenBOM: Benchmarking and Auditing a Large Generated Product-Structure Graph.</i> MathproBro and protosphinx, ERP&#8226;AI Research Team, technical report, July 2026. <b><a href="/research/genbom.pdf">Download the paper (PDF, 10 pages)</a></b></p>
 
-      <h2 class="si-h">GenBOM: the report</h2>
-      <p><i>GenBOM: Benchmarking and Auditing a Large Generated Product-Structure Graph.</i> MathproBro and protosphinx, ERP&#8226;AI Research Team, technical report, July 2026.</p>
-      <p><b><a href="/research/genbom.pdf">Download the paper (PDF, 10 pages)</a></b></p>
-      <p>The question: can a generative model author usable engineering benchmark data? The paper answers it on one artifact, the frozen v1.0 snapshot of this site's graph, by building a benchmark from the graph, auditing the generator's own artifacts, and validating both against a corpus of human-authored bills of materials collected for the purpose. Provenance is disclosed end to end; the content was authored by a documented model pipeline and the pipeline is retained for controlled regeneration.</p>
+      <h2 class="si-h">The central result</h2>
+      <p>Can a generative model author usable engineering benchmark data? Decomposed carefully, the answer splits in a way neither optimists nor skeptics predict. On a population matched by domain and size, a classifier restricted to structural features cannot tell generated product trees from human ones. Give the same classifier the text and separation becomes perfect.</p>
 
-      <h2 class="si-h">BOMwiki-Bench: the benchmark</h2>
+      <figure class="bi-fig">
+        <svg viewBox="0 0 740 195" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif" font-size="11">
+          <line x1="333" y1="18" x2="333" y2="152" stroke="#c8ccd1" stroke-width="1" stroke-dasharray="4 4"/>
+          <text x="333" y="12" text-anchor="middle" fill="#54595d" font-size="10">chance (0.5)</text>
+          <line x1="150" y1="152" x2="700" y2="152" stroke="#a2a9b1" stroke-width="1"/>
+          <g fill="#54595d" font-size="10" text-anchor="middle">
+            <text x="150" y="168">0.25</text><text x="333" y="168">0.50</text><text x="517" y="168">0.75</text><text x="700" y="168">1.00</text>
+          </g>
+          <text x="425" y="186" text-anchor="middle" fill="#54595d" font-size="10.5">AUC, generated vs human (matched population)</text>
+          <g>
+            <text x="138" y="56" text-anchor="end" fill="#202122">structure only</text>
+            <line x1="170" y1="52" x2="505" y2="52" stroke="#54595d" stroke-width="2"/>
+            <line x1="170" y1="46" x2="170" y2="58" stroke="#54595d" stroke-width="2"/>
+            <line x1="505" y1="46" x2="505" y2="58" stroke="#54595d" stroke-width="2"/>
+            <circle cx="341" cy="52" r="5" fill="#54595d"/>
+            <text x="341" y="38" text-anchor="middle" fill="#54595d" font-size="10">0.510&#8201;[0.278, 0.734], p&#8201;=&#8201;0.92</text>
+          </g>
+          <g>
+            <text x="138" y="96" text-anchor="end" fill="#202122">structure + text</text>
+            <line x1="677" y1="92" x2="700" y2="92" stroke="#3366cc" stroke-width="2"/>
+            <circle cx="696" cy="92" r="5" fill="#3366cc"/>
+            <text x="664" y="96" text-anchor="end" fill="#3366cc" font-size="10">0.995</text>
+          </g>
+          <g>
+            <text x="138" y="136" text-anchor="end" fill="#202122">text style only</text>
+            <circle cx="700" cy="132" r="5" fill="#3366cc"/>
+            <text x="668" y="136" text-anchor="end" fill="#3366cc" font-size="10">1.000</text>
+          </g>
+        </svg>
+        <figcaption class="bi-cap">Generated vs human separability, decomposed by feature set (logistic classifier, matched n&#8201;=&#8201;28, within-stratum permutation test). Structure sits on chance; text alone separates perfectly. Detectability of generated BOMs is a writing-style artifact, not a structural signature, and any detector that does not ablate text from structure is measuring prose.</figcaption>
+      </figure>
+
+      <p>The third result closes the triangle: models trained on the generated graph do not yet carry to real product structure. Completion skill measured on the benchmark collapses to the popularity floor when scored against human-authored BOMs. Structural plausibility and distributional fidelity are different properties, and the gap between them is now a number.</p>
+
+      <h2 class="si-h">The benchmark</h2>
       <table class="bi-table">
         <thead><tr><th>dataset v1.0</th><th>value</th></tr></thead>
         <tbody>
           <tr><td>nodes</td><td>192,471 (4,879 products / 50,843 assemblies / 136,749 parts)</td></tr>
           <tr><td>edges</td><td>263,907 (HAS_PART, quantity-bearing; a DAG after excluding four labeled self-loops)</td></tr>
-          <tr><td>product domains</td><td>53</td></tr>
+          <tr><td>product domains</td><td>53 (10 to 498 products each)</td></tr>
           <tr><td>nodes with text summaries</td><td>175,690</td></tr>
-          <tr><td>typed artifact registry</td><td>1,350 items</td></tr>
-          <tr><td>frozen</td><td>2026-06-22 (the live site changes nightly and is not the benchmark)</td></tr>
+          <tr><td>typed artifact registry</td><td>1,350 items, six disjoint classes</td></tr>
+          <tr><td>frozen</td><td>2026-06-22; the live site changes nightly and is not the benchmark</td></tr>
         </tbody>
       </table>
-      <p><b>Four tasks.</b> BOM completion (rank the removed true child against 500 fixed negatives; MRR and Hits@k), where-used retrieval (part to products), domain transfer (53-way), and graph repair (detect planted corruptions and the registry's natural artifacts).</p>
-      <p><b>Evaluation built for hub-dominated graphs.</b> Part reuse in the catalog spans four orders of magnitude (median in-degree 1, maximum 8,026), which is realistic for engineered products and fatal for naive evaluation: under uniform negatives a pure popularity ranker reaches MRR 0.99 on hub edges. The benchmark therefore ships degree-matched negative sets, leakage-audited splits (random as an inflation control, product-held-out, three domain-held-out rotations, and a hub-stress split whose target hubs are removed from training entirely), and a per-split <b>feasibility floor</b>: the popularity MRR obtained against the hardest eligible negatives, which the protocol requires observed popularity to sit within 0.02 of. On all six splits it lands within 0.009.</p>
+      <p>Four tasks: <b>BOM completion</b> (rank the removed true child against 500 fixed negatives; MRR and Hits@k), <b>where-used retrieval</b> (part to products), <b>domain transfer</b> (53-way), and <b>graph repair</b> (detect planted corruptions and the registry's natural artifacts; gradient-boosted structural features reach ROC-AUC 0.929 on the planted stratum). Splits, negatives, loaders, and evaluators are versioned and shipped.</p>
 
-      <h2 class="si-h">Findings</h2>
+      <h2 class="si-h">Why evaluation is the hard part</h2>
+      <p>Part reuse in a real catalog is heavy-tailed: most parts appear in one product, while a small population of generic components appears in thousands. That hub structure is realistic for engineered products and fatal for naive evaluation, because a ranker that just predicts the popular part inherits its score from the degree distribution rather than from any understanding of the product.</p>
+
+      <figure class="bi-fig">
+        <svg viewBox="0 0 740 215" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif" font-size="11">
+          <text x="90" y="18" fill="#54595d" font-size="10.5">P(K &ge; k)</text>
+          <g stroke="#eef1f4" stroke-width="1">
+            <line x1="90" y1="86" x2="620" y2="86"/><line x1="90" y1="143" x2="620" y2="143"/>
+          </g>
+          <g fill="#54595d" font-size="10" text-anchor="end">
+            <text x="82" y="33">1</text><text x="82" y="90">0.01</text><text x="82" y="147">0.0001</text>
+          </g>
+          <line x1="90" y1="185" x2="620" y2="185" stroke="#a2a9b1" stroke-width="1"/>
+          <g fill="#54595d" font-size="10" text-anchor="middle">
+            <text x="90" y="200">1</text><text x="222" y="200">10</text><text x="355" y="200">100</text><text x="487" y="200">1,000</text><text x="620" y="200">10,000</text>
+          </g>
+          <text x="355" y="213" text-anchor="middle" fill="#54595d" font-size="10.5">part reuse k (in-degree), log scale</text>
+          <polyline points="90,30 130,78 222,102 355,130 487,155 607,176" fill="none" stroke="#3366cc" stroke-width="2"/>
+          <g fill="#3366cc">
+            <circle cx="90" cy="30" r="3"/><circle cx="130" cy="78" r="3"/><circle cx="222" cy="102" r="3"/><circle cx="355" cy="130" r="3"/><circle cx="487" cy="155" r="3"/><circle cx="607" cy="176" r="3"/>
+          </g>
+          <line x1="607" y1="176" x2="638" y2="160" stroke="#c8ccd1" stroke-width="1"/>
+          <text x="642" y="158" fill="#202122" font-size="10.5">most-reused part:</text>
+          <text x="642" y="171" fill="#202122" font-size="10.5">8,026 assemblies</text>
+        </svg>
+        <figcaption class="bi-cap">Complementary CDF of part reuse: four orders of magnitude from the median part (in-degree 1; 98% of parts have a single parent) to the most-reused component. Under uniform negatives a pure popularity ranker reaches MRR 0.99 on hub edges; the benchmark neutralizes this with degree-matched negatives, leakage-audited splits (product-held-out, three domain-held-out rotations, hub-stress), and a per-split feasibility floor that observed popularity must sit within 0.02 of. On all six splits it lands within 0.009.</figcaption>
+      </figure>
+
+      <h2 class="si-h">Results</h2>
       <table class="bi-table">
         <thead><tr><th>question</th><th>test</th><th>result</th></tr></thead>
         <tbody>
-          <tr><td>structural signature?</td><td>matched population, structure-only classifier, within-stratum permutation</td><td>AUC 0.510, 95% CI [0.278, 0.734], p = 0.92: chance</td></tr>
+          <tr><td>structural signature?</td><td>matched structure-only classifier, within-stratum permutation (100,000 relabelings)</td><td>AUC 0.510, 95% CI [0.278, 0.734], p&#8201;=&#8201;0.92: chance</td></tr>
           <tr><td>text signature?</td><td>same matched population, text-style features</td><td>AUC 1.000 (full-feature 0.995): complete separation</td></tr>
-          <tr><td>does skill transfer?</td><td>completion fusion trained on the graph, evaluated on human BOMs</td><td>MRR 0.622 (product-held-out) drops to 0.095</td></tr>
+          <tr><td>does skill transfer?</td><td>completion fusion trained on the graph, scored on human BOMs</td><td>MRR 0.622 (product-held-out) drops to 0.095</td></tr>
           <tr><td>baseline headroom</td><td>best heuristic fusion vs popularity floor</td><td>0.59 to 0.63 against a floor near 0.09</td></tr>
         </tbody>
       </table>
-      <p>Read together: at shallow depth the generated structure is statistically indistinguishable from human structure, yet the populations separate perfectly on writing style, so detectability of generated BOMs is a text artifact and any detectability claim that does not ablate text from structure is measuring prose. And structural plausibility does not buy distributional fidelity: models trained on the generated graph do not yet carry to real product structure. The paper also demonstrates the failure mode that motivates the protocol: the externally validated GraphSAGE baseline behaves like a degree model under uniform negatives (MRR 0.96 on hub edges) and collapses to 0.004 to 0.015 on the leakage-resistant splits, which is why the open modeling challenge the benchmark defines is inductive, text-aware link prediction.</p>
+      <p>The validated GraphSAGE reference (reproduces published <code>ogbl-collab</code> numbers before being trusted here) tells the protocol's cautionary tale in one row: MRR 0.96 on hub edges under uniform negatives, 0.004 to 0.015 on every leakage-resistant split. Structure-only GNNs collapse exactly where the held-out subtrees enter evaluation with empty training neighborhoods, which is why the open modeling challenge this benchmark defines is inductive, text-aware link prediction. The GNN baseline is validated, not victorious.</p>
+
+      <h2 class="si-h">Transfer to real BOMs</h2>
+      <figure class="bi-fig">
+        <svg viewBox="0 0 740 210" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif" font-size="11">
+          <g stroke="#eef1f4" stroke-width="1">
+            <line x1="180" y1="49" x2="560" y2="49"/><line x1="180" y1="107" x2="560" y2="107"/><line x1="180" y1="165" x2="560" y2="165"/>
+          </g>
+          <g fill="#54595d" font-size="10" text-anchor="end">
+            <text x="172" y="53">0.6</text><text x="172" y="111">0.3</text><text x="172" y="169">0.0</text>
+          </g>
+          <text x="230" y="24" text-anchor="middle" fill="#202122" font-size="10.5" font-weight="600">scored on BOMwiki-Bench</text>
+          <text x="510" y="24" text-anchor="middle" fill="#202122" font-size="10.5" font-weight="600">scored on human BOMs</text>
+          <line x1="180" y1="148" x2="560" y2="148" stroke="#b26a00" stroke-width="1" stroke-dasharray="5 4"/>
+          <text x="566" y="151" fill="#b26a00" font-size="10">popularity floor &#8776; 0.09</text>
+          <line x1="230" y1="45" x2="510" y2="147" stroke="#3366cc" stroke-width="2.5"/>
+          <circle cx="230" cy="45" r="5" fill="#3366cc"/><circle cx="510" cy="147" r="5" fill="#3366cc"/>
+          <text x="218" y="42" text-anchor="end" fill="#3366cc">fusion&#8201;&#8201;0.622</text>
+          <text x="522" y="140" fill="#3366cc">0.095</text>
+          <line x1="230" y1="91" x2="510" y2="152" stroke="#a2a9b1" stroke-width="2"/>
+          <circle cx="230" cy="91" r="4" fill="#a2a9b1"/><circle cx="510" cy="152" r="4" fill="#a2a9b1"/>
+          <text x="218" y="88" text-anchor="end" fill="#54595d">text cosine&#8201;&#8201;0.386</text>
+          <text x="522" y="162" fill="#54595d">0.066</text>
+        </svg>
+        <figcaption class="bi-cap">Completion models trained on the generated graph, scored on the human control corpus with degree-matched negatives built in the human-candidate space. Both the fusion ranker and the text baseline collapse to the popularity floor; only text cosine retains any signal, and only on the deep trees (MRR 0.264). Skill on BOMwiki-Bench does not, at present, transfer to real BOMs.</figcaption>
+      </figure>
 
       <h2 class="si-h">The artifact registry</h2>
       <p>Generation artifacts are labeled and shipped rather than silently repaired, because they are the raw material of the audit and repair tasks. The six classes are disjoint:</p>
@@ -509,17 +594,19 @@ export function researchPage(): string {
           <tr><td><b>total</b></td><td><b>1,350</b></td></tr>
         </tbody>
       </table>
+      <p>Manual inspection reframed the largest class: kind-inconsistent edges are modeling-convention violations (a node typed <i>part</i> that itself has children), not physical impossibilities. The duplicate-name clusters are the product-graph analogue of the duplicate-node leakage documented in popular graph benchmarks; every cluster lies within one product subtree, so the shipped splits keep each cluster on one side of the train/test boundary automatically.</p>
 
       <h2 class="si-h">The human control corpus</h2>
-      <p>The control corpus is 75 human-authored BOM trees harvested from license-verified public repositories (71 flat electronics BOMs and 4 multi-level trees, including the NASA JPL Open Source Rover parts list), plus 5 deep CAD assemblies at depth 3 to 6 extracted from STEP structure, with a 48-tree quarantine kept as an audit trail. Each tree records its source and retains its original license. The harvest itself produced a finding: machine-readable multi-level product BOMs are rare in public. Deep hierarchy lives in proprietary PLM systems, CAD files, and PDF manuals, so the deep human stratum is thin by nature and the paper says so.</p>
+      <p>The control corpus is 75 human-authored BOM trees from license-verified public repositories (71 flat electronics BOMs and 4 multi-level trees, including the NASA JPL Open Source Rover parts list), plus 5 deep CAD assemblies at depth 3 to 6 extracted from STEP structure, with a 48-tree quarantine retained as an audit trail. Each tree records its source and keeps its original license. The harvest produced its own finding: machine-readable multi-level product BOMs barely exist in public. Deep hierarchy lives in proprietary PLM systems, CAD files, and PDF manuals, so the deep human stratum is thin by nature, the shallow comparison is primary by design, and the 3-to-6-level trees of BOMwiki-Bench are structurally unusual among published artifacts.</p>
 
-      <h2 class="si-h">What the wiki does with it</h2>
-      <p>The paper freezes a plausibility-audit framework before any labels exist: a three-way rubric with a six-way error taxonomy, a stratified 617-item analysis packet, a companion set covering all 1,350 registry artifacts, and an annotation harness with pre-registered integrity rules (agreement gated at Cohen's kappa of at least 0.6, labels never suggested or prefilled). It is designed to run as <a href="/about/verification">community verification</a> on this site, edge by edge, with redundancy and gold items in place of annotator training. Accumulated labels will ship as versioned additions to the benchmark; v1.0 stays frozen. The deterministic layer described in the paper already runs in <a href="/intelligence">bomwiki-intelligence</a>, which screens every proposed edit.</p>
+      <h2 class="si-h">From audit to community verification</h2>
+      <p>Because the content is generated, plausibility is an empirical question rather than an assumption. The paper freezes the instrumentation before any labels exist: a three-way rubric (plausible / implausible / cannot-judge) with a six-way error taxonomy, a stratified 617-item analysis packet, a companion set covering all 1,350 registry artifacts, and an annotation harness with pre-registered integrity rules (agreement gated at Cohen's kappa of at least 0.6; labels never suggested or prefilled). The framework is designed to execute as <a href="/about/verification">community verification</a> on this site, edge by edge, with redundancy and gold items substituting for annotator training. Accumulated labels ship as versioned additions; v1.0 stays frozen. The deterministic layer already runs in <a href="/intelligence">bomwiki-intelligence</a>, which screens every proposed edit.</p>
 
       <h2 class="si-h">Limits, stated plainly</h2>
       <ul class="rv-lines">
         <li>One artifact, one generator. Results characterize this graph, not generated engineering data at large.</li>
-        <li>The structure-only null is weak by construction: the matched shallow stratum has n = 28 and is powered only for large effects (AUC of roughly 0.75 or more).</li>
+        <li>The structure-only null is weak by construction: the matched shallow stratum has n&#8201;=&#8201;28 and is powered only for large effects (AUC of roughly 0.75 or more). The deep stratum (n&#8201;=&#8201;16) is too small for a valid permutation test at all.</li>
+        <li>The strength of text-based completion is plausibly generator-specific: model-written names are stylistically consistent from parent to child in a way real SKU-style BOM text is not.</li>
         <li>The graph is a benchmark object, not industrial ground truth. Nothing in it should inform real sourcing or engineering decisions.</li>
         <li>Plausibility is not yet human-validated; the framework ships first, the labels come from its execution.</li>
       </ul>
