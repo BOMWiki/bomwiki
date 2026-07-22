@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "release": "BOMwiki CAD Studio V5",
+  "status": "approved-for-production",
+  "approvedAt": "2026-07-22T15:59:53Z",
+  "reviewerRole": "BOMwiki product owner",
+  "approvalInstruction": "put v5 in prod",
+  "reviewedCandidate": {
+    "headCommit": "13f1a5a90b3d6d6e78b1a62f128da4ff16cb81b1",
+    "integratedEngineCommit": "304c197b828cb21ad8a27407c8ae843132cf3bab",
+    "protectedCiRun": "https://github.com/erphq/bomwiki/actions/runs/29923634939",
+    "protectedCiStatus": "pass",
+    "candidateDeploymentRun": "https://github.com/erphq/bomwiki/actions/runs/29927875536",
+    "candidateDeploymentStatus": "pass",
+    "publicRoute": "https://bomwiki.com/cad/studio",
+    "publicAssetSha256": "5ffc4d35d89550473cef6145524b398528ffdcb6146cb4360b7f2b80284df6c7"
+  },
+  "visualEvidence": {
+    "artifact": "cad-studio-v5-evidence-13f1a5a90b3d6d6e78b1a62f128da4ff16cb81b1",
+    "projectId": "project-canonical-turbofan-v5",
+    "projectHash": "b757ca743e743bb1cf9ddb2cd88934757bca1f7eb6f2b13e1050c1743199d8b3",
+    "constructionLogHash": "83c2b8d4196e5b90367b05fab679a01abd4e519d8ed998cbe48ee73bc358f6b3",
+    "captures": [
+      {
+        "id": "01-front-three-quarter-isometric",
+        "sha256": "c04cf21ab17d2086bb71367d360515c94ff89ceca3274300b3f151c717e2a1fc"
+      },
+      {
+        "id": "02-longitudinal-half-section",
+        "sha256": "d1d0417eb93aba36eef9ec571c61da7e7f3309f53f1288df63e86e617c94b5c5"
+      },
+      {
+        "id": "03-rear-three-quarter-isometric",
+        "sha256": "85e5c43409ebd6b7785eda62fc04fc9d5873a993dcfa9fafe1bc2f33cd99efd0"
+      },
+      {
+        "id": "04-axial-exploded-view",
+        "sha256": "1855bca456905cd4b8f3fe7176e8a272830c2a1d0f28d24c53db39d31c52e957"
+      },
+      {
+        "id": "05-explicit-mate-conflict",
+        "sha256": "42152d562f5f258a074f3c7dbcf49e2e429e46f10d0fd326cbfcabb4ac2a9dfb"
+      },
+      {
+        "id": "06-mobile-assembly-inspection",
+        "sha256": "e02e2ef5cdf21845fa57bdfa9473289e9fc82da3509a19de9e3067fed69568e0"
+      }
+    ]
+  },
+  "answers": [
+    {
+      "question": "Reads immediately as a small turbofan demonstrator rather than a household fan",
+      "approved": true
+    },
+    {
+      "question": "Blades visibly taper and twist",
+      "approved": true
+    },
+    {
+      "question": "Credible axial length and multiple internal stages",
+      "approved": true
+    },
+    {
+      "question": "Stationary, rotating, casing, shaft, combustor, and nozzle structures are distinguishable",
+      "approved": true
+    },
+    {
+      "question": "Sectioning explains the assembly",
+      "approved": true
+    },
+    {
+      "question": "Exploded view corresponds to the same solved model",
+      "approved": true
+    }
+  ],
+  "acknowledgedBoundaries": [
+    "Section caps are non-destructive renderer caps and are not persisted B-rep cap faces.",
+    "STEP interchange preserves the tested supported structure but does not reconstruct absent vendor-native history, mates, or PMI.",
+    "The turbofan is an editable modeling and assembly benchmark, not an engineering simulation or certification model.",
+    "Software WebGL uses temporary interaction LOD and restores exact shaded geometry after interaction."
+  ]
+}

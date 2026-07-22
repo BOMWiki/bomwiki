@@ -4,25 +4,27 @@ Last updated: 2026-07-22
 
 Specification: `CAD_STUDIO_V5_COMPLEX_MODELING_SPEC.md`
 
-Candidate branch: `codex/cad-v5-completion`
+Release branch: `codex/cad-v5-release`
 
-Integration baseline: `origin/wiki/engine@3f1430e90cc38368677a4cde3005322f7e237ec1`
+Reviewed implementation: `codex/cad-v5-completion@13f1a5a90b3d6d6e78b1a62f128da4ff16cb81b1`
+
+Integrated and verified candidate: `wiki/engine@304c197b828cb21ad8a27407c8ae843132cf3bab`
 
 The turbofan conformance benchmark from `92bb3f1271915ad23298b4de541a393899fa653a` is incorporated in this branch.
 
 ## Release truth
 
-The implementation branch is a **local automated V5 candidate**, not a completed or deployed V5 release.
+CAD Studio V5 is **approved for protected production promotion**.
 
-The broad capability work, canonical fixtures, exact-kernel regressions, browser regressions, agent replay, performance evidence, and accessibility evidence pass locally. Six visual artifacts have been captured and hash-verified, but the required human visual review is still pending. Protected CI for the previously pushed candidate exposed software-WebGL frame-pacing misses on the reference runner; the branch now combines extension-independent exact batching with a body-aware interaction LOD and adaptive software-rasterizer resolution. That path passes the forced-SwiftShader gate locally but still requires protected-CI reproduction. Merge, CI-only deployment, incognito production verification, and final release signoff have not happened for this candidate.
+The reviewed implementation passed the full protected release workflow in run `29923634939`, merged as `wiki/engine@304c197b828cb21ad8a27407c8ae843132cf3bab`, deployed through the CI-only engine workflow in run `29927875536`, and was verified on the public Studio route with the expected static asset hash. The six protected-CI visual artifacts are pinned in `CAD_STUDIO_V5_RELEASE_ATTESTATION.json`; the BOMwiki product owner accepted the review questions and explicitly authorized production promotion on 2026-07-22.
 
-Do not describe this branch as production V5 until all remaining release steps below are complete.
+This release promotion updates the public V5 identity and Help truth, and makes the owner attestation part of the aggregate release gate. The first protected `wiki/engine` revision containing those changes that passes CI, merges, deploys through `deploy-engine`, and verifies on `/cad/studio` is the formal V5 production release. Until that delivery record is green, this branch is release-approved source rather than a live-release claim.
 
 ## Pending-list implementation result
 
 All twelve items from the 2026-07-22 pending implementation list now have generic implementation and automated regression coverage on this branch:
 
-| # | Pending item | Candidate implementation |
+| # | Pending item | V5 implementation |
 | --- | --- | --- |
 | 1 | Final schema-4 to schema-5 migration | Strict deterministic migration replaces the opaque adapter and is covered by final V4 fixtures, identity, limit, and refusal checks. |
 | 2 | 3D handles, snapping, reorder, repair | Body/component `TransformControls`, numeric and snap paths, history reorder/rollback, and owner-aware reference repair are transactional and undoable. |
@@ -35,9 +37,9 @@ All twelve items from the 2026-07-22 pending implementation list now have generi
 | 9 | Agent parity | Typed direct, headless, MCP, and visible-session operations cover the advanced V5 document surface and preserve atomic preview/commit semantics. |
 | 10 | Canonical turbofan | A checked-in editable turbofan is replayed exclusively through 363 advertised generic operations; no template-only generator or finished imported geometry is used. |
 | 11 | Generality fixtures | Checked-in gearbox and robot-joint projects use the same public operations and pass exact rebuild and structured STEP gates. |
-| 12 | Performance, accessibility, visual, release evidence | Automated performance and accessibility gates pass; six review artifacts and an aggregate release manifest are generated. Human visual and live gates remain pending. |
+| 12 | Performance, accessibility, visual, release evidence | Automated performance and accessibility gates pass; six protected-CI review artifacts are pinned, owner-approved, and consumed by the aggregate release manifest. |
 
-This table means implementation candidate, not release completion.
+This table records the implemented V5 scope. Production status still follows the protected delivery invariant above.
 
 ## Slice 5A-runtime acceptance gate
 
@@ -77,7 +79,7 @@ The checked-in turbofan is a normal schema-5 project constructed through public 
 
 The gearbox and robot-joint fixtures separately prove that the operations are not turbofan-specific.
 
-## Current local automated evidence
+## Automated and protected evidence
 
 - `npm run typecheck` — pass.
 - `npm run studio:v5:migration` — 162/162.
@@ -95,23 +97,22 @@ The gearbox and robot-joint fixtures separately prove that the operations are no
 - `npm run studio:agent:mcp` — 24/24.
 - `npm run studio:agent:parity` — 28/28.
 - `npm run studio:agent:turbofan` — 363 public operations replayed; 22 parts, 25 bodies, 159 solved occurrences, 9 patterns, and 62 mates.
-- `npm run studio:agent:release-check` — local automated candidate pass.
+- `npm run studio:agent:release-check` — automated agent candidate pass; owner approval is recorded separately because automation cannot perform visual review.
 - `STUDIO_PERF_FORCE_SOFTWARE_WEBGL=1 npm run studio:v5:performance` — 14/14 under forced SwiftShader; cold/warm exact rebuild 1,859.0/13.9 ms, zero-positive-pair full interference 2,300.6 ms, orbit frame p95 17.5 ms with 8 exact scene/cap draws plus 4 body-aware interaction draws, tree-selection p95 8.1 ms, section-drag p95 19.0 ms, 12-blade source-edit median 57.5 ms and p95 1,611.6 ms, and verified exact idle-quality restoration.
 - `npm run studio:v5:accessibility` — 14/14.
-- `npm run studio:v5:visual` — six hash-verified artifacts captured; status remains `awaiting-human-review`.
-- `npm run studio:v5:release-check` — every automated suite passed and the aggregate status is `automated-candidate-pass-human-review-required`.
+- `npm run studio:v5:visual` — six hash-verified artifacts captured; capture automation deliberately emits `awaiting-human-review` and cannot self-approve.
+- `npm run studio:v5:release-check` — combines fresh automated evidence with the checked-in product-owner attestation and reports `v5-release-approved-protected-delivery-required`.
+- protected engine CI `29923634939` — pass for reviewed head `13f1a5a90b3d6d6e78b1a62f128da4ff16cb81b1`; all 27 workflow stages, including evidence upload and enforcement, passed.
+- candidate deployment `29927875536` — pass for integrated engine `304c197b828cb21ad8a27407c8ae843132cf3bab`; production `studio.js` matched SHA-256 `5ffc4d35d89550473cef6145524b398528ffdcb6146cb4360b7f2b80284df6c7`.
 
 Generated evidence under `var/` is deliberately not source-controlled. Protected CI uploads it as a run artifact.
 
 One earlier local inspection run reached 22 successful exact assertions and then terminated with a transient OpenCascade/WASM `memory access out of bounds`; the immediate isolated rerun and the final 45/45 confirming run passed. The previously protected run also passed this inspection stage. This remains recorded as a runner/kernel flake to watch in the final protected run rather than being treated as a product pass by retry alone.
 
-## Remaining limitations and release gates
+## Supported boundaries
 
-Implementation does not remove these honest boundaries:
+V5 keeps these honest product boundaries:
 
-- the visual artifacts need explicit human review against §40.11 before the visual gate can close;
-- protected PR CI must reproduce all suites and upload the final evidence artifact;
-- this candidate has not been merged, deployed, or verified in a fresh/incognito production profile;
 - section caps are non-destructive renderer stencil caps over exact clipped boundaries; they are not new persisted B-rep cap faces and do not alter normal export geometry;
 - third-party STEP recovery does not invent native sketches, feature history, mates, PMI/GD&T, or vendor-specific semantics that are absent or unsupported in the source;
 - the canonical turbofan is an educational geometric/assembly benchmark, not an aerodynamic, thermal, structural, manufacturing, or certification model;
@@ -121,25 +122,14 @@ Implementation does not remove these honest boundaries:
 
 ## Release gates
 
-Local automated implementation evidence is present for the schema, multi-body, datums/transforms, advanced shapes, patterns, assemblies, inspection, interchange, performance, accessibility, turbofan, generality, and agent scopes. They become release-pass evidence only when the protected delivery record is green and the required review is accepted.
+- [x] schema/migration, multi-body, datums/transforms, advanced shapes, patterns, assemblies, inspection, interchange, performance, and accessibility
+- [x] canonical turbofan and gearbox/robot-joint generality proof
+- [x] direct, headless, MCP, and visible-session agent parity
+- [x] protected CI evidence for the reviewed implementation
+- [x] merge and CI-only candidate deployment
+- [x] public route and exact static-asset verification
+- [x] human `v5-visual` review and product-owner release authorization
 
-- [x] local automated schema/migration candidate
-- [x] local automated multi-body candidate
-- [x] local automated datums/transforms candidate
-- [x] local automated advanced-shapes candidate
-- [x] local automated patterns candidate
-- [x] local automated assemblies candidate
-- [x] local automated inspection candidate
-- [x] local automated interchange candidate
-- [x] local automated performance candidate
-- [x] local automated accessibility candidate
-- [x] local automated turbofan/generality candidate
-- [x] local automated agent candidate
-- [ ] human `v5-visual` review
-- [ ] protected CI evidence for the reviewed commit
-- [ ] merge to `wiki/engine`
-- [ ] CI-only engine deployment
-- [ ] incognito live verification and `v5-live`
-- [ ] final release-gate signoff
+The release promotion commit must still pass the same protected CI, merge, CI-only deployment, and public-route verification before the V5 label is served. Those delivery facts belong to the immutable workflow record and the release handoff rather than a pre-deployment source checkbox.
 
 Gate definitions and normative evidence remain in §§36–40 of the V5 specification.

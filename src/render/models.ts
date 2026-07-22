@@ -400,9 +400,9 @@ function studioIcon(name: StudioIconName, className = 'wsr-i'): string {
  *  static shell; static/studio.js is the whole application. */
 export function cadStudioPage(): string {
   return page({
-    title: 'CAD Studio — free browser CAD, no signup | BOMwiki',
+    title: 'CAD Studio V5 — browser parametric CAD, no signup | BOMwiki',
     description:
-      'Model real parts in your browser in seconds: drop shapes, cut holes, export STL. No account, no install, nothing to learn first. Free CAD for hobbyists from BOMwiki.',
+      'Create parametric multi-body parts and structured assemblies in your browser with lofts, sweeps, mates, section views, and STEP/STL interchange. No account or install.',
     path: '/cad/studio',
     indexable: true,
     ogImage: '/og/page/cad-studio.png',
@@ -422,7 +422,7 @@ export function cadStudioPage(): string {
       <header class="ws-appbar" aria-label="Application bar">
         <a class="ws-brand" href="/cad" aria-label="Back to BOMwiki 3D models">
           <span class="ws-brand-mark" aria-hidden="true">BW</span>
-          <span><b>BOMwiki CAD</b><small>Parametric part studio</small></span>
+          <span><b>BOMwiki CAD</b><small>V5 · Parts &amp; assemblies</small></span>
         </a>
         <div class="ws-document" aria-label="Current document">
           <span class="ws-document-kind">BOMwiki CAD Studio</span>
@@ -913,14 +913,14 @@ export function cadStudioPage(): string {
       <dialog id="bw-help" class="ws-help" aria-labelledby="bw-help-title">
         <div class="ws-help-shell">
           <header class="ws-help-head">
-            <div><span>Help</span><h2 id="bw-help-title">CAD Studio</h2></div>
+            <div><span>Help</span><h2 id="bw-help-title">CAD Studio V5</h2></div>
             <button type="button" id="bw-help-close" aria-label="Close Help">×</button>
           </header>
           <div class="ws-help-body">
       <section class="cs-learn">
         <h3>Build your first part</h3>
         <div class="cs-help-actions"><button type="button" id="bw-help-tour">Show the guided walkthrough</button><button type="button" id="bw-help-templates">Browse editable templates</button><button type="button" id="bw-help-agent">Connect local agent</button></div>
-        <p class="cs-agent-note"><b>Local agent access:</b> an approved MCP client can inspect, preview, and commit the modeling operations this build reports as available—without screen control. Pairing stays on your device, starts in preview-required mode, and can be paused or revoked from the Agent activity control. Loft, Sweep, transforms, assemblies, mates, and section views remain unavailable and are reported as disabled.</p>
+        <p class="cs-agent-note"><b>Local agent access:</b> an approved MCP client can inspect, preview, and commit the modeling operations this build reports as available—without screen control. Pairing stays on your device, starts in preview-required mode, and can be paused or revoked from the Agent activity control. Loft, Sweep, transforms, assemblies, mates, section views, inspection, and structured project operations use the same typed transactional surface as the visible Studio.</p>
         <ol class="cs-steps">
           <li><b>Start a sketch.</b> Choose <i>Extrude</i>, then use the base plane or select a flat face.</li>
           <li><b>Draw a closed profile.</b> Place a rectangle, circle, or polygon. Select it to type exact dimensions.</li>
@@ -942,7 +942,7 @@ export function cadStudioPage(): string {
           </div>
           <div>
             <b>Your files</b>
-            <p>The part autosaves in this browser. "Save file" downloads the project as JSON — keep it, email it, reopen it anywhere with "Open file". Export STEP or STL any time; both are yours, no watermarks, no license.</p>
+            <p>The project autosaves in this browser. "Save" downloads editable schema-5 project data; "Open" restores supported project JSON or STEP geometry. STEP preserves the tested names, bodies, placements, units, and assembly hierarchy, while STL exports selected mesh geometry.</p>
           </div>
         </div>
       </section>
@@ -961,7 +961,7 @@ export function cadStudioPage(): string {
         <h3>Straight answers</h3>
         <p><b>Is it really free?</b> Yes. The studio is part of the open-source BOMwiki engine (AGPL-3.0). No tiers, no seat licenses, no expiring trial.</p>
         <p><b>Where does my design go?</b> Nowhere. Modeling happens entirely on your device; nothing is uploaded unless you choose to publish a model to a BOMwiki page.</p>
-        <p><b>Will it replace Fusion or SolidWorks?</b> Not yet — there are no assemblies or technical drawings, and big models will feel heavy. What it does have is real: sketching on any flat face, fillets, chamfers, shell, patterns, named parameters, and undo/redo across everything. It's honest CAD for real parts — brackets, plates, spacers, knobs, lathe profiles — and the STEP files it makes are first-class citizens anywhere.</p>
+        <p><b>Will it replace Fusion or SolidWorks?</b> CAD Studio V5 covers parametric parts, multiple bodies, advanced shapes, reusable components, mates, section and exploded views, inspection, and structured STEP interchange. It does not provide engineering simulation, manufacturing certification, CAM, or technical drawings. Large assemblies and software-rendered browsers use adaptive interaction quality, and imported STEP does not reconstruct vendor-native feature history, mates, or PMI.</p>
         <p><b>What runs underneath?</b> OpenCascade, a 25-year-old industrial B-rep kernel, compiled to WebAssembly — plus <a href="https://replicad.xyz" rel="noopener">replicad</a> and three.js. <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">Read the source</a>.</p>
         <p><b>Made something worth keeping?</b> <a href="/cad">Publish it to a BOMwiki page</a> — your name in the credit, your part in the encyclopedia.</p>
       </section>

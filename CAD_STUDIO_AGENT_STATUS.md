@@ -4,9 +4,9 @@ Last updated: 2026-07-22
 
 Protocol: `bomwiki.cad.agent/v1`
 
-Candidate branch: `codex/cad-v5-completion`
+Release branch: `codex/cad-v5-release`
 
-Status: The V5 candidate exposes the advanced document surface through the shared typed command/query service and passes local direct, headless, MCP, visible-session, and canonical public-command replay gates. This is local candidate evidence only. Protected CI, human visual review, merge, deployment, live verification, and final `v5-agent` release signoff remain pending.
+Status: The V5 release exposes the advanced document surface through the shared typed command/query service. Direct, headless, MCP, visible-session, canonical public-command replay, protected CI, candidate deployment, live asset verification, and product-owner release authorization are complete. The release promotion still follows the protected `wiki/engine` PR and CI-only deployment path.
 
 ## Available operation families
 
@@ -46,22 +46,22 @@ All mutations use expected revisions, detached previews, atomic transactions, se
 
 The same release gate also runs exact/browser turbofan benchmarks plus gearbox and robot-joint generality fixtures.
 
-## Last local evidence
+## Release evidence
 
 - `npm run studio:agent:core` — 50/50.
 - `npm run studio:agent:headless` — 11/11.
 - `npm run studio:agent:mcp` — 24/24.
 - `npm run studio:agent:parity` — 28/28.
 - `npm run studio:agent:turbofan` — `public-command-replay-pass`.
-- `npm run studio:agent:release-check` — `automated-candidate-pass` with core, headless, MCP, live parity, public turbofan replay, and V5 benchmark subchecks passing.
+- `npm run studio:agent:release-check` — `automated-candidate-pass` with core, headless, MCP, live parity, public turbofan replay, and V5 benchmark subchecks passing; automation deliberately does not self-issue the human release approval.
+- protected engine CI `29923634939` — pass for reviewed head `13f1a5a90b3d6d6e78b1a62f128da4ff16cb81b1`.
+- integrated candidate `wiki/engine@304c197b828cb21ad8a27407c8ae843132cf3bab` — deployed by CI run `29927875536` and verified on the public Studio route.
+- product-owner attestation — checked in as `CAD_STUDIO_V5_RELEASE_ATTESTATION.json` and validated by the aggregate V5 release gate.
 
-## Remaining boundaries
+## Supported boundaries
 
-- no release claim until protected CI reproduces the evidence for the reviewed commit;
-- no live claim until merge, CI-only deployment, and fresh-profile production verification;
-- no visual signoff until a human accepts the six captured views;
 - headless operation without an exact-kernel adapter remains document-semantic only and truthfully refuses exact render/STEP assertions;
 - imported third-party STEP is exact geometry plus supported hierarchy/metadata, not reconstructed native parametric history, mates, or PMI;
 - the canonical turbofan is a generic CAD operability benchmark, not an engineering simulation or certification artifact.
 
-The `v5-agent` implementation candidate is locally green. The release gate remains open until protected evidence, human review, and live verification are complete.
+The `v5-agent` surface is part of the V5 production release. Future capability changes must preserve the typed manifest, atomic preview/commit semantics, exact-evidence refusal rules, and the protected release path.
