@@ -1,0 +1,6 @@
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Probe the new origin from the old ERPai host every two minutes. flock keeps a
+# slow network or mail call from overlapping the next state-machine run.
+*/2 * * * * root /usr/bin/flock -n /run/lock/bomwiki-monitor.lock /usr/local/bin/bomwiki-monitor.sh

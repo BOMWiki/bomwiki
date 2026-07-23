@@ -127,11 +127,22 @@ import { page } from './render/base.ts';
 import { historyPage, type RevisionRow } from './render/history.ts';
 import { itemPage } from './render/item.ts';
 import { changesetPage, reviewPage } from './render/review.ts';
+import {
+  ENGINE_LISTEN_BACKLOG,
+  ReadPressureGate,
+  holdReadPressureSlot,
+  isPressureRead,
+  isReadMethod,
+  parseReadPressureLimit,
+} from './read-pressure.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const staticDir = join(here, '..', 'static');
 const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres:///bomwiki_dev';
 const PORT = Number(process.env.PORT ?? 4400);
+const readPressure = new ReadPressureGate(
+  parseReadPressureLimit(process.env.READ_PRESSURE_LIMIT),
+);
 
 const STATIC_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -167,6 +178,14 @@ function sendCacheableHtml(res: http.ServerResponse, body: string): void {
 
 function sendJson(res: http.ServerResponse, status: number, value: unknown): void {
   send(res, status, 'application/json', JSON.stringify(value));
+}
+
+function methodNotAllowed(res: http.ServerResponse, allow: string): void {
+  res.writeHead(405, {
+    'content-type': 'application/json',
+    allow,
+  });
+  res.end(JSON.stringify({ error: 'method not allowed' }));
 }
 
 function redirect(res: http.ServerResponse, to: string): void {
@@ -377,6 +396,20 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   const url = new URL(req.url ?? '/', 'http://localhost');
   const path = url.pathname;
   const method = req.method ?? 'GET';
+  const readMethod = isReadMethod(method);
+
+  if (isPressureRead(method, path)) {
+    if (!holdReadPressureSlot(readPressure, res)) {
+      res.writeHead(503, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+        'retry-after': '1',
+        connection: 'close',
+      });
+      res.end(method === 'HEAD' ? undefined : 'BOMwiki is busy. Retry shortly.\n');
+      return;
+    }
+  }
 
   if (path === '/healthz') return sendJson(res, 200, { ok: true, nodes: nodeCount() });
 
@@ -618,13 +651,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return sendJson(res, 201, { id: result.id, live: result.live });
   }
   const modelUpload = path.match(/^\/item\/([A-Za-z0-9._-]+)\/model\/upload$/);
-  if (modelUpload && method === 'GET') {
+  if (modelUpload && readMethod) {
     const node = getNode(modelUpload[1]);
     if (!node) return notFound(res, modelUpload[1]);
     const session = await getSession(req);
     const mine = session ? await myPendingForNode(node.id, session.userId) : [];
     return sendHtml(res, modelUploadPage(node, Boolean(session), mine));
   }
+  if (modelUpload) return methodNotAllowed(res, 'GET, HEAD');
   const modelWithdraw = path.match(/^\/model\/(\d+)\/withdraw$/);
   if (modelWithdraw && method === 'POST') {
     const session = await getSession(req);
@@ -700,7 +734,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   // --- history ---
   const history = path.match(/^\/item\/([A-Za-z0-9._-]+)\/history$/);
-  if (history) {
+  if (history && readMethod) {
     const node = getNode(history[1]);
     if (!node) return notFound(res, history[1]);
     const session = await getSession(req);
@@ -719,9 +753,10 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }));
     return sendHtml(res, historyPage(node, revisions, session?.role === 'admin'));
   }
+  if (history) return methodNotAllowed(res, 'GET, HEAD');
 
   const oldRev = path.match(/^\/item\/([A-Za-z0-9._-]+)\/rev\/(\d+)$/);
-  if (oldRev) {
+  if (oldRev && readMethod) {
     const node = getNode(oldRev[1]);
     if (!node) return notFound(res, oldRev[1]);
     const row = await pool.query('select data from revisions where node_id = $1 and rev = $2', [
@@ -732,6 +767,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const historical = { id: node.id, ...row.rows[0].data };
     return sendHtml(res, itemPage(historical, { asOfRev: Number(oldRev[2]) }));
   }
+  if (oldRev) return methodNotAllowed(res, 'GET, HEAD');
 
   const revert = path.match(/^\/item\/([A-Za-z0-9._-]+)\/revert\/(\d+)$/);
   if (revert && method === 'POST') {
@@ -1155,6 +1191,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   const talk = path.match(/^\/item\/([A-Za-z0-9._-]+)\/talk$/);
   const pageTalk = path === '/home/talk';
   if (talk || pageTalk) {
+    if (!readMethod && method !== 'POST') {
+      return methodNotAllowed(res, 'GET, HEAD, POST');
+    }
     let subject: TalkSubject;
     if (pageTalk) {
       subject = HOME_TALK;
@@ -1398,14 +1437,17 @@ console.log(
 );
 startDigestTicker();
 
-http
-  .createServer((req, res) => {
-    handle(req, res).catch((err) => {
-      console.error(`${req.method} ${req.url} failed:`, err);
-      if (!res.headersSent) sendJson(res, 500, { error: 'internal error' });
-      else res.end();
-    });
-  })
-  .listen(PORT, () => {
-    console.log(`bomwiki engine listening on http://localhost:${PORT}`);
+const server = http.createServer((req, res) => {
+  handle(req, res).catch((err) => {
+    console.error(`${req.method} ${req.url} failed:`, err);
+    if (!res.headersSent) sendJson(res, 500, { error: 'internal error' });
+    else res.end();
   });
+});
+
+server.listen(
+  { host: '127.0.0.1', port: PORT, backlog: ENGINE_LISTEN_BACKLOG },
+  () => {
+    console.log(`bomwiki engine listening on http://127.0.0.1:${PORT}`);
+  },
+);

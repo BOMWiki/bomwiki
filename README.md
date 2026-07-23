@@ -76,6 +76,7 @@ creating pages through the editor also works.
 |---|---|---|
 | `DATABASE_URL` | `postgres:///bomwiki_dev` | Postgres connection |
 | `PORT` | `4400` | HTTP port |
+| `READ_PRESSURE_LIMIT` | `8` | concurrent deep history, talk, revision, and model-upload reads |
 | `ADMIN_TOKEN` | `dev-admin` | operator sign-in token |
 | `ADMIN_HANDLE` | `sd` | handle for the token account |
 | `AUTOCONFIRM_EDITS` | `4` | accepted changesets before edits publish instantly |

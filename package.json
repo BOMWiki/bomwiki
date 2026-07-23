@@ -10,6 +10,7 @@
     "import": "node --experimental-strip-types scripts/import.ts",
     "serve": "node --experimental-strip-types src/server.ts",
     "typecheck": "tsc --noEmit",
+    "read-pressure:check": "node --experimental-strip-types scripts/read-pressure-check.ts",
     "studio:check": "node --experimental-strip-types scripts/studio-check.ts",
     "studio:v5:migration": "node --experimental-strip-types scripts/studio-v5-schema-check.ts",
     "studio:v5:runtime:document": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts document",
