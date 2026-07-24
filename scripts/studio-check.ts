@@ -1831,6 +1831,81 @@ check('committing Press / Pull keeps the preview camera on the finished solid',
   `${cameraDuringFinalPull.join(',')} -> ${cameraAfterPull.join(',')}`);
 await welcomePage.close();
 
+// --- Constrained sketches render and edit in the 2D editor -----------------
+{
+  const constrainedPage = await newStudioPage();
+  await constrainedPage.goto(URL_, { waitUntil: 'domcontentloaded' });
+  await waitForStudioPage(constrainedPage, { idle: true, timeout: 30_000 });
+  // Commit a fully-constrained plate through the agent path, then open it.
+  const committed = await constrainedPage.evaluate(async () => {
+    const w = (window as any).__bwStudio;
+    await w.connectAgentForTest({ clientLabel: 'studio-check', mode: 'scoped-auto-commit', permissionContext: { granted: ['project.read', 'project.edit'] } });
+    const c = w.agentConnection();
+    const req = (payload: any, extra: any = {}) => w.agentRequestForTest(c.connectionToken, { protocol: 'bomwiki.cad.agent/v1', requestId: 'chk-' + Math.random(), sessionId: c.sessionId, ...extra, payload });
+    const summary = await req({ kind: 'inspect', query: { kind: 'project.summary' } });
+    const rev = summary.revision;
+    const constrained = {
+      entities: [
+        { id: 'p0', kind: 'point', at: [0, 0], fixed: true }, { id: 'p1', kind: 'point', at: [38, 1] },
+        { id: 'p2', kind: 'point', at: [39, 24] }, { id: 'p3', kind: 'point', at: [-1, 25] },
+        { id: 'l0', kind: 'line', a: 'p0', b: 'p1' }, { id: 'l1', kind: 'line', a: 'p1', b: 'p2' },
+        { id: 'l2', kind: 'line', a: 'p2', b: 'p3' }, { id: 'l3', kind: 'line', a: 'p3', b: 'p0' },
+      ],
+      constraints: [
+        { kind: 'horizontal', line: 'l0' }, { kind: 'vertical', line: 'l1' },
+        { kind: 'horizontal', line: 'l2' }, { kind: 'vertical', line: 'l3' },
+        { id: 'width', kind: 'length', line: 'l0', value: 40 },
+        { id: 'height', kind: 'length', line: 'l1', value: 25 },
+      ],
+    };
+    const preview = await req({ kind: 'preview', transaction: { transactionId: 'chk-tx', label: 'Constrained plate', atomic: true, expectedRevision: rev, operations: [
+      { kind: 'feature.extrude', input: { id: 'feature-cplate', name: 'Constrained plate', sketch: { constrained, z: 0 }, height: 8, bodyName: 'Plate' } },
+    ] } });
+    if (preview.status !== 'ok') return { ok: false, diag: preview.diagnostics };
+    const commit = await req({ kind: 'commit', previewId: preview.result.previewId }, { expectedRevision: rev });
+    await w.disconnectAgentForTest(c.connectionToken);
+    const doc = JSON.parse(w.docJson());
+    const feature = doc.partDefinitions?.[0]?.features?.find((f: any) => f.id === 'feature-cplate');
+    return { ok: commit.status === 'ok', fullyDefined: feature?.sketch?.solver?.fullyDefined, exact: feature?.extensions?.exactSketchEntities };
+  });
+  check('a constrained sketch commits and reports fully defined', committed.ok === true && committed.fullyDefined === true && committed.exact === true, JSON.stringify(committed));
+
+  // Open the feature in the 2D editor and confirm the constraint UI appears.
+  await constrainedPage.evaluate(() => {
+    const rows = [...document.querySelectorAll('[data-v6-control-id="tree.feature.edit"]')] as HTMLElement[];
+    rows[rows.length - 1]?.click();
+  });
+  await constrainedPage.waitForFunction(() => (window as any).__bwStudio.mode()?.kind === 'sketching', { polling: 50, timeout: 10_000 });
+  await constrainedPage.waitForFunction(() => !document.getElementById('bw-sk-dof')?.hidden, { polling: 50, timeout: 10_000 });
+  const ui = await constrainedPage.evaluate(() => {
+    const pill = document.getElementById('bw-sk-dof');
+    const dims = [...document.querySelectorAll('#bw-sk-dims [data-cdim]')].map((i) => (i as HTMLInputElement).value);
+    return { pillText: pill?.textContent, pillClass: pill?.className, dimCount: dims.length, dims };
+  });
+  check('the constrained editor shows a Fully defined status pill', /Fully defined/.test(ui.pillText || '') && /is-defined/.test(ui.pillClass || ''), JSON.stringify(ui));
+  check('driving dimensions are listed as editable fields', ui.dimCount === 2 && ui.dims.includes('40') && ui.dims.includes('25'), JSON.stringify(ui));
+
+  // Edit a driving dimension and confirm the sketch re-solves (canvas repaints).
+  const resolved = await constrainedPage.evaluate(async () => {
+    const digestBefore = (window as any).__bwStudio.frameDigestForTest?.() ?? null;
+    const widthInput = [...document.querySelectorAll('#bw-sk-dims [data-cdim]')].find((i) => (i as HTMLInputElement).value === '40') as HTMLInputElement;
+    widthInput.value = '60';
+    widthInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 500));
+    const cv = document.getElementById('bw-sketch-canvas') as HTMLCanvasElement;
+    const ctx = cv.getContext('2d')!;
+    const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    let minX = cv.width, maxX = 0;
+    for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+      const i = (y * cv.width + x) * 4;
+      if (data[i] > 150 && data[i + 1] > 160 && data[i + 2] > 170) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
+    }
+    return { spanPx: maxX - minX, digestBefore };
+  });
+  check('editing a driving dimension re-solves the sketch geometry', resolved.spanPx > 120, JSON.stringify(resolved));
+  await constrainedPage.close();
+}
+
 await browser.close();
 server.close();
 console.log(failures === 0 ? `\nall ${checks} studio checks passed` : `\n${failures} FAILURES across ${checks} checks`);

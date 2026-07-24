@@ -9840,6 +9840,93 @@
     let previewGroup = null;
     let previewCamera = null;
     let pullDrag = null;
+    // Constraint-driven sketches: the draft's sketch.constrained is the
+    // source of truth; the solver renders solved geometry and the panel
+    // edits driving dimensions. Legacy shapes stay the display fallback.
+    let solverModulePromise = null;
+    let solvedConstrained = null; // last solve of the draft's constrained sketch
+    let solveGeneration = 0;
+    let dimBadgeHits = []; // canvas-space boxes for click-to-edit dimensions
+    const isConstrained = () => Boolean(feature?.sketch?.constrained);
+    function ensureSolver() {
+      if (!solverModulePromise) solverModulePromise = import('/static/studio-sketch-solver.js');
+      return solverModulePromise;
+    }
+    function sampleArcPoints(segment, steps) {
+      const [cx, cy] = segment.center;
+      const start = Math.atan2(segment.a[1] - cy, segment.a[0] - cx);
+      const end = Math.atan2(segment.b[1] - cy, segment.b[0] - cx);
+      let delta = end - start;
+      if (segment.ccw === false) { while (delta >= 0) delta -= Math.PI * 2; }
+      else { while (delta <= 0) delta += Math.PI * 2; }
+      const radius = Math.hypot(segment.a[0] - cx, segment.a[1] - cy);
+      return Array.from({ length: steps + 1 }, (_, index) => {
+        const angle = start + (delta * index) / steps;
+        return [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius];
+      });
+    }
+    function constrainedLoopsToShapes(loops) {
+      const shapes = [];
+      for (const loop of loops) {
+        if (loop.kind === 'circle') { shapes.push({ kind: 'circle', x: loop.center[0], y: loop.center[1], r: loop.r }); continue; }
+        const pts = [];
+        for (const segment of loop.segments) {
+          if (!pts.length) pts.push([segment.a[0], segment.a[1]]);
+          if (segment.kind === 'line') { pts.push([segment.b[0], segment.b[1]]); continue; }
+          for (const p of sampleArcPoints(segment, 32).slice(1)) pts.push(p);
+        }
+        if (pts.length > 1) {
+          const first = pts[0], last = pts[pts.length - 1];
+          if (Math.abs(first[0] - last[0]) <= 1e-9 && Math.abs(first[1] - last[1]) <= 1e-9) pts.pop();
+        }
+        shapes.push({ kind: 'poly', pts, closed: true });
+      }
+      return shapes;
+    }
+    function resolveConstrained() {
+      if (!isConstrained()) return;
+      const constrained = feature.sketch.constrained;
+      const ticket = ++solveGeneration;
+      ensureSolver().then((solver) => {
+        if (ticket !== solveGeneration || !feature?.sketch || feature.sketch.constrained !== constrained) return;
+        let result;
+        try {
+          result = solver.solveSketch(constrained, { resolveDimension: (value) => N(value) });
+        } catch (error) {
+          solvedConstrained = { status: 'invalid', diagnostics: [{ message: String(error?.message || error) }], byId: new Map() };
+          syncDofPill();
+          return;
+        }
+        const byId = new Map((result.entities || []).map((entity) => [entity.id, entity]));
+        if (result.status === 'ok') {
+          const loopResult = solver.constraintSketchToLoops(constrained, { presolved: result });
+          solvedConstrained = { ...result, byId, loops: loopResult.status === 'ok' ? loopResult.loops : null };
+          if (loopResult.status === 'ok') {
+            feature.sketch.shapes = constrainedLoopsToShapes(loopResult.loops);
+            if (selShape && !feature.sketch.shapes.includes(selShape)) selShape = feature.sketch.shapes[feature.sketch.shapes.length - 1] || null;
+          }
+        } else {
+          solvedConstrained = { ...result, byId, loops: null };
+        }
+        syncDofPill();
+        draw2d();
+      }).catch(() => {});
+    }
+    function syncDofPill() {
+      const pill = $('bw-sk-dof');
+      if (!pill) return;
+      if (!isConstrained()) { pill.hidden = true; return; }
+      pill.hidden = false;
+      if (!solvedConstrained) { pill.className = 'sk-dof is-open'; pill.textContent = 'Solving…'; return; }
+      if (solvedConstrained.status === 'ok') {
+        if (solvedConstrained.dof === 0) { pill.className = 'sk-dof is-defined'; pill.textContent = 'Fully defined'; }
+        else { pill.className = 'sk-dof is-open'; pill.textContent = solvedConstrained.dof + ' DOF remaining'; }
+      } else {
+        const first = (solvedConstrained.diagnostics || [])[0];
+        pill.className = 'sk-dof is-conflict';
+        pill.textContent = 'Conflict' + (first?.constraintId ? ': ' + first.constraintId : first?.constraintKind ? ': ' + first.constraintKind : '');
+      }
+    }
 
     function wrapOpenMode() {
       setMode({ kind: 'sketching', tool, featureType: feature.type });
@@ -9918,7 +10005,10 @@
             ? 'Sketching on the picked face — its outline is dashed. Extrude grows out of the face; Cut digs into it.'
             : 'Draw on the top plane, millimetres. Click-click to place; type exact numbers below.';
       wrapOpenMode();
-      setTool('rect');
+      solvedConstrained = null;
+      setTool(isConstrained() ? 'select' : 'rect');
+      syncDofPill();
+      if (isConstrained()) resolveConstrained();
       resize();
       // Centre the view on what matters: the face outline (its plane origin
       // can be far from the face itself) and any existing shapes. Without
@@ -10141,6 +10231,9 @@
           }
         }
         if (!feature.sketch.shapes.length) return say('Draw at least one shape.');
+        if (isConstrained() && solvedConstrained && solvedConstrained.status !== 'ok') {
+          return say('Resolve the sketch conflict before applying — ' + ((solvedConstrained.diagnostics || [])[0]?.message || 'constraints do not solve.'));
+        }
         // A face sketch drawn outside the face makes detached geometry —
         // warn (non-blocking) so a floating boss isn't a mystery.
         if (refOutline.length) {
@@ -10425,14 +10518,18 @@
         }
         ctx.setLineDash([]);
       }
-      // shapes
-      for (const s of feature.sketch.shapes) {
-        ctx.strokeStyle = s === selShape ? '#4c9aff' : '#cfdcea';
-        ctx.fillStyle = s === selShape ? 'rgba(76,154,255,0.16)' : 'rgba(207,220,234,0.08)';
-        ctx.lineWidth = 2;
-        pathShape(s);
-        ctx.fill();
-        ctx.stroke();
+      // shapes (constrained sketches draw exact solved entities instead)
+      if (isConstrained()) {
+        drawConstrainedSketch();
+      } else {
+        for (const s of feature.sketch.shapes) {
+          ctx.strokeStyle = s === selShape ? '#4c9aff' : '#cfdcea';
+          ctx.fillStyle = s === selShape ? 'rgba(76,154,255,0.16)' : 'rgba(207,220,234,0.08)';
+          ctx.lineWidth = 2;
+          pathShape(s);
+          ctx.fill();
+          ctx.stroke();
+        }
       }
       // pending
       if (pending) {
@@ -10448,6 +10545,106 @@
         ctx.setLineDash([]);
         if (tool === 'line' && pending.kind === 'poly') drawLineFeedback(pending);
       }
+    }
+    function drawConstrainedSketch() {
+      dimBadgeHits = [];
+      const constrained = feature.sketch.constrained;
+      const byId = solvedConstrained?.byId || new Map();
+      const entMap = new Map(constrained.entities.map((entity) => [entity.id, entity]));
+      const at = (id) => byId.get(id)?.at || entMap.get(id)?.at || [0, 0];
+      // solid geometry
+      ctx.lineWidth = 2;
+      for (const entity of constrained.entities) {
+        ctx.strokeStyle = entity.construction ? '#7a90a8' : '#cfdcea';
+        ctx.setLineDash(entity.construction ? [4, 4] : []);
+        if (entity.kind === 'line') {
+          const [ax, ay] = toPx(...at(entity.a));
+          const [bx, by] = toPx(...at(entity.b));
+          ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+        } else if (entity.kind === 'circle') {
+          const solved = byId.get(entity.id);
+          const radius = Math.max(0.05, solved?.solvedR ?? NS(entity.r, 1));
+          const [cx, cy] = toPx(...at(entity.center));
+          ctx.beginPath(); ctx.arc(cx, cy, radius * view.pxPerMm, 0, Math.PI * 2); ctx.stroke();
+        } else if (entity.kind === 'arc') {
+          const pts = sampleArcPoints({ center: at(entity.center), a: at(entity.a), b: at(entity.b), ccw: entity.ccw !== false }, 40);
+          ctx.beginPath();
+          pts.forEach((p, index) => {
+            const [px, py] = toPx(p[0], p[1]);
+            index ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          });
+          ctx.stroke();
+        }
+      }
+      ctx.setLineDash([]);
+      // points (fixed points ringed green)
+      for (const entity of constrained.entities) {
+        if (entity.kind !== 'point') continue;
+        const [px, py] = toPx(...at(entity.id));
+        ctx.fillStyle = '#9fd1ff';
+        ctx.beginPath(); ctx.arc(px, py, entity.fixed ? 4 : 3, 0, Math.PI * 2); ctx.fill();
+        if (entity.fixed) { ctx.strokeStyle = '#65c18c'; ctx.lineWidth = 1.5; ctx.stroke(); }
+      }
+      // constraint badges + dimension labels
+      const lineMid = (line) => { const a = at(line.a), b = at(line.b); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
+      const GLYPH = { horizontal: 'H', vertical: 'V', parallel: '∥', perpendicular: '⊥', tangent: '⌒', equal: '=', concentric: '◎', midpoint: '◈', symmetric: '⇔', pointOnLine: '⌁', pointOnCircle: '◦' };
+      const anchorOf = (constraint) => {
+        const ref = (id) => (id ? entMap.get(id) : null);
+        const line = ref(constraint.line);
+        if (line) return lineMid(line);
+        const circle = ref(constraint.circle);
+        if (circle) return at(circle.center);
+        const a = ref(constraint.a);
+        if (a) {
+          if (a.kind === 'line') return lineMid(a);
+          if (a.kind === 'circle' || a.kind === 'arc') return at(a.center);
+          const pa = at(constraint.a);
+          const pb = constraint.b && entMap.get(constraint.b) ? at(constraint.b) : pa;
+          return [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
+        }
+        if (ref(constraint.point)) return at(constraint.point);
+        return null;
+      };
+      ctx.font = '700 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      let stack = 0;
+      for (const constraint of constrained.constraints || []) {
+        if (constraint.kind === 'coincident') continue;
+        const anchor = anchorOf(constraint);
+        if (!anchor) continue;
+        const [px, py] = toPx(anchor[0], anchor[1]);
+        if (constraint.value === undefined) {
+          const glyph = GLYPH[constraint.kind];
+          if (!glyph) continue;
+          ctx.fillStyle = 'rgba(36,49,63,0.9)';
+          ctx.beginPath(); ctx.arc(px + 11, py - 11, 8, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#8fd0a6';
+          ctx.fillText(glyph, px + 11, py - 11);
+          continue;
+        }
+        let resolved = null;
+        try { resolved = N(constraint.value); } catch { /* label falls back to the raw expression */ }
+        const label = (constraint.kind === 'radius' ? 'R' : constraint.kind === 'angle' ? '∠' : '') +
+          (resolved === null ? String(constraint.value) : String(Math.round(resolved * 100) / 100)) +
+          (constraint.kind === 'angle' ? '°' : ' mm') +
+          (typeof constraint.value === 'string' ? ' ƒ' : '');
+        const tw = ctx.measureText(label).width + 12;
+        const bx = px - tw / 2, by = py + 10 + (stack % 2) * 19, bh = 16;
+        ctx.fillStyle = 'rgba(20,28,38,0.92)';
+        ctx.strokeStyle = '#4c9aff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(bx, by, tw, bh, 4); else ctx.rect(bx, by, tw, bh);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#cfe4ff';
+        ctx.fillText(label, bx + tw / 2, by + bh / 2 + 0.5);
+        dimBadgeHits.push({ x: bx, y: by, w: tw, h: bh, index: (constrained.constraints || []).indexOf(constraint) });
+        stack++;
+      }
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
     }
     function pathShape(s) {
       ctx.beginPath();
@@ -10577,6 +10774,17 @@
     }
 
     function clickAt(mx, my) {
+      if (isConstrained()) {
+        // Constraint-driven geometry is edited through its dimensions (or an
+        // agent), not by free placement — but dimension badges are clickable.
+        const [cpx, cpy] = toPx(mx, my);
+        const hit = dimBadgeHits.find((box) => cpx >= box.x && cpx <= box.x + box.w && cpy >= box.y && cpy <= box.y + box.h);
+        if (hit) { focusConstraintDim(hit.index); return; }
+        if (tool !== 'select' && tool !== 'pan') {
+          say('This sketch is constraint-driven — edit its dimensions below, or change its geometry through the agent tools.');
+        }
+        return;
+      }
       if (tool === 'rect') {
         if (!pending) pending = { kind: 'rect', ax: mx, ay: my, x: mx, y: my, w: 0, h: 0 };
         else commitPending();
@@ -10667,8 +10875,48 @@
     }
 
     // exact-dimension panel for the selected shape
+    function syncConstraintPanel() {
+      const p = $('bw-sk-dims');
+      const constrained = feature.sketch.constrained;
+      const escAttr = (v) => String(v).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+      const dims = (constrained.constraints || [])
+        .map((constraint, index) => ({ constraint, index }))
+        .filter(({ constraint }) => constraint.value !== undefined);
+      const labelOf = (constraint) => constraint.id
+        || (constraint.kind === 'radius' ? 'R ' + (constraint.circle || '') : constraint.kind === 'angle' ? '∠ ' + (constraint.a || '') : constraint.kind + ' ' + (constraint.line || constraint.a || ''));
+      p.innerHTML =
+        '<span class="sk-note">Constrained · ' + constrained.entities.length + ' entities · ' + (constrained.constraints || []).length + ' constraints</span>' +
+        dims.map(({ constraint, index }) =>
+          '<label>' + escAttr(labelOf(constraint)) + ' <input type="text" inputmode="decimal" data-cdim="' + index + '" data-v6-control-id="sketch.constraint.dimension" value="' + escAttr(constraint.value) + '" /></label>').join('');
+      p.querySelectorAll('[data-cdim]').forEach((inp) =>
+        inp.addEventListener('change', () => {
+          const raw = inp.value.trim();
+          const constraint = (constrained.constraints || [])[Number(inp.dataset.cdim)];
+          if (!constraint) return;
+          try {
+            const evaluated = N(raw);
+            if ((constraint.kind === 'radius' || constraint.kind === 'length' || constraint.kind === 'distance') && evaluated <= 0) throw new Error('must be positive');
+          } catch (err) {
+            say('Not a usable value: ' + String(err?.message || err));
+            return;
+          }
+          constraint.value = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+          resolveConstrained();
+          captureV6HumanCommandInput({ target: { name: 'sketch' } });
+        }),
+      );
+    }
+    function focusConstraintDim(index) {
+      syncShapePanel();
+      const input = $('bw-sk-dims').querySelector('[data-cdim="' + index + '"]');
+      if (input) { input.focus(); input.select?.(); }
+    }
     function syncShapePanel() {
       const p = $('bw-sk-dims');
+      if (isConstrained()) {
+        syncConstraintPanel();
+        return;
+      }
       if (!selShape) {
         p.innerHTML = '<span class="sk-note">Nothing selected.</span>';
         return;

@@ -876,6 +876,7 @@ export function cadStudioPage(): string {
             </div>
             <canvas id="bw-sketch-canvas" tabindex="0" aria-label="2D sketch canvas"></canvas>
             <div class="sk-bottom">
+              <span id="bw-sk-dof" class="sk-dof" hidden></span>
               <span id="bw-sk-hint" class="sk-note"></span>
               <span id="bw-sk-dims"></span>
             </div>

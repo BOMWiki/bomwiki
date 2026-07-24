@@ -957,6 +957,13 @@ const auxiliaryControls = [
     adapterTool: 'cad_ui',
     fieldId: 'sketch',
   }),
+  control('sketch.constraint.dimension', 'Constrained-sketch driving dimensions', 'sketch-field', [controlIdBinding('sketch.constraint.dimension')], {
+    kind: 'field',
+    semanticAction: 'command.setInput',
+    adapter: 'available',
+    permission: 'ui.command-draft',
+    fieldId: 'sketch',
+  }),
   control('dialog.command.field', 'Normal command dialog fields', 'dialog-field', [controlIdBinding('dialog.command.field')], { kind: 'field', semanticAction: 'command.setInput', adapter: 'available', permission: 'ui.command-draft' }),
   control('dialog.template.category', 'Template category', 'template', [controlIdBinding('dialog.template.category')], { semanticAction: 'template.filter', adapter: 'available' }),
   ...[

@@ -1911,6 +1911,17 @@ body.cadstudio-route > main {
   color: #a9bacb;
   font-size: 12px;
 }
+.sk-dof {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.sk-dof.is-defined { background: rgba(101, 193, 140, 0.16); color: #65c18c; border: 1px solid rgba(101, 193, 140, 0.45); }
+.sk-dof.is-open { background: rgba(230, 176, 34, 0.14); color: #e6b022; border: 1px solid rgba(230, 176, 34, 0.4); }
+.sk-dof.is-conflict { background: rgba(224, 82, 82, 0.14); color: #e05252; border: 1px solid rgba(224, 82, 82, 0.45); }
 #bw-sk-dims {
   display: flex;
   gap: 10px;
