@@ -72,10 +72,16 @@ function installSemanticControlActivation(page: Page): void {
   }) as Page['click'];
 }
 
-check('public shell identifies the V5 release', html.includes('V5 · Parts &amp; assemblies') && html.includes('CAD Studio V5'));
+check('public shell identifies the V6 agent-native release',
+  html.includes('V6 · Agent-native CAD') &&
+  html.includes('CAD Studio V6') &&
+  !html.includes('CAD Studio V5'));
 check('Help advertises the released advanced modeling and assembly surface', html.includes('Loft, Sweep, transforms, assemblies, mates, section views, inspection, and structured project operations'));
 check('Help no longer carries pre-V5 assembly or agent availability claims', !html.includes('there are no assemblies') && !html.includes('remain unavailable and are reported as disabled'));
-check('Help states the V5 engineering and interchange boundaries', html.includes('does not provide engineering simulation, manufacturing certification, CAM, or technical drawings') && html.includes('does not reconstruct vendor-native feature history'));
+check('Help states the V6 engineering and interchange boundaries',
+  html.includes('CAD Studio V6 covers agent-native operation') &&
+  html.includes('does not provide engineering simulation, manufacturing certification, CAM, or technical drawings') &&
+  html.includes('does not reconstruct vendor-native feature history'));
 
 // --- document boundary: detached validation and migration input -----------
 const legacyFixture = {

@@ -8,10 +8,13 @@ Release status: **production promotion authorized by the product owner on
 2026-07-24 with external npm publication explicitly deferred; I0-I4, all 48
 normal commands, literal full production-UI parity, real packaged Codex-host
 operation, both acceptance recordings, and the canonical editable-turbofan
-construction/change gate passed locally and in exact-head protected CI run
-`30064711027` for `589329ec8b944f676b296c0d0e6d3912899f6f6c`; merge,
-CI-only deployment, and production-host verification are in progress; not yet
-a deployed V6 release**
+construction/change gate passed locally and in protected CI; the V6 runtime was
+first deployed as `wiki/engine@45ca9bedf150ba7e1288b05e5a5ded9393013529`
+by run `30067178988`, and public verification correctly blocked the formal
+release claim when the visible shell still identified itself as V5. The formal
+V6 production release is the first protected `wiki/engine` revision containing
+the corrected V6 identity that passes CI, deploys through `deploy-engine`, and
+verifies on `/cad/studio`.**
 
 The implementation contract is [CAD_STUDIO_V6_AGENT_NATIVE_SPEC.md](CAD_STUDIO_V6_AGENT_NATIVE_SPEC.md). V6 makes the real CAD application semantically operable by compatible agents without Computer Use, DOM targeting, pointer/keyboard simulation, or a separate demo-only path.
 

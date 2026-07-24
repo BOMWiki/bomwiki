@@ -400,7 +400,7 @@ function studioIcon(name: StudioIconName, className = 'wsr-i'): string {
  *  static shell; static/studio.js is the whole application. */
 export function cadStudioPage(): string {
   return page({
-    title: 'CAD Studio V5 — browser parametric CAD, no signup | BOMwiki',
+    title: 'CAD Studio V6 — agent-native browser CAD, no signup | BOMwiki',
     description:
       'Create parametric multi-body parts and structured assemblies in your browser with lofts, sweeps, mates, section views, and STEP/STL interchange. No account or install.',
     path: '/cad/studio',
@@ -422,7 +422,7 @@ export function cadStudioPage(): string {
       <header class="ws-appbar" aria-label="Application bar">
         <a class="ws-brand" href="/cad" aria-label="Back to BOMwiki 3D models">
           <span class="ws-brand-mark" aria-hidden="true">BW</span>
-          <span><b>BOMwiki CAD</b><small>V5 · Parts &amp; assemblies</small></span>
+          <span><b>BOMwiki CAD</b><small>V6 · Agent-native CAD</small></span>
         </a>
         <div class="ws-document" aria-label="Current document">
           <span class="ws-document-kind">BOMwiki CAD Studio</span>
@@ -922,7 +922,7 @@ export function cadStudioPage(): string {
       <dialog id="bw-help" class="ws-help" aria-labelledby="bw-help-title">
         <div class="ws-help-shell">
           <header class="ws-help-head">
-            <div><span>Help</span><h2 id="bw-help-title">CAD Studio V5</h2></div>
+            <div><span>Help</span><h2 id="bw-help-title">CAD Studio V6</h2></div>
             <button type="button" id="bw-help-close" aria-label="Close Help">×</button>
           </header>
           <div class="ws-help-body">
@@ -970,7 +970,7 @@ export function cadStudioPage(): string {
         <h3>Straight answers</h3>
         <p><b>Is it really free?</b> Yes. The studio is part of the open-source BOMwiki engine (AGPL-3.0). No tiers, no seat licenses, no expiring trial.</p>
         <p><b>Where does my design go?</b> Nowhere. Modeling happens entirely on your device; nothing is uploaded unless you choose to publish a model to a BOMwiki page.</p>
-        <p><b>Will it replace Fusion or SolidWorks?</b> CAD Studio V5 covers parametric parts, multiple bodies, advanced shapes, reusable components, mates, section and exploded views, inspection, and structured STEP interchange. It does not provide engineering simulation, manufacturing certification, CAM, or technical drawings. Large assemblies and software-rendered browsers use adaptive interaction quality, and imported STEP does not reconstruct vendor-native feature history, mates, or PMI.</p>
+        <p><b>Will it replace Fusion or SolidWorks?</b> CAD Studio V6 covers agent-native operation of parametric parts, multiple bodies, advanced shapes, reusable components, mates, section and exploded views, inspection, and structured STEP interchange. It does not provide engineering simulation, manufacturing certification, CAM, or technical drawings. Large assemblies and software-rendered browsers use adaptive interaction quality, and imported STEP does not reconstruct vendor-native feature history, mates, or PMI.</p>
         <p><b>What runs underneath?</b> OpenCascade, a 25-year-old industrial B-rep kernel, compiled to WebAssembly — plus <a href="https://replicad.xyz" rel="noopener">replicad</a> and three.js. <a href="https://github.com/BOMWiki/bomwiki" rel="noopener">Read the source</a>.</p>
         <p><b>Made something worth keeping?</b> <a href="/cad">Publish it to a BOMwiki page</a> — your name in the credit, your part in the encyclopedia.</p>
       </section>

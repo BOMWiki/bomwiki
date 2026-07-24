@@ -1,4 +1,4 @@
-// BOMwiki CAD Studio V5: parametric multi-body and assembly CAD in the browser, no signup.
+// BOMwiki CAD Studio V6: agent-native parametric multi-body and assembly CAD in the browser, no signup.
 // Geometry runs in a dedicated worker on OpenCascade WebAssembly (via replicad), the
 // same B-rep kernel family desktop CAD uses — so features are exact solids,
 // dimensions are millimetres, and export includes STEP, not just mesh STL.
