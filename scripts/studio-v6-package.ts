@@ -16,6 +16,7 @@ const ENGINE_ROOT = resolve(import.meta.dirname, '..');
 const REPO_ROOT = resolve(ENGINE_ROOT, '..');
 const PACKAGE_FILES = [
   'static/studio-agent-service.js',
+  'static/studio-sketch-solver.js',
   'static/studio-v5-runtime-document.js',
   'static/studio-project-v5.js',
   'static/studio-v5-modeling.js',

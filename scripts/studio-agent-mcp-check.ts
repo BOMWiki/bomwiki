@@ -116,7 +116,7 @@ check('MCP capabilities advertise the live-only V6 UI profile and skill compatib
 check('default MCP capability discovery is compact but preserves every operation and query state',
   capabilities.structuredContent.capabilityDiscovery?.detail === 'summary' &&
   capabilities.structuredContent.operations.length === 80 &&
-  capabilities.structuredContent.queries.length === 13 &&
+  capabilities.structuredContent.queries.length === 14 &&
   capabilities.structuredContent.operations.every((entry: any) => !('inputSchema' in entry) && !('resultSchema' in entry)) &&
   Buffer.byteLength(JSON.stringify(capabilities.structuredContent)) < 20_000,
   {

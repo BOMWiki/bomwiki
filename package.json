@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "read-pressure:check": "node --experimental-strip-types scripts/read-pressure-check.ts",
     "studio:check": "node --experimental-strip-types scripts/studio-check.ts",
+    "studio:sketch:solver": "node --experimental-strip-types scripts/studio-sketch-solver-check.ts",
     "studio:v5:migration": "node --experimental-strip-types scripts/studio-v5-schema-check.ts",
     "studio:v5:runtime:document": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts document",
     "studio:v5:runtime:kernel": "node --experimental-strip-types scripts/studio-v5-runtime-check.ts kernel",

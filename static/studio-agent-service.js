@@ -73,6 +73,12 @@ import {
   updateStudioV5AxialStageGroup,
   deleteStudioV5AxialStageGroup,
 } from './studio-v5-inspection.js';
+import { evaluateStudioV5Expression, studioV5ParameterValues } from './studio-v5-modeling.js';
+import {
+  constraintSketchToLoops,
+  solveSketch,
+  validateConstraintSketch,
+} from './studio-sketch-solver.js';
 
 export const CAD_AGENT_PROTOCOL = 'bomwiki.cad.agent/v1';
 export const CAD_AGENT_STUDIO_VERSION = '6.0.0-i4';
@@ -151,9 +157,40 @@ const SHAPE_SCHEMA = Object.freeze({
     { type: 'object', required: ['kind', 'pts'], properties: { kind: { const: 'poly' }, pts: { type: 'array', minItems: 3, items: { type: 'array', minItems: 2, maxItems: 2, items: DIMENSION_SCHEMA } } }, additionalProperties: false },
   ],
 });
+const CONSTRAINED_ENTITY_SCHEMA = Object.freeze({
+  oneOf: [
+    { type: 'object', required: ['id', 'kind', 'at'], properties: { id: ID_SCHEMA, kind: { const: 'point' }, at: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' } }, fixed: { type: 'boolean' } }, additionalProperties: false },
+    { type: 'object', required: ['id', 'kind', 'a', 'b'], properties: { id: ID_SCHEMA, kind: { const: 'line' }, a: ID_SCHEMA, b: ID_SCHEMA, construction: { type: 'boolean' } }, additionalProperties: false },
+    { type: 'object', required: ['id', 'kind', 'center', 'r'], properties: { id: ID_SCHEMA, kind: { const: 'circle' }, center: ID_SCHEMA, r: DIMENSION_SCHEMA, construction: { type: 'boolean' } }, additionalProperties: false },
+    { type: 'object', required: ['id', 'kind', 'center', 'a', 'b'], properties: { id: ID_SCHEMA, kind: { const: 'arc' }, center: ID_SCHEMA, a: ID_SCHEMA, b: ID_SCHEMA, ccw: { type: 'boolean' }, construction: { type: 'boolean' } }, additionalProperties: false },
+  ],
+});
+const CONSTRAINED_CONSTRAINT_SCHEMA = Object.freeze({
+  type: 'object', required: ['kind'],
+  properties: {
+    id: ID_SCHEMA,
+    kind: { enum: ['coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular', 'tangent', 'equal', 'concentric', 'midpoint', 'pointOnLine', 'pointOnCircle', 'symmetric', 'distance', 'horizontalDistance', 'verticalDistance', 'length', 'radius', 'angle'] },
+    a: ID_SCHEMA, b: ID_SCHEMA, line: ID_SCHEMA, circle: ID_SCHEMA, point: ID_SCHEMA, axis: ID_SCHEMA,
+    value: DIMENSION_SCHEMA,
+  },
+  additionalProperties: false,
+});
+const CONSTRAINED_SKETCH_SCHEMA = Object.freeze({
+  type: 'object', required: ['entities'],
+  properties: {
+    entities: { type: 'array', minItems: 1, items: CONSTRAINED_ENTITY_SCHEMA },
+    constraints: { type: 'array', items: CONSTRAINED_CONSTRAINT_SCHEMA },
+  },
+  additionalProperties: false,
+});
 const SKETCH_SCHEMA = Object.freeze({
-  type: 'object', required: ['shapes'],
-  properties: { shapes: { type: 'array', minItems: 1, items: SHAPE_SCHEMA }, z: DIMENSION_SCHEMA },
+  type: 'object',
+  anyOf: [{ required: ['shapes'] }, { required: ['constrained'] }],
+  properties: {
+    shapes: { type: 'array', minItems: 1, items: SHAPE_SCHEMA },
+    constrained: CONSTRAINED_SKETCH_SCHEMA,
+    z: DIMENSION_SCHEMA,
+  },
   additionalProperties: true,
 });
 const FEATURE_PATTERN_SCHEMA = Object.freeze({
@@ -333,6 +370,7 @@ const QUERY_CAPABILITIES = Object.freeze([
   'entity.search',
   'geometry.validity',
   'geometry.bodies',
+  'sketch.solve',
   'geometry.topology',
   'geometry.health',
   'assembly.clearance',
@@ -778,6 +816,111 @@ function featureFromOperation(project, kind, input, aliases) {
   return base;
 }
 
+// --- constrained sketches --------------------------------------------------
+// A feature sketch may carry `constrained: { entities, constraints }` as its
+// source of truth. After every operation the constrained form is re-solved
+// against the current parameters and the solved geometry is written back as
+// exact line/arc/circle entities (the kernel's exactSketchEntities path) plus
+// an approximate polygon form for legacy consumers. Parameter edits therefore
+// re-solve dependent sketches automatically.
+
+function exactEntitiesFromConstrainedLoops(loops) {
+  const entities = [];
+  let sequence = 0;
+  for (const loop of loops) {
+    if (loop.kind === 'circle') {
+      entities.push({ id: 'cs-circle-' + (++sequence), kind: 'circle', center: [loop.center[0], loop.center[1]], radius: loop.r });
+      continue;
+    }
+    for (const segment of loop.segments) {
+      if (segment.kind === 'line') {
+        entities.push({ id: 'cs-line-' + (++sequence), kind: 'line', a: [segment.a[0], segment.a[1]], b: [segment.b[0], segment.b[1]] });
+      } else {
+        entities.push({
+          id: 'cs-arc-' + (++sequence), kind: 'arc',
+          start: [segment.a[0], segment.a[1]], end: [segment.b[0], segment.b[1]],
+          center: [segment.center[0], segment.center[1]],
+          clockwise: segment.ccw === false,
+        });
+      }
+    }
+  }
+  return entities;
+}
+
+function approximateShapesFromConstrainedLoops(loops) {
+  const shapes = [];
+  for (const loop of loops) {
+    if (loop.kind === 'circle') {
+      shapes.push({ kind: 'circle', x: loop.center[0], y: loop.center[1], r: loop.r });
+      continue;
+    }
+    const pts = [];
+    for (const segment of loop.segments) {
+      if (!pts.length) pts.push([segment.a[0], segment.a[1]]);
+      if (segment.kind === 'line') { pts.push([segment.b[0], segment.b[1]]); continue; }
+      const [cx, cy] = segment.center;
+      const start = Math.atan2(segment.a[1] - cy, segment.a[0] - cx);
+      const end = Math.atan2(segment.b[1] - cy, segment.b[0] - cx);
+      let delta = end - start;
+      if (segment.ccw === false) { while (delta >= 0) delta -= Math.PI * 2; }
+      else { while (delta <= 0) delta += Math.PI * 2; }
+      const radius = Math.hypot(segment.a[0] - cx, segment.a[1] - cy);
+      const steps = 32;
+      for (let index = 1; index <= steps; index++) {
+        const angle = start + (delta * index) / steps;
+        pts.push([cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius]);
+      }
+    }
+    if (pts.length > 1) {
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      if (Math.abs(first[0] - last[0]) <= 1e-9 && Math.abs(first[1] - last[1]) <= 1e-9) pts.pop();
+    }
+    shapes.push({ kind: 'poly', pts, closed: true });
+  }
+  return shapes;
+}
+
+function refreshConstrainedSketches(project) {
+  for (const part of project.partDefinitions || []) {
+    let parameters = null;
+    for (const feature of part.features || []) {
+      const constrained = feature.sketch?.constrained;
+      if (!constrained) continue;
+      if (!parameters) {
+        try {
+          parameters = studioV5ParameterValues(project, part);
+        } catch (error) {
+          fail('SKETCH_PARAMETERS_INVALID', String(error?.message || error), { featureId: feature.id });
+        }
+      }
+      const resolveDimension = (value) => evaluateStudioV5Expression(value, parameters);
+      const structural = validateConstraintSketch(constrained);
+      if (structural.length) {
+        fail('SKETCH_CONSTRAINTS_INVALID', 'Feature "' + feature.id + '" has an invalid constrained sketch: ' + structural[0].message, { featureId: feature.id, diagnostics: structural });
+      }
+      const solved = solveSketch(constrained, { resolveDimension });
+      if (solved.status !== 'ok') {
+        fail('SKETCH_CONSTRAINTS_UNSOLVED', 'Feature "' + feature.id + '" sketch did not solve: ' + (solved.diagnostics[0]?.message || solved.status), { featureId: feature.id, diagnostics: solved.diagnostics });
+      }
+      const loopResult = constraintSketchToLoops(constrained, { presolved: solved });
+      if (loopResult.status !== 'ok') {
+        fail('SKETCH_PROFILE_OPEN', 'Feature "' + feature.id + '" constrained sketch does not form closed profiles: ' + (loopResult.diagnostics[0]?.message || ''), { featureId: feature.id, diagnostics: loopResult.diagnostics });
+      }
+      feature.sketch.entities = exactEntitiesFromConstrainedLoops(loopResult.loops);
+      feature.sketch.shapes = approximateShapesFromConstrainedLoops(loopResult.loops);
+      feature.sketch.solver = {
+        dof: solved.dof,
+        fullyDefined: solved.dof === 0,
+        ...(solved.diagnostics.length ? { diagnostics: solved.diagnostics } : {}),
+      };
+      feature.extensions = { ...(feature.extensions || {}), exactSketchEntities: true };
+    }
+  }
+  return project;
+}
+
 function applyOperation(project, operation, aliases) {
   const op = assertRecord(operation, 'operation');
   const kind = assertText(op.kind, 'operation.kind');
@@ -1205,6 +1348,7 @@ function applyOperation(project, operation, aliases) {
     resultRef = { kind: 'feature', id, name: input.name || operationName };
   }
 
+  refreshConstrainedSketches(candidate);
   candidate = prepareStudioV5RuntimeProject(candidate);
   if (op.alias) {
     const alias = assertText(op.alias, 'operation.alias');
@@ -1437,6 +1581,36 @@ export class CadCommandService {
 
   async query(request = {}) {
     const kind = request.kind || 'geometry.validity';
+    if (kind === 'sketch.solve') {
+      // Stateless constraint solve: lets an agent iterate on a constrained
+      // sketch (and read dof / diagnostics / closed loops) without touching
+      // the document. Dimensions may reference project/part parameters.
+      const constrained = assertRecord(request.sketch, 'query.sketch');
+      const part = this.project.rootDocument?.kind === 'part' ? studioV5RootPart(this.project) : null;
+      let parameters = new Map();
+      try {
+        parameters = part ? studioV5ParameterValues(this.project, part) : new Map();
+      } catch {
+        // Parameter problems surface per-dimension below instead.
+      }
+      const resolveDimension = (value) => evaluateStudioV5Expression(value, parameters);
+      const structural = validateConstraintSketch(constrained);
+      if (structural.length) return { status: 'invalid', diagnostics: structural };
+      const solved = solveSketch(constrained, { resolveDimension });
+      if (solved.status === 'invalid') return { status: 'invalid', diagnostics: solved.diagnostics };
+      const loopResult = constraintSketchToLoops(constrained, { presolved: solved });
+      return {
+        status: solved.status,
+        entities: solved.entities,
+        dof: solved.dof,
+        fullyDefined: solved.status === 'ok' && solved.dof === 0,
+        iterations: solved.iterations,
+        residual: solved.residual,
+        diagnostics: [...solved.diagnostics, ...loopResult.diagnostics],
+        loops: loopResult.loops,
+        profilesClosed: loopResult.status === 'ok',
+      };
+    }
     if (kind === 'geometry.bodies' || kind === 'geometry.validity') {
       let evidence = this.lastEvidence;
       if (request.exact === true) {
