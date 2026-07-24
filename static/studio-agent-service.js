@@ -75,7 +75,7 @@ import {
 } from './studio-v5-inspection.js';
 
 export const CAD_AGENT_PROTOCOL = 'bomwiki.cad.agent/v1';
-export const CAD_AGENT_STUDIO_VERSION = '5A-agent-1';
+export const CAD_AGENT_STUDIO_VERSION = '6.0.0-i4';
 export const CAD_AGENT_KERNEL_VERSION = 'replicad-open-cascade/runtime-5A';
 
 const MAX_TRANSACTION_OPERATIONS = 250;
@@ -96,6 +96,16 @@ const ALL_PERMISSIONS = Object.freeze([
   'artifact.export-project',
   'artifact.export-step',
   'artifact.export-stl',
+  'artifact.export-narration',
+  'ui.read',
+  'ui.select',
+  'ui.navigate',
+  'ui.command-draft',
+  'ui.present-preview',
+  'ui.present-demo',
+  'ui.present-narration',
+  'ui.wait-events',
+  'session.launch-visible',
 ]);
 
 const READ_PERMISSIONS = new Set(['project.read']);
@@ -146,17 +156,46 @@ const SKETCH_SCHEMA = Object.freeze({
   properties: { shapes: { type: 'array', minItems: 1, items: SHAPE_SCHEMA }, z: DIMENSION_SCHEMA },
   additionalProperties: true,
 });
+const FEATURE_PATTERN_SCHEMA = Object.freeze({
+  oneOf: [
+    {
+      type: 'object',
+      required: ['kind', 'n', 'dx', 'dy'],
+      properties: {
+        kind: { const: 'linear' },
+        n: { type: 'integer', minimum: 2, maximum: 100 },
+        dx: DIMENSION_SCHEMA,
+        dy: DIMENSION_SCHEMA,
+      },
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      required: ['kind', 'n', 'cx', 'cy'],
+      properties: {
+        kind: { const: 'circular' },
+        n: { type: 'integer', minimum: 2, maximum: 100 },
+        cx: DIMENSION_SCHEMA,
+        cy: DIMENSION_SCHEMA,
+      },
+      additionalProperties: false,
+    },
+  ],
+});
 const FEATURE_COMMON_PROPERTIES = Object.freeze({
   id: ID_SCHEMA,
   name: { type: 'string', minLength: 1, maxLength: 200 },
   resultPolicy: RESULT_POLICY_SCHEMA,
   inputRefs: { type: 'array', items: { type: 'object' } },
+  onFace: { type: 'object' },
   bodyName: { type: 'string', minLength: 1, maxLength: 200 },
+  pattern: FEATURE_PATTERN_SCHEMA,
 });
 const objectSchema = (required, properties) => ({ type: 'object', required, properties, additionalProperties: false });
 const OPERATION_INPUT_SCHEMAS = Object.freeze({
   'project.rename': objectSchema(['name'], { name: { type: 'string', minLength: 1, maxLength: 200 } }),
   'project.setUnits': objectSchema(['units'], { units: { enum: ['mm', 'in'] } }),
+  'project.clear': objectSchema([], {}),
   'parameter.create': objectSchema(['name', 'value'], { id: ID_SCHEMA, name: { type: 'string', minLength: 1, maxLength: 200 }, value: DIMENSION_SCHEMA, description: { type: 'string', maxLength: 2000 } }),
   'parameter.update': objectSchema([], { parameterId: ENTITY_OR_ALIAS_SCHEMA, parameterName: { type: 'string' }, name: { type: 'string', minLength: 1, maxLength: 200 }, value: DIMENSION_SCHEMA, description: { type: 'string', maxLength: 2000 } }),
   'parameter.delete': objectSchema([], { parameterId: ENTITY_OR_ALIAS_SCHEMA, parameterName: { type: 'string' } }),
@@ -177,7 +216,7 @@ const OPERATION_INPUT_SCHEMAS = Object.freeze({
   'boolean.union': objectSchema(['targetBodyId', 'toolBodyId'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyId: ENTITY_OR_ALIAS_SCHEMA, keepTools: { type: 'boolean' } }),
   'boolean.subtract': objectSchema(['targetBodyId', 'toolBodyId'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyId: ENTITY_OR_ALIAS_SCHEMA, keepTools: { type: 'boolean' } }),
   'boolean.intersect': objectSchema(['targetBodyId', 'toolBodyId'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyId: ENTITY_OR_ALIAS_SCHEMA, keepTools: { type: 'boolean' } }),
-  'boolean.split': objectSchema(['targetBodyId', 'toolBodyIds'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, keepTools: { type: 'boolean' }, bodyNames: { type: 'array', items: { type: 'string' } } }),
+  'boolean.split': objectSchema(['targetBodyId', 'toolBodyIds'], { id: ID_SCHEMA, name: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, toolBodyIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, keepOriginal: { type: 'boolean' }, keepTools: { type: 'boolean' }, bodyNames: { type: 'array', items: { type: 'string' } } }),
   'datum.create': objectSchema(['id', 'name', 'datumKind', 'definition'], { id: ID_SCHEMA, name: { type: 'string' }, datumKind: { enum: ['plane', 'axis', 'point', 'coordinate-system'] }, definition: { type: 'object' } }),
   'datum.update': objectSchema(['datumId', 'patch'], { datumId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
   'datum.delete': objectSchema(['datumId'], { datumId: ENTITY_OR_ALIAS_SCHEMA }),
@@ -192,9 +231,9 @@ const OPERATION_INPUT_SCHEMAS = Object.freeze({
   'feature.loft': objectSchema(['id', 'sections'], { id: ID_SCHEMA, name: { type: 'string' }, sections: { type: 'array', minItems: 2 }, guideSketchIds: { type: 'array', items: ENTITY_OR_ALIAS_SCHEMA }, centerlineSketchId: ENTITY_OR_ALIAS_SCHEMA, continuity: { type: 'object' }, ruled: { type: 'boolean' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, operation: { enum: ['add', 'subtract', 'intersect'] }, bodyName: { type: 'string' } }),
   'feature.sweep': objectSchema(['id', 'profileSketchId', 'pathSketchId'], { id: ID_SCHEMA, name: { type: 'string' }, profileSketchId: ENTITY_OR_ALIAS_SCHEMA, pathSketchId: ENTITY_OR_ALIAS_SCHEMA, guideSketchId: ENTITY_OR_ALIAS_SCHEMA, orientation: { type: 'string' }, referenceDirection: { type: 'array' }, twistAngle: DIMENSION_SCHEMA, scaleEnd: DIMENSION_SCHEMA, transition: { type: 'string' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, operation: { enum: ['add', 'subtract', 'intersect'] }, bodyName: { type: 'string' } }),
   'feature.revolveProfile': objectSchema(['id', 'profileSketchId', 'axisDatumId', 'angle'], { id: ID_SCHEMA, name: { type: 'string' }, profileSketchId: ENTITY_OR_ALIAS_SCHEMA, axisDatumId: ENTITY_OR_ALIAS_SCHEMA, angle: DIMENSION_SCHEMA, startAngle: DIMENSION_SCHEMA, symmetric: { type: 'boolean' }, targetBodyId: ENTITY_OR_ALIAS_SCHEMA, operation: { enum: ['add', 'subtract', 'intersect'] }, bodyName: { type: 'string' } }),
-  'feature.draft': objectSchema(['id', 'bodyId', 'neutralPlaneDatumId', 'angle'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, neutralPlaneDatumId: ENTITY_OR_ALIAS_SCHEMA, angle: DIMENSION_SCHEMA, faceRefs: { type: 'array' }, pullDirectionDatumId: ENTITY_OR_ALIAS_SCHEMA }),
-  'feature.thicken': objectSchema(['id', 'bodyId', 'faceRefs', 'thickness'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, faceRefs: { type: 'array', minItems: 1 }, thickness: DIMENSION_SCHEMA, direction: { enum: ['inside', 'outside', 'symmetric'] } }),
-  'feature.variableFillet': objectSchema(['id', 'bodyId', 'edgeRefs', 'variableRadii'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, edgeRefs: { type: 'array', minItems: 1 }, variableRadii: { type: 'array', minItems: 1 } }),
+  'feature.draft': objectSchema(['id', 'bodyId', 'neutralPlaneDatumId', 'angle'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, neutralPlaneDatumId: ENTITY_OR_ALIAS_SCHEMA, angle: DIMENSION_SCHEMA, faceRefs: { type: 'array' }, pullDirectionDatumId: ENTITY_OR_ALIAS_SCHEMA, flip: { type: 'boolean' }, tangentPropagation: { type: 'boolean' } }),
+  'feature.thicken': objectSchema(['id', 'bodyId', 'faceRefs', 'thickness'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, faceRefs: { type: 'array', minItems: 1 }, thickness: DIMENSION_SCHEMA, direction: { enum: ['inside', 'outside', 'symmetric'] }, bodyName: { type: 'string' } }),
+  'feature.variableFillet': objectSchema(['id', 'bodyId', 'edgeRefs', 'variableRadii'], { id: ID_SCHEMA, name: { type: 'string' }, bodyId: ENTITY_OR_ALIAS_SCHEMA, edgeRefs: { type: 'array', minItems: 1 }, variableRadii: { type: 'array', minItems: 1 }, tangentPropagation: { type: 'boolean' } }),
   'feature.advanced.update': objectSchema(['featureId', 'patch'], { featureId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
   'pattern.create': objectSchema(['id', 'kind', 'sourceBodyId'], { id: ID_SCHEMA, name: { type: 'string' }, kind: { enum: ['linear', 'circular', 'curve', 'mirror'] }, sourceBodyId: ENTITY_OR_ALIAS_SCHEMA, count: DIMENSION_SCHEMA, directionDatumId: ENTITY_OR_ALIAS_SCHEMA, directionDatumIds: { type: 'array', items: ENTITY_OR_ALIAS_SCHEMA }, axisDatumId: ENTITY_OR_ALIAS_SCHEMA, pathSketchId: ENTITY_OR_ALIAS_SCHEMA, planeDatumId: ENTITY_OR_ALIAS_SCHEMA, definition: { type: 'object' } }),
   'pattern.update': objectSchema(['patternId', 'patch'], { patternId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
@@ -214,10 +253,18 @@ const OPERATION_INPUT_SCHEMAS = Object.freeze({
   'component.pattern': objectSchema(['id', 'sourceOccurrenceIds', 'generatedCount'], { id: ID_SCHEMA, name: { type: 'string' }, kind: { type: 'string' }, sourceOccurrenceIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, generatedCount: { type: 'integer' }, definition: { type: 'object' } }),
   'component.pattern.update': objectSchema(['patternId', 'patch'], { patternId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
   'component.pattern.delete': objectSchema(['patternId'], { patternId: ENTITY_OR_ALIAS_SCHEMA }),
-  'mate.create': objectSchema(['id', 'mateKind', 'occurrenceIds'], { id: ID_SCHEMA, name: { type: 'string' }, mateKind: { enum: ['fixed', 'coincident', 'concentric', 'distance', 'angle'] }, occurrenceIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA }, references: { type: 'array' }, value: DIMENSION_SCHEMA }),
+  'mate.create': objectSchema(['id', 'mateKind', 'occurrenceIds'], {
+    id: ID_SCHEMA,
+    name: { type: 'string' },
+    mateKind: { enum: ['fixed', 'coincident', 'concentric', 'distance', 'angle', 'parallel', 'perpendicular', 'tangent', 'revolute', 'slider'] },
+    occurrenceIds: { type: 'array', minItems: 1, items: ENTITY_OR_ALIAS_SCHEMA },
+    references: { type: 'array' },
+    value: DIMENSION_SCHEMA,
+    extensions: { type: 'object' },
+  }),
   'mate.update': objectSchema(['mateId', 'patch'], { mateId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
   'mate.delete': objectSchema(['mateId'], { mateId: ENTITY_OR_ALIAS_SCHEMA }),
-  'section.create': objectSchema(['id', 'name', 'kind', 'planes'], { id: ID_SCHEMA, name: { type: 'string' }, kind: { enum: ['plane', 'quarter', 'box'] }, planes: { type: 'array', minItems: 1 }, scopeOccurrenceIds: { type: 'array', items: ENTITY_OR_ALIAS_SCHEMA }, cap: { type: 'boolean' }, hatch: { type: 'object' } }),
+  'section.create': objectSchema(['id', 'name', 'kind', 'planes'], { id: ID_SCHEMA, name: { type: 'string' }, kind: { enum: ['plane', 'quarter', 'box'] }, planes: { type: 'array', minItems: 1 }, scopeOccurrenceIds: { type: 'array', items: ENTITY_OR_ALIAS_SCHEMA }, cap: { type: 'boolean' }, reverse: { type: 'boolean' }, hatch: { type: 'object' } }),
   'section.update': objectSchema(['sectionId', 'patch'], { sectionId: ENTITY_OR_ALIAS_SCHEMA, patch: { type: 'object' } }),
   'section.activate': objectSchema([], { sectionId: ENTITY_OR_ALIAS_SCHEMA }),
   'section.delete': objectSchema(['sectionId'], { sectionId: ENTITY_OR_ALIAS_SCHEMA }),
@@ -239,6 +286,7 @@ const OPERATION_INPUT_SCHEMAS = Object.freeze({
 const AVAILABLE_OPERATION_KINDS = Object.freeze([
   'project.rename',
   'project.setUnits',
+  'project.clear',
   'parameter.create',
   'parameter.update',
   'parameter.delete',
@@ -285,6 +333,10 @@ const QUERY_CAPABILITIES = Object.freeze([
   'entity.search',
   'geometry.validity',
   'geometry.bodies',
+  'geometry.topology',
+  'geometry.health',
+  'assembly.clearance',
+  'assembly.interference',
   'history.list',
   'history.changesSince',
 ]);
@@ -317,7 +369,13 @@ export function cadCapabilityManifest(options = {}) {
     queries: QUERY_CAPABILITIES.map((kind) => ({
       kind,
       version: 1,
-      state: 'available',
+      state: ['geometry.topology', 'geometry.health', 'assembly.clearance', 'assembly.interference'].includes(kind) && options.exactKernel === false
+        ? 'disabled'
+        : 'available',
+      ...(['geometry.topology', 'geometry.health', 'assembly.clearance', 'assembly.interference'].includes(kind) && options.exactKernel === false
+        ? { disabledReasonCode: 'EXACT_KERNEL_ADAPTER_REQUIRED' }
+        : {}),
+      supportsPreviewScope: ['geometry.health', 'assembly.clearance', 'assembly.interference'].includes(kind),
       inputSchema: { type: 'object' },
       resultSchema: { type: 'object' },
     })),
@@ -325,6 +383,13 @@ export function cadCapabilityManifest(options = {}) {
       { format: 'project', state: 'available', permission: 'artifact.export-project' },
       { format: 'step', state: options.exactKernel === false ? 'disabled' : 'available', permission: 'artifact.export-step', disabledReasonCode: options.exactKernel === false ? 'EXACT_KERNEL_ADAPTER_REQUIRED' : undefined },
       { format: 'stl', state: options.exactKernel === false ? 'disabled' : 'available', permission: 'artifact.export-stl', disabledReasonCode: options.exactKernel === false ? 'EXACT_KERNEL_ADAPTER_REQUIRED' : undefined },
+      { format: 'png', state: options.visibleStudio === true ? 'available' : 'disabled', permission: 'artifact.render', disabledReasonCode: options.visibleStudio === true ? undefined : 'VISIBLE_STUDIO_REQUIRED' },
+      { format: 'webvtt', state: options.visibleStudio === true ? 'available' : 'disabled', permission: 'artifact.export-narration', disabledReasonCode: options.visibleStudio === true ? undefined : 'VISIBLE_STUDIO_REQUIRED' },
+      { format: 'srt', state: options.visibleStudio === true ? 'available' : 'disabled', permission: 'artifact.export-narration', disabledReasonCode: options.visibleStudio === true ? undefined : 'VISIBLE_STUDIO_REQUIRED' },
+    ],
+    imports: [
+      { format: 'project', state: options.visibleStudio === true ? 'available' : 'disabled', permission: 'project.replace', disabledReasonCode: options.visibleStudio === true ? undefined : 'VISIBLE_STUDIO_REQUIRED' },
+      { format: 'step', state: options.visibleStudio === true && options.exactKernel !== false ? 'available' : 'disabled', permission: 'project.replace', disabledReasonCode: options.visibleStudio !== true ? 'VISIBLE_STUDIO_REQUIRED' : options.exactKernel === false ? 'EXACT_KERNEL_ADAPTER_REQUIRED' : undefined },
     ],
     limits: {
       ...STUDIO_V5_PROJECT_LIMITS,
@@ -335,6 +400,75 @@ export function cadCapabilityManifest(options = {}) {
     permissions: ALL_PERMISSIONS.map((permission) => ({ permission, default: 'denied' })),
     transports: ['headless', 'mcp-stdio', 'studio-loopback'],
   };
+}
+
+function invalidCapabilityQuery(message) {
+  const error = new Error(message);
+  error.code = 'INVALID_CAPABILITY_QUERY';
+  throw error;
+}
+
+function boundedCapabilityIds(value, name) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 20 || value.some((entry) => typeof entry !== 'string' || !entry || entry.length > 200)) {
+    invalidCapabilityQuery(`${name} must be a bounded list of at most 20 stable capability IDs.`);
+  }
+  return [...new Set(value)];
+}
+
+function compactCapability(entry) {
+  const { inputSchema: _inputSchema, resultSchema: _resultSchema, ...summary } = entry;
+  return summary;
+}
+
+export function selectCadCapabilities(manifest, query = {}) {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) {
+    invalidCapabilityQuery('Capability discovery requires an object.');
+  }
+  const allowed = new Set(['detail', 'operationKinds', 'queryKinds']);
+  const unknown = Object.keys(query).filter((key) => !allowed.has(key));
+  if (unknown.length) invalidCapabilityQuery(`Unknown capability discovery fields: ${unknown.join(', ')}.`);
+  const detail = query.detail || 'summary';
+  if (!['summary', 'schemas', 'full'].includes(detail)) {
+    invalidCapabilityQuery('Capability detail must be summary, schemas, or full.');
+  }
+  const operationKinds = boundedCapabilityIds(query.operationKinds, 'operationKinds');
+  const queryKinds = boundedCapabilityIds(query.queryKinds, 'queryKinds');
+  const operationByKind = new Map(manifest.operations.map((entry) => [entry.kind, entry]));
+  const queryByKind = new Map(manifest.queries.map((entry) => [entry.kind, entry]));
+  const missingOperationKinds = operationKinds.filter((kind) => !operationByKind.has(kind));
+  const missingQueryKinds = queryKinds.filter((kind) => !queryByKind.has(kind));
+  if (missingOperationKinds.length || missingQueryKinds.length) {
+    invalidCapabilityQuery(`Unknown capability IDs: ${[...missingOperationKinds, ...missingQueryKinds].join(', ')}.`);
+  }
+  if (detail === 'schemas' && !operationKinds.length && !queryKinds.length) {
+    invalidCapabilityQuery('Schema discovery requires at least one operationKinds or queryKinds entry.');
+  }
+  const operations = detail === 'full'
+    ? manifest.operations
+    : detail === 'schemas'
+      ? operationKinds.map((kind) => operationByKind.get(kind))
+      : manifest.operations.map(compactCapability);
+  const queries = detail === 'full'
+    ? manifest.queries
+    : detail === 'schemas'
+      ? queryKinds.map((kind) => queryByKind.get(kind))
+      : manifest.queries.map(compactCapability);
+  return clone({
+    ...manifest,
+    operations,
+    queries,
+    capabilityDiscovery: {
+      detail,
+      operationCount: manifest.operations.length,
+      queryCount: manifest.queries.length,
+      schemaBatchLimit: 20,
+      supportedDetails: ['summary', 'schemas', 'full'],
+      instructions: detail === 'summary'
+        ? 'Request detail "schemas" with only the operationKinds or queryKinds needed for the current task. Full discovery is available for audits.'
+        : 'The manifest identity and capability states are unchanged across discovery detail levels.',
+    },
+  });
 }
 
 export class CadAgentError extends Error {
@@ -505,6 +639,10 @@ function evidenceFromKernel(response, exactGeometry) {
     exactGeometry: Boolean(exactGeometry),
     bodyResults: (response?.bodies || []).map((body) => ({
       body: { kind: 'body', id: body.bodyId, name: body.bodyName },
+      sourceBodyId: body.sourceBodyId || body.bodyId,
+      occurrenceInstance: clone(body.occurrenceInstance || null),
+      visible: body.visible !== false,
+      suppressed: body.suppressed === true,
       valid: body.geometry?.valid === true && !body.error,
       solids: body.geometry?.solidCount || 0,
       shells: body.geometry?.shellCount || 0,
@@ -620,6 +758,8 @@ function featureFromOperation(project, kind, input, aliases) {
     suppressed: false,
     inputRefs,
     resultPolicy,
+    ...(input.onFace ? { onFace: clone(input.onFace) } : {}),
+    ...(input.pattern ? { pattern: clone(input.pattern) } : {}),
   };
   if (type === 'extrude' || type === 'cut' || type === 'revolve') {
     assertRecord(input.sketch, 'operation.input.sketch');
@@ -658,6 +798,15 @@ function applyOperation(project, operation, aliases) {
   } else if (kind === 'project.setUnits') {
     if (input.units !== 'mm' && input.units !== 'in') fail('INVALID_UNITS', 'Project units must be "mm" or "in".');
     candidate.units = input.units;
+  } else if (kind === 'project.clear') {
+    const cleared = createEmptyStudioV5PartProject({
+      projectId: candidate.projectId,
+      name: candidate.name,
+      units: candidate.units,
+    });
+    cleared.materials = clone(candidate.materials || []);
+    cleared.resources = clone(candidate.resources || []);
+    candidate = cleared;
   } else if (kind === 'parameter.create') {
     const parameter = {
       id: input.id ? assertId(input.id, 'operation.input.id') : nextStableId(candidate, 'parameter'),
@@ -798,10 +947,11 @@ function applyOperation(project, operation, aliases) {
     const featureId = resolveReference(input.featureId, aliases, 'operation.input.featureId');
     const feature = clone(findFeature(candidate, featureId));
     const patch = assertRecord(input.patch, 'operation.input.patch');
-    const allowed = new Set(['name', 'h', 'through', 'r', 't', 'edges', 'faces', 'sketch', 'pattern', 'resultPolicy', 'inputRefs']);
+    const allowed = new Set(['name', 'h', 'through', 'r', 't', 'edges', 'faces', 'sketch', 'pattern', 'resultPolicy', 'inputRefs', 'onFace']);
     for (const key of Object.keys(patch)) if (!allowed.has(key)) fail('INVALID_PATCH', 'Feature field "' + key + '" is not editable through protocol v1.');
     Object.assign(feature, clone(patch));
     if (patch.pattern === null) delete feature.pattern;
+    if (patch.onFace === null) delete feature.onFace;
     candidate = replaceFeature(candidate, feature);
     resultRef = { kind: 'feature', id: feature.id, name: feature.name };
   } else if (kind === 'feature.suppress') {
@@ -1032,6 +1182,7 @@ function applyOperation(project, operation, aliases) {
     const id = input.id ? assertId(input.id, 'operation.input.id') : nextStableId(candidate, 'feature-boolean-split');
     candidate = createStudioV5BooleanSplit(candidate, {
       id, name: input.name, targetBodyId, toolBodyId, keepTools: input.keepTools !== false,
+      keepOriginal: input.keepOriginal === true,
       outsideName: input.bodyNames?.[0], insideName: input.bodyNames?.[1],
     });
     resultRef = { kind: 'feature', id: id + '-outside', name: input.name || 'Boolean Split' };
@@ -1139,6 +1290,7 @@ export class CadCommandService {
     this.revision = Number.isInteger(options.revision) ? options.revision : 0;
     this.kernel = options.kernel || null;
     this.commitAdapter = options.commitAdapter || null;
+    this.visibleStudio = options.visibleStudio === true;
     this.previewTtlMs = options.previewTtlMs || DEFAULT_PREVIEW_TTL_MS;
     this.now = options.now || (() => Date.now());
     this.previews = new Map();
@@ -1155,15 +1307,47 @@ export class CadCommandService {
     return canonicalStudioV5Project(this.project);
   }
 
+  previewSnapshot(previewId, expectedRevision) {
+    this.prunePreviews();
+    const requestedRevision = assertInteger(expectedRevision, 'expectedRevision', 0);
+    if (requestedRevision !== this.revision) {
+      fail('REVISION_CONFLICT', 'The requested preview targets an older project revision.', {
+        expectedRevision: requestedRevision,
+        actualRevision: this.revision,
+      });
+    }
+    const preview = this.previews.get(assertText(previewId, 'previewId'));
+    if (!preview) fail('PREVIEW_EXPIRED', 'The requested preview does not exist or has expired.');
+    if (preview.baseRevision !== this.revision) {
+      this.previews.delete(previewId);
+      fail('REVISION_CONFLICT', 'The project changed after this preview was created.', {
+        expectedRevision: preview.baseRevision,
+        actualRevision: this.revision,
+      });
+    }
+    return {
+      previewId: preview.previewId,
+      baseRevision: preview.baseRevision,
+      project: canonicalStudioV5Project(preview.project),
+      evidence: clone(preview.evidence),
+      documentHash: preview.changeSet.documentHashAfter,
+      expiresAt: new Date(preview.expiresAtMs).toISOString(),
+    };
+  }
+
   synchronize(project, revision, entry = null) {
     this.project = prepareStudioV5RuntimeProject(project);
     this.revision = assertInteger(revision, 'revision', 0);
+    this.previews.clear();
     if (entry) this.journal.push({ revision: this.revision, ...clone(entry), documentHash: studioV5CanonicalHash(this.project) });
     return this.snapshot();
   }
 
-  capabilities() {
-    return cadCapabilityManifest({ exactKernel: Boolean(this.kernel) });
+  capabilities(query = { detail: 'full' }) {
+    return selectCadCapabilities(
+      cadCapabilityManifest({ exactKernel: Boolean(this.kernel), visibleStudio: this.visibleStudio }),
+      query,
+    );
   }
 
   inspect(request = {}) {
@@ -1274,7 +1458,7 @@ export class CadCommandService {
     for (const [id, preview] of this.previews) if (preview.expiresAtMs <= now) this.previews.delete(id);
   }
 
-  async preview(transaction, permissionContext) {
+  async preview(transaction, permissionContext, options = {}) {
     assertPermission(permissionContext, EDIT_PERMISSIONS, this.project.projectId, transaction?.operations?.map((entry) => entry.kind) || []);
     const expectedRevision = assertInteger(transaction?.expectedRevision, 'transaction.expectedRevision', 0);
     if (expectedRevision !== this.revision) fail('REVISION_CONFLICT', 'Expected project revision ' + expectedRevision + ' but current revision is ' + this.revision + '.', {
@@ -1283,7 +1467,9 @@ export class CadCommandService {
       changesSince: this.journal.filter((entry) => entry.revision > expectedRevision).slice(-20),
     });
     const bytes = new TextEncoder().encode(JSON.stringify(transaction)).byteLength;
-    if (bytes > MAX_REQUEST_BYTES) fail('LIMIT_REQUEST_BYTES', 'Transaction exceeds the 1 MiB protocol request limit.');
+    if (bytes > MAX_REQUEST_BYTES && options.trustedGenerated !== true) {
+      fail('LIMIT_REQUEST_BYTES', 'Transaction exceeds the 1 MiB protocol request limit.');
+    }
     let applied;
     try {
       applied = applyCadTransaction(this.project, transaction);
@@ -1324,9 +1510,13 @@ export class CadCommandService {
   async commit(previewId, expectedRevision, permissionContext, options = {}) {
     const permission = assertPermission(permissionContext, EDIT_PERMISSIONS, this.project.projectId);
     this.prunePreviews();
+    const requestedRevision = assertInteger(expectedRevision, 'expectedRevision', 0);
+    if (requestedRevision !== this.revision) {
+      fail('REVISION_CONFLICT', 'The project changed after this preview was created.', { expectedRevision: requestedRevision, actualRevision: this.revision });
+    }
     const preview = this.previews.get(assertText(previewId, 'previewId'));
     if (!preview) fail('PREVIEW_EXPIRED', 'The requested preview does not exist or has expired.');
-    if (assertInteger(expectedRevision, 'expectedRevision', 0) !== this.revision || preview.baseRevision !== this.revision) {
+    if (preview.baseRevision !== this.revision) {
       this.previews.delete(previewId);
       fail('REVISION_CONFLICT', 'The project changed after this preview was created.', { expectedRevision: preview.baseRevision, actualRevision: this.revision });
     }
@@ -1373,7 +1563,9 @@ export class CadCommandService {
     const action = request.action || 'list';
     if (action === 'list' || action === 'changesSince') {
       assertPermission(permissionContext, READ_PERMISSIONS, this.project.projectId);
-      return this.inspect(action === 'list' ? { kind: 'history.list', ...request } : { kind: 'history.changesSince', revision: request.revision, ...request });
+      return this.inspect(action === 'list'
+        ? { ...request, kind: 'history.list' }
+        : { ...request, kind: 'history.changesSince', revision: request.revision });
     }
     assertPermission(permissionContext, EDIT_PERMISSIONS, this.project.projectId);
     if (this.commitAdapter) return this.commitAdapter({ historyAction: action, expectedRevision: request.expectedRevision });
@@ -1408,7 +1600,7 @@ export class CadCommandService {
       if (this.requestCache.has(cacheKey)) return clone(this.requestCache.get(cacheKey));
       const payload = assertRecord(envelope.payload, 'request.payload');
       let result;
-      if (payload.kind === 'capabilities') result = this.capabilities();
+      if (payload.kind === 'capabilities') result = this.capabilities(payload.capabilityQuery || { detail: 'full' });
       else if (payload.kind === 'inspect') {
         assertPermission(envelope.permissionContext, READ_PERMISSIONS, this.project.projectId);
         result = this.inspect(payload.query || {});

@@ -1,0 +1,4 @@
+interface:
+  display_name: "BOMwiki CAD"
+  short_description: "Operate CAD Studio through semantic MCP tools"
+  default_prompt: "Use $bomwiki-cad to operate the selected CAD Studio project safely through semantic tools."

@@ -110,6 +110,11 @@ async function protocolChecks(): Promise<void> {
     manifest.documentKinds.join(',') === 'part,assembly' &&
     ['datum.create', 'body.transform', 'feature.loft', 'feature.sweep', 'pattern.create', 'boolean.split', 'component.insert', 'mate.create', 'section.create', 'measurement.create']
       .every((kind) => available.has(kind)) && manifest.operations.every((entry: any) => entry.state === 'available'));
+  const mateKinds = manifest.operations
+    .find((entry: any) => entry.kind === 'mate.create')
+    ?.inputSchema?.properties?.input?.properties?.mateKind?.enum;
+  check('agent mate schema covers every mate exposed by the normal Studio UI',
+    mateKinds?.join(',') === 'fixed,coincident,concentric,distance,angle,parallel,perpendicular,tangent,revolute,slider');
   check('protocol does not advertise exact STEP without a kernel adapter',
     manifest.exports.find((entry: any) => entry.format === 'step')?.state === 'disabled');
 

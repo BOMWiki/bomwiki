@@ -199,7 +199,7 @@ async function browserChecks(browser: Browser, url: string) {
     },
   });
   await page.$eval('#bw-bodies [data-body-id="body-feature-live-housing"] [data-body-action="visibility"]', (button) => (button as HTMLButtonElement).click());
-  await page.waitForFunction(() => (window as any).__bwStudio.commandRevision() === 3);
+  await page.waitForFunction(() => (window as any).__bwStudio.commandRevision() === 3, { polling: 50 });
   const conflicted = await request(page, token, { kind: 'commit', previewId: pendingRename.result.previewId }, 2);
   check('browser human edit rejects stale agent commit instead of overwriting', conflicted.status === 'conflict' && conflicted.diagnostics[0].code === 'REVISION_CONFLICT');
 
@@ -215,7 +215,7 @@ async function browserChecks(browser: Browser, url: string) {
     },
   });
   const renamed = await request(page, token, { kind: 'commit', previewId: refreshed.result.previewId }, 3);
-  await page.waitForFunction(() => (window as any).__bwStudio.commandRevision() === 4);
+  await page.waitForFunction(() => (window as any).__bwStudio.commandRevision() === 4, { polling: 50 });
   check('browser refreshed agent commit follows the human change', renamed.status === 'ok' && renamed.result.revision === 4);
   const finalTree = await request(page, token, { kind: 'inspect', query: { kind: 'entity.detail', entity: { kind: 'body', id: 'body-feature-live-shaft' } } });
   check('browser final agent result remains human-editable semantic structure', finalTree.result.entity.name === 'Agent shaft');
@@ -227,16 +227,13 @@ async function browserChecks(browser: Browser, url: string) {
   const loopbackBaseline = await page.evaluate(() => ({ hash: (window as any).__bwStudio.canonicalHash(), projectId: (window as any).__bwStudio.projectId() }));
   const loopback = await startStudioLoopbackBridge({
     clientLabel: 'Loopback parity agent',
+    studioOrigin: new URL(url).origin,
+    studioUrl: url,
     permissionContext: { granted: ['project.read', 'project.edit', 'artifact.export-project'] },
   });
   await page.click('#bw-help-open');
   await page.click('#bw-help-agent');
-  await page.type('.ws-agent-pair[open] .ws-agent-url input', loopback.pairingUrl);
-  const popupPromise = new Promise<Page>((resolve, reject) => page.once('popup', (popup) => popup ? resolve(popup) : reject(new Error('Pairing popup did not open.'))));
-  await page.click('.ws-agent-pair[open] button[type="submit"]');
-  const pairingPage = await popupPromise;
-  await page.bringToFront();
-  await page.waitForFunction(() => [...document.querySelectorAll('.ws-agent-pair[open] h2')].some((heading) => /Loopback parity agent/.test(heading.textContent || '')));
+  await page.waitForFunction(() => [...document.querySelectorAll('.ws-agent-pair[open] h2')].some((heading) => /Loopback parity agent/.test(heading.textContent || '')), { polling: 50 });
   check('visible Studio shows the loopback client before sharing project data',
     await page.$eval('.ws-agent-pair[open]', (dialog) => /project.read, project.edit/.test(dialog.textContent || '') && /Preview approval required/.test(dialog.textContent || '')));
   await page.evaluate(() => {
@@ -248,7 +245,7 @@ async function browserChecks(browser: Browser, url: string) {
     dialog.dispatchEvent(new Event('close'));
   });
   try {
-    await page.waitForFunction(() => (window as any).bomwikiCadAgent.status().connected === true, { timeout: 10_000, polling: 50 });
+    await page.waitForFunction(() => (window as any).bomwikiCadAgent.status().connected === true, { timeout: 30_000, polling: 50 });
   } catch (error) {
     const state = await page.evaluate(() => ({
       status: (window as any).bomwikiCadAgent.status(),
@@ -258,12 +255,7 @@ async function browserChecks(browser: Browser, url: string) {
     }));
     throw new Error(`Visible loopback approval did not connect: ${JSON.stringify(state)}`, { cause: error });
   }
-  // Headless Chromium aggressively throttles timers in the background pairing
-  // popup. Briefly foreground it so the authenticated exchange relays the
-  // approval immediately, matching a user's normal popup-review flow.
-  await pairingPage.bringToFront();
-  for (let attempt = 0; attempt < 100 && loopback.status().state !== 'connected'; attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
-  await page.bringToFront();
+  for (let attempt = 0; attempt < 600 && loopback.status().state !== 'connected'; attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
   check('approved localhost bridge becomes a structured live Studio session', loopback.status().state === 'connected' && loopback.status().projectId === loopbackBaseline.projectId, loopback.status());
 
   const loopbackSummary: any = await loopback.request('cad_inspect', { query: { kind: 'project.summary' } });
@@ -282,13 +274,13 @@ async function browserChecks(browser: Browser, url: string) {
     await page.$eval('.ws-agent-pair[open]', (dialog) => /AGENT PREVIEW/.test(dialog.textContent || '') && /Loopback renames project/.test(dialog.textContent || '')));
   await page.click('.ws-agent-pair[open] button[value="approve"]');
   const loopbackCommit: any = await loopbackCommitPromise;
-  await page.waitForFunction(() => (window as any).__bwStudio.commandRevision() === 5);
+  await page.waitForFunction(() => (window as any).__bwStudio.commandRevision() === 5, { polling: 50 });
   check('approved loopback change uses normal revision and project chrome',
     loopbackCommit.revision === 5 && await page.$eval('#bw-project-name', (element) => element.textContent === 'Loopback project'));
 
   await page.click('#bw-agent-activity');
   await page.click('.ws-agent-pair[open] button[value="pause"]');
-  await page.waitForFunction(() => (window as any).bomwikiCadAgent.status().paused === true);
+  await page.waitForFunction(() => (window as any).bomwikiCadAgent.status().paused === true, { polling: 50 });
   let pausedCode = '';
   try {
     await loopback.request('cad_inspect', { query: { kind: 'project.summary' } });
@@ -298,13 +290,13 @@ async function browserChecks(browser: Browser, url: string) {
   check('user pause blocks the external client with a typed error', pausedCode === 'SESSION_PAUSED');
   await page.click('#bw-agent-activity');
   await page.click('.ws-agent-pair[open] button[value="pause"]');
+  for (let attempt = 0; attempt < 100 && loopback.status().state !== 'connected'; attempt++) await new Promise((resolve) => setTimeout(resolve, 25));
   const resumed: any = await loopback.request('cad_inspect', { query: { kind: 'project.summary' } });
   check('user resume restores the same revision-controlled session', resumed.revision === 5);
   await loopback.close('MCP client closed the session');
   for (let attempt = 0; attempt < 100 && loopback.status().state !== 'closed'; attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
-  await page.waitForFunction(() => !(window as any).bomwikiCadAgent.status().connected);
+  await page.waitForFunction(() => !(window as any).bomwikiCadAgent.status().connected, { polling: 50 });
   check('MCP-side close invalidates the visible Studio session', loopback.status().state === 'closed' && !(await page.evaluate(() => (window as any).bomwikiCadAgent.status().connected)));
-  await pairingPage.close();
 
   const humanContext = await browser.createBrowserContext();
   const humanPage = await humanContext.newPage();
@@ -399,7 +391,13 @@ let browser: Browser | null = null;
 try {
   browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    args: [
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
+      '--disable-backgrounding-occluded-windows',
+    ],
   });
   await browserChecks(browser, url);
 } finally {

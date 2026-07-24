@@ -190,6 +190,36 @@ async function workerRequest(page: Page, request: Record<string, unknown>): Prom
   }, request);
 }
 
+async function isolatedWorkerRequest(page: Page, request: Record<string, unknown>): Promise<any> {
+  return page.evaluate(async (payload) => {
+    const worker = new Worker('/static/studio-kernel.worker.js', { type: 'module' });
+    try {
+      const requestId = `slice-5a-isolated-${crypto.randomUUID()}`;
+      const response = await new Promise<any>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Slice 5A isolated worker timed out.')), 60_000);
+        const listener = (event: MessageEvent) => {
+          if (event.data?.requestId !== requestId) return;
+          clearTimeout(timer);
+          worker.removeEventListener('message', listener);
+          if (event.data.kind === 'kernel-error') reject(new Error(event.data.message));
+          else resolve(event.data);
+        };
+        worker.addEventListener('message', listener);
+        worker.postMessage({ ...payload, requestId, projectId: 'project-slice-5a-isolated-export' });
+      });
+      if (response.blob) {
+        response.blobSize = response.blob.size;
+        response.blobType = response.blob.type;
+        if (payload.kind === 'export-step') response.blobText = await response.blob.text();
+        delete response.blob;
+      }
+      return response;
+    } finally {
+      worker.terminate();
+    }
+  }, request);
+}
+
 function bodyById(response: any, bodyId: string): any {
   return response.bodies?.find((body: any) => body.bodyId === bodyId);
 }
@@ -227,13 +257,13 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
     close(bodyById(rebuilt, RUNTIME_BODY_IDS.shaft).geometry.volume, bodyById(subtracted, RUNTIME_BODY_IDS.shaft).geometry.volume));
 
   const selectedIds = [RUNTIME_BODY_IDS.housing, RUNTIME_BODY_IDS.shaft];
-  const step = await workerRequest(page, { kind: 'export-step', revision: 4, document: edited, bodyIds: selectedIds });
+  const step = await isolatedWorkerRequest(page, { kind: 'export-step', revision: 4, document: edited, bodyIds: selectedIds });
   check('kernel 9/10 selected STEP manifest has exact count, units, names, and placement',
     step.manifest.bodyCount === 2 && step.manifest.solidCount === 2 && step.manifest.units === 'mm' &&
     step.manifest.names.join(',') === 'Housing,Shaft' && step.manifest.placements.every((entry: any) => entry.bounds));
   check('kernel selected STEP is a real named exchange file',
     step.blobSize > 1000 && /Housing/.test(step.blobText) && /Shaft/.test(step.blobText), { size: step.blobSize, type: step.blobType });
-  const stl = await workerRequest(page, { kind: 'export-stl', revision: 5, document: edited, bodyIds: selectedIds });
+  const stl = await isolatedWorkerRequest(page, { kind: 'export-stl', revision: 5, document: edited, bodyIds: selectedIds });
   check('kernel selected STL contains the same two exact solids', stl.blobSize > 100 && stl.manifest.bodyCount === 2 && stl.manifest.solidCount === 2);
 
   const unrelatedFailure = createStudioV5BooleanFeature(edited, {
@@ -243,7 +273,7 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
     toolBodyId: RUNTIME_BODY_IDS.tool,
     keepTools: true,
   });
-  const isolatedExport = await workerRequest(page, { kind: 'export-step', revision: 6, document: unrelatedFailure, bodyIds: [RUNTIME_BODY_IDS.housing] });
+  const isolatedExport = await isolatedWorkerRequest(page, { kind: 'export-step', revision: 6, document: unrelatedFailure, bodyIds: [RUNTIME_BODY_IDS.housing] });
   check('kernel selected-body export is not blocked by an unrelated failed body',
     isolatedExport.errors.length === 0 && isolatedExport.blobSize > 1000 && isolatedExport.manifest.names.join(',') === 'Housing');
 
@@ -260,6 +290,9 @@ async function kernelChecks(browser: Browser, url: string): Promise<void> {
     bodyById(failedRebuild, RUNTIME_BODY_IDS.housing).mesh &&
     bodyById(failedRebuild, RUNTIME_BODY_IDS.shaft).geometry.solidCount === 1 &&
     bodyById(failedRebuild, RUNTIME_BODY_IDS.tool).geometry.solidCount === 1);
+  check('kernel isolated exports preserve the authoritative modeling worker cache',
+    afterValidation.evaluation.evaluatedBodyIds.length === 0 &&
+    afterValidation.evaluation.reusedBodyIds.length === 3);
 
   const exactV4 = {
     schemaVersion: 4, title: 'V4 exact capsule', units: 'mm', params: [],

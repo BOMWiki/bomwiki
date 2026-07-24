@@ -705,34 +705,34 @@ export function cadStudioPage(): string {
             ${studioIcon('iso', 'ws-tree-icon')}
             <span><b id="bw-tree-project-name">Untitled part</b><small id="bw-tree-document-kind">Parametric body</small></span>
           </div>
-          <details class="ws-origin" id="bw-part-origin" open>
-            <summary><span>Origin</span><small>Reference geometry</small></summary>
+          <details class="ws-origin" id="bw-part-origin" data-tree-section="origin" open>
+            <summary data-v6-control-id="tree.section.origin"><span>Origin</span><small>Reference geometry</small></summary>
             <button type="button" id="bw-tree-base" title="Look normal to the base plane">
               ${studioIcon('top', 'ws-tree-icon')}<span>Base plane</span><kbd>XY</kbd>
             </button>
           </details>
-          <details class="ws-origin ws-datums" open>
-            <summary><span>Datums</span><small id="bw-datum-summary">0 references</small></summary>
+          <details class="ws-origin ws-datums" id="bw-tree-section-datums" data-tree-section="datums" open>
+            <summary data-v6-control-id="tree.section.datums"><span>Datums</span><small id="bw-datum-summary">0 references</small></summary>
             <div id="bw-datum-tree" class="datum-tree" role="tree" aria-label="Reference geometry"></div>
           </details>
-          <details class="ws-origin ws-sketches" open>
-            <summary><span>Profiles &amp; paths</span><small id="bw-sketch-summary">0 sketches</small></summary>
+          <details class="ws-origin ws-sketches" id="bw-tree-section-sketches" data-tree-section="sketches" open>
+            <summary data-v6-control-id="tree.section.sketches"><span>Profiles &amp; paths</span><small id="bw-sketch-summary">0 sketches</small></summary>
             <div id="bw-sketch-tree" class="datum-tree" role="tree" aria-label="Profile and path sketches"></div>
           </details>
-          <details class="ws-origin ws-patterns" open>
-            <summary><span>Body patterns</span><small id="bw-pattern-summary">0 patterns</small></summary>
+          <details class="ws-origin ws-patterns" id="bw-tree-section-patterns" data-tree-section="patterns" open>
+            <summary data-v6-control-id="tree.section.patterns"><span>Body patterns</span><small id="bw-pattern-summary">0 patterns</small></summary>
             <div id="bw-pattern-tree" class="datum-tree pattern-tree" role="tree" aria-label="Editable body patterns"></div>
           </details>
-          <details class="ws-origin ws-assemblies" id="bw-assembly-components" open hidden>
-            <summary><span>Components</span><small id="bw-assembly-summary">0 occurrences</small></summary>
+          <details class="ws-origin ws-assemblies" id="bw-assembly-components" data-tree-section="components" open hidden>
+            <summary data-v6-control-id="tree.section.components"><span>Components</span><small id="bw-assembly-summary">0 occurrences</small></summary>
             <div id="bw-assembly-tree" class="datum-tree assembly-tree" role="tree" aria-label="Assembly occurrence hierarchy"></div>
           </details>
-          <details class="ws-origin ws-mates" id="bw-assembly-mates" open hidden>
-            <summary><span>Mates</span><small id="bw-mate-summary">0 mates</small></summary>
+          <details class="ws-origin ws-mates" id="bw-assembly-mates" data-tree-section="mates" open hidden>
+            <summary data-v6-control-id="tree.section.mates"><span>Mates</span><small id="bw-mate-summary">0 mates</small></summary>
             <div id="bw-mate-tree" class="datum-tree mate-tree" role="tree" aria-label="Assembly mates and solver state"></div>
           </details>
-          <details class="ws-origin ws-inspection" id="bw-assembly-inspection" open hidden>
-            <summary><span>Views &amp; stages</span><small id="bw-inspection-summary">0 saved</small></summary>
+          <details class="ws-origin ws-inspection" id="bw-assembly-inspection" data-tree-section="inspection" open hidden>
+            <summary data-v6-control-id="tree.section.inspection"><span>Views &amp; stages</span><small id="bw-inspection-summary">0 saved</small></summary>
             <div id="bw-inspection-tree" class="datum-tree inspection-tree" role="tree" aria-label="Saved sections, exploded views, and axial stage groups"></div>
           </details>
           <div class="wsp wsp-grow wsp-history">
@@ -745,6 +745,7 @@ export function cadStudioPage(): string {
             </div>
             <div class="wsp-head"><b>Feature history</b><span class="ws-tree-rule"></span></div>
             <div class="wsp-body">
+              <ol id="bw-v6-revision-history" class="v6-revision-list" aria-label="Project revisions"></ol>
               <ol id="bw-history" class="hist"></ol>
               <p id="bw-hist-empty" class="sk-note">No features yet. Start with Extrude.</p>
             </div>
@@ -815,6 +816,10 @@ export function cadStudioPage(): string {
             <button type="button" class="sr-accent" id="bw-pick-apply">✓ Apply</button>
             <button type="button" id="bw-pick-cancel">Cancel</button>
           </div>
+          <div id="bw-agent-narration" class="ws-agent-narration" data-kind="action" aria-hidden="true" hidden>
+            <span id="bw-agent-narration-text"></span>
+          </div>
+          <p id="bw-agent-narration-live" class="ws-visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
           <p id="bw-studio-msg" role="status" aria-live="polite" aria-atomic="true" hidden></p>
           <div id="bw-sketch" hidden>
             <div class="sk-top">
@@ -882,6 +887,10 @@ export function cadStudioPage(): string {
             <div class="wsp-head"><b id="bw-inspector-kind">Feature properties</b><span class="ws-selection-live">LIVE</span></div>
             <div id="bw-context" class="wsp-body"></div>
           </div>
+          <section class="wsp ws-v6-diagnostics" id="bw-v6-diagnostics" aria-labelledby="bw-v6-diagnostics-title" hidden>
+            <div class="wsp-head"><b id="bw-v6-diagnostics-title">Diagnostics</b><span class="ws-selection-live">LIVE</span></div>
+            <div class="wsp-body" id="bw-v6-diagnostics-body" role="status"></div>
+          </section>
           <div class="wsp wsp-params wsp-grow">
             <div class="wsp-head"><span><b>Parameters</b><small>Reusable dimensions</small></span><button type="button" id="bw-param-add" title="Add parameter">＋</button></div>
             <div class="wsp-body"><div id="bw-params"></div></div>
@@ -1028,6 +1037,11 @@ export function cadStudioPage(): string {
         <form method="dialog" id="bw-v5-command-form">
           <header><span id="bw-v5-command-kind">Reference</span><h2 id="bw-v5-command-title">Construction plane</h2></header>
           <div id="bw-v5-command-fields" class="ws-v5-command-fields"></div>
+          <section id="bw-v6-command-preview" class="ws-v6-command-preview" aria-labelledby="bw-v6-command-preview-title" hidden>
+            <div><span>EXACT PREVIEW</span><b id="bw-v6-command-preview-title">Ready to preview</b></div>
+            <p id="bw-v6-command-preview-summary"></p>
+            <dl id="bw-v6-command-preview-evidence"></dl>
+          </section>
           <p id="bw-v5-command-error" class="ws-v5-command-error" role="alert"></p>
           <footer><button type="button" id="bw-v5-command-cancel">Cancel</button><button type="submit" class="ws-primary" id="bw-v5-command-apply">Apply</button></footer>
         </form>

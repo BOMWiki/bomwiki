@@ -2621,8 +2621,10 @@ function serializeShape(shape) {
     faceId: group.faceId,
   }));
   const planarFaces = [];
+  const topologyFaces = [];
   for (const face of shape.faces) {
     try {
+      topologyFaces.push({ faceId: face.hashCode, sig: faceSignature(face), geomType: face.geomType || 'OTHER' });
       if (face.geomType === 'PLANE') {
         planarFaces.push({ faceId: face.hashCode, sig: faceSignature(face), outline: faceOutline(face) });
       }
@@ -2641,11 +2643,31 @@ function serializeShape(shape) {
       });
     }
   } catch {}
+  const topologyVertices = [];
+  const vertexKeys = new Set();
+  for (const edge of shape.edges) {
+    for (const parameter of [0, 1]) {
+      let exactPoint = null;
+      try {
+        exactPoint = edge.pointAt(parameter);
+        const point = [
+          exactPoint.x ?? exactPoint[0],
+          exactPoint.y ?? exactPoint[1],
+          exactPoint.z ?? exactPoint[2],
+        ].map(quantize);
+        const key = point.join(',');
+        if (vertexKeys.has(key)) continue;
+        vertexKeys.add(key);
+        topologyVertices.push({ sig: { p: point } });
+      } catch {}
+      finally { safeDelete(exactPoint); }
+    }
+  }
   const bounds = shape.boundingBox?.bounds ?? null;
   const transfer = [vertices.buffer, triangles.buffer, ...edges.map((edge) => edge.points.buffer)];
   if (normals) transfer.push(normals.buffer);
   return {
-    mesh: { vertices, normals, triangles, faceGroups, planarFaces, edges, bounds },
+    mesh: { vertices, normals, triangles, faceGroups, planarFaces, topologyFaces, edges, topologyVertices, bounds },
     transfer,
   };
 }
@@ -2857,6 +2879,8 @@ async function validateV5Assembly(request) {
   const bodies = built.runtimeBodies.map((runtime) => ({
     bodyId: runtime.bodyId,
     bodyName: runtime.bodyName,
+    sourceBodyId: runtime.sourceBodyId,
+    visible: runtime.visible,
     occurrenceInstance: runtime.occurrenceInstance,
     patternInstance: runtime.patternInstance || null,
     suppressed: runtime.suppressed,

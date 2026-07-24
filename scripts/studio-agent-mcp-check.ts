@@ -22,7 +22,7 @@ const child = spawn(process.execPath, [
   'scripts/studio-agent-mcp.ts',
   '--allow-read', root,
   '--allow-write', root,
-  '--permissions', 'project.read,project.create,project.edit,project.save-new,project.save-in-place,artifact.export-project',
+  '--permissions', 'project.read,project.create,project.edit,project.save-new,project.save-in-place,artifact.export-project,ui.read,ui.select,ui.navigate,ui.command-draft,ui.present-preview,ui.present-demo,ui.present-narration,session.launch-visible',
 ], { cwd: join(import.meta.dirname, '..'), stdio: ['pipe', 'pipe', 'pipe'] });
 
 let stderr = '';
@@ -74,15 +74,83 @@ const initialized = await rpc('initialize', {
   capabilities: {},
   clientInfo: { name: 'bomwiki-deterministic-check', version: '1.0.0' },
 });
-check('MCP initializes with the stable negotiated protocol', initialized.result?.protocolVersion === '2025-11-25' && initialized.result?.capabilities?.tools);
+check('MCP initializes with tools and portable skill resources', initialized.result?.protocolVersion === '2025-11-25' &&
+  initialized.result?.capabilities?.tools && initialized.result?.capabilities?.resources);
 
 const listed = await rpc('tools/list');
 const toolNames = listed.result?.tools?.map((entry: any) => entry.name) || [];
-check('MCP exposes exactly the eight stable CAD tools', toolNames.join(',') === 'cad_capabilities,cad_session,cad_inspect,cad_query,cad_preview,cad_commit,cad_history,cad_artifact');
+check('MCP exposes the eight document tools plus semantic UI and event tools',
+  toolNames.join(',') === 'cad_capabilities,cad_session,cad_inspect,cad_query,cad_preview,cad_commit,cad_history,cad_artifact,cad_ui,cad_events');
 check('MCP mutating tools describe revision and preview behavior', listed.result.tools.find((entry: any) => entry.name === 'cad_commit').description.includes('revision-bound'));
+const sessionSchema = listed.result.tools.find((entry: any) => entry.name === 'cad_session')?.inputSchema;
+check('MCP session discovery closes the permission request shape for normal agent hosts',
+  sessionSchema?.additionalProperties === false &&
+  sessionSchema.properties.permissions.additionalProperties === false &&
+  sessionSchema.properties.permissions.properties.granted.items.type === 'string' &&
+  sessionSchema.properties.permissions.properties.operationKinds.maxItems === 100 &&
+  sessionSchema.properties.permissions.properties.maxCommits.maximum === 10000);
+const artifactSchema = listed.result.tools.find((entry: any) => entry.name === 'cad_artifact')?.inputSchema;
+check('MCP artifact schema closes host-file import, selected-entity, render, and subtitle transfer inputs',
+  artifactSchema?.additionalProperties === false &&
+  artifactSchema.properties.action.enum.join(',') === 'export,import' &&
+  artifactSchema.properties.format.enum.join(',') === 'project,step,stl,png,webvtt,srt' &&
+  artifactSchema.properties.entities.maxItems === 100 &&
+  artifactSchema.properties.entities.items.properties.kind.enum.join(',') === 'body,occurrence,part,assembly' &&
+  artifactSchema.properties.width.maximum === 2048 &&
+  artifactSchema.properties.height.maximum === 2048);
+const querySchema = listed.result.tools.find((entry: any) => entry.name === 'cad_query')?.inputSchema;
+check('MCP exact-query schema exposes revision-bound preview inspection and explicit visible or silent presentation',
+  querySchema?.additionalProperties === false &&
+  querySchema.properties.previewId.maxLength === 240 &&
+  querySchema.properties.expectedRevision.minimum === 0 &&
+  querySchema.properties.presentation.enum.join(',') === 'visible,silent' &&
+  querySchema.dependentRequired.previewId.join(',') === 'expectedRevision' &&
+  querySchema.dependentRequired.expectedRevision.join(',') === 'previewId');
 
 const capabilities = await tool('cad_capabilities', {});
-check('MCP capabilities are structured and machine-readable', capabilities.structuredContent.protocolVersion === 'bomwiki.cad.agent/v1');
+check('MCP capabilities advertise the live-only V6 UI profile and skill compatibility',
+  capabilities.structuredContent.protocolVersion === 'bomwiki.cad.agent/v1' &&
+  capabilities.structuredContent.uiProfiles?.[0]?.profile === 'bomwiki.cad.agentic-ui/v1' &&
+  capabilities.structuredContent.skillCompatibility?.resourceUris?.includes('bomwiki-cad://skills/core') &&
+  /^[a-f0-9]{64}$/.test(capabilities.structuredContent.skillCompatibility?.packageSha256 || ''));
+check('default MCP capability discovery is compact but preserves every operation and query state',
+  capabilities.structuredContent.capabilityDiscovery?.detail === 'summary' &&
+  capabilities.structuredContent.operations.length === 80 &&
+  capabilities.structuredContent.queries.length === 13 &&
+  capabilities.structuredContent.operations.every((entry: any) => !('inputSchema' in entry) && !('resultSchema' in entry)) &&
+  Buffer.byteLength(JSON.stringify(capabilities.structuredContent)) < 20_000,
+  {
+    bytes: Buffer.byteLength(JSON.stringify(capabilities.structuredContent)),
+    discovery: capabilities.structuredContent.capabilityDiscovery,
+  });
+const selectedSchemas = await tool('cad_capabilities', {
+  detail: 'schemas',
+  operationKinds: ['feature.extrude', 'component.insert'],
+  queryKinds: ['project.tree'],
+});
+check('MCP returns full schemas only for explicitly selected capability IDs',
+  selectedSchemas.structuredContent.capabilityDiscovery?.detail === 'schemas' &&
+  selectedSchemas.structuredContent.operations.map((entry: any) => entry.kind).join(',') === 'feature.extrude,component.insert' &&
+  selectedSchemas.structuredContent.queries.map((entry: any) => entry.kind).join(',') === 'project.tree' &&
+  selectedSchemas.structuredContent.operations.every((entry: any) => entry.inputSchema && entry.resultSchema) &&
+  Buffer.byteLength(JSON.stringify(selectedSchemas.structuredContent)) < 20_000);
+const invalidSchemas = await tool('cad_capabilities', {
+  detail: 'schemas',
+  operationKinds: ['feature.not-advertised'],
+});
+check('MCP capability discovery fails closed for an unadvertised schema ID',
+  invalidSchemas.isError === true &&
+  invalidSchemas.structuredContent.code === 'INVALID_CAPABILITY_QUERY' &&
+  /feature\.not-advertised/.test(invalidSchemas.structuredContent.message || ''));
+
+const resources = await rpc('resources/list');
+check('MCP distributes one canonical core skill and seven progressive references',
+  resources.result?.resources?.length === 8 &&
+  resources.result.resources.some((entry: any) => entry.uri === 'bomwiki-cad://skills/semantic-ui'));
+const coreSkill = await rpc('resources/read', { uri: 'bomwiki-cad://skills/core' });
+check('MCP core skill forbids simulated UI control and requires preview before commit',
+  /Never use Computer Use/.test(coreSkill.result?.contents?.[0]?.text || '') &&
+  /cad_preview/.test(coreSkill.result?.contents?.[0]?.text || ''));
 
 const retryMessage = {
   name: 'cad_session',
@@ -105,6 +173,9 @@ const created = await tool('cad_session', {
 const session = created.structuredContent;
 check('MCP creates an isolated permission-scoped session', session.projectId === 'project-mcp-check' && session.revision === 0);
 check('MCP cannot enlarge permissions supplied by the server', !session.permissions.granted.includes('artifact.export-step'));
+const headlessUi = await tool('cad_ui', { sessionId: session.sessionId, action: 'snapshot' });
+check('MCP refuses to fake visible UI state in a headless session',
+  headlessUi.isError === true && headlessUi.structuredContent.code === 'SESSION_NOT_VISIBLE');
 
 const tx = {
   transactionId: 'tx-mcp-create', label: 'Create MCP housing', expectedRevision: 0, atomic: true,
@@ -165,6 +236,12 @@ check('MCP rejects path traversal outside the approved output root', traversal.i
 
 const exactExport = await tool('cad_artifact', { sessionId: session.sessionId, format: 'step' });
 check('MCP refuses to fake STEP without an exact kernel adapter', exactExport.isError === true && exactExport.structuredContent.code === 'EXACT_KERNEL_REQUIRED');
+const headlessRender = await tool('cad_artifact', { sessionId: session.sessionId, format: 'png' });
+check('MCP distinguishes visible-Studio artifacts from exact-kernel artifacts',
+  headlessRender.isError === true && headlessRender.structuredContent.code === 'VISIBLE_STUDIO_REQUIRED');
+const unknownArtifactField = await tool('cad_artifact', { sessionId: session.sessionId, format: 'project', unexpected: true });
+check('MCP enforces the closed artifact request at runtime as well as in discovery',
+  unknownArtifactField.isError === true && unknownArtifactField.structuredContent.code === 'INVALID_ARTIFACT_REQUEST');
 
 const closed = await tool('cad_session', { action: 'close', sessionId: session.sessionId });
 const afterClose = await tool('cad_inspect', { sessionId: session.sessionId, query: { kind: 'project.summary' } });
@@ -173,24 +250,49 @@ check('MCP close revokes the session immediately', closed.structuredContent.clos
 const live = await tool('cad_session', {
   action: 'connect',
   clientLabel: 'MCP loopback check',
-  permissions: { granted: ['project.read', 'project.edit'] },
+  permissions: { granted: ['project.read', 'project.edit', 'session.launch-visible'] },
 });
 const liveSession = live.structuredContent;
-check('MCP creates an expiring loopback-only Studio pairing',
-  liveSession.kind === 'live-studio' && /^http:\/\/127\.0\.0\.1:\d+\/pair#/.test(liveSession.pairingUrl) && liveSession.status.state === 'waiting', liveSession);
-if (liveSession.pairingUrl) {
-  const pairingPage = await fetch(liveSession.pairingUrl);
-  const pairingHtml = await pairingPage.text();
-  check('loopback pairing page is no-store and frame-blocked',
-    pairingPage.ok && pairingPage.headers.get('cache-control') === 'no-store' && pairingPage.headers.get('content-security-policy')?.includes("frame-ancestors 'none'") && pairingHtml.includes('event.origin !== studioOrigin'));
+check('MCP creates a fixed-discovery, no-copy/paste Studio pairing',
+  liveSession.kind === 'live-studio' &&
+  /^http:\/\/127\.0\.0\.1:49784\/\.well-known\/bomwiki-cad$/.test(liveSession.discoveryUrl) &&
+  /^http:\/\/127\.0\.0\.1:49784\/launch\//.test(liveSession.launchUrl) &&
+  !('pairingUrl' in liveSession) &&
+  liveSession.status.state === 'waiting', liveSession);
+if (liveSession.discoveryUrl) {
+  const discovery = await fetch(liveSession.discoveryUrl);
+  const discoveryBody = await discovery.json() as any;
+  check('fixed loopback discovery is bounded, no-store, and exposes no project data',
+    discovery.ok &&
+    discovery.headers.get('cache-control') === 'no-store' &&
+    discoveryBody.service === 'bomwiki-cad-local' &&
+    discoveryBody.pendingApproval === true &&
+    !('projectId' in discoveryBody));
+  const launch = await fetch(liveSession.launchUrl, { redirect: 'manual' });
+  check('agent-first launch redirects to Studio with a fragment-only short-lived nonce',
+    launch.status === 302 &&
+    /^https:\/\/bomwiki\.com\/cad\/studio#bomwiki-cad-pair=/.test(launch.headers.get('location') || '') &&
+    !/bomwiki-cad-pair=/.test(launch.url));
   const waiting = await tool('cad_session', { action: 'status', sessionId: liveSession.sessionId });
   check('unapproved live session exposes no project data', waiting.structuredContent.status.state === 'waiting' && !waiting.structuredContent.status.projectId);
   const closedLive = await tool('cad_session', { action: 'close', sessionId: liveSession.sessionId });
   check('MCP can revoke an unapproved loopback pairing', closedLive.structuredContent.closed === true);
+  const studioFirstOnly = await tool('cad_session', {
+    action: 'connect',
+    clientLabel: 'MCP Studio-first-only check',
+    permissions: { granted: ['project.read'] },
+  });
+  check('MCP withholds agent-first launch when the explicit visible-launch grant is absent',
+    studioFirstOnly.structuredContent.status?.state === 'waiting' &&
+    typeof studioFirstOnly.structuredContent.discoveryUrl === 'string' &&
+    !('launchUrl' in studioFirstOnly.structuredContent));
+  await tool('cad_session', { action: 'close', sessionId: studioFirstOnly.structuredContent.sessionId });
 } else {
-  check('loopback pairing page is no-store and frame-blocked', false, liveSession);
+  check('fixed loopback discovery is bounded, no-store, and exposes no project data', false, liveSession);
+  check('agent-first launch redirects to Studio with a fragment-only short-lived nonce', false, liveSession);
   check('unapproved live session exposes no project data', false, liveSession);
   check('MCP can revoke an unapproved loopback pairing', false, liveSession);
+  check('MCP withholds agent-first launch when the explicit visible-launch grant is absent', false, liveSession);
 }
 
 child.stdin.end();

@@ -48,9 +48,119 @@
   const documentToolsReady = import('/static/studio-document.js');
   const v5RuntimeTools = await import('/static/studio-v5-runtime-document.js');
   const agentTools = await import('/static/studio-agent-service.js');
+  const v6InteractionTools = await import('/static/studio-v6-interaction.js');
   const v5ModelingTools = await import('/static/studio-v5-modeling.js');
   const v5AssemblyTools = await import('/static/studio-v5-assembly.js');
   const v5InspectionTools = await import('/static/studio-v5-inspection.js');
+  // Dynamic controls receive the same stable identity advertised by the V6
+  // registry. This is deliberately selector-to-contract plumbing, not an
+  // agent click layer: semantic actions still enter through bomwikiCadUi.
+  const V6_DYNAMIC_CONTROL_BINDINGS = Object.freeze([
+    ['#bw-agent-activity', 'app.agent-activity.open'],
+    ['.ws-agent-pair button[value="close"]', 'app.agent-activity.close'],
+    ['.ws-agent-pair button[value="revoke"]', 'app.agent-activity.disconnect'],
+    ['[data-pattern-instance-id] [data-pattern-instance-action="select"]', 'tree.entity.pattern-instance.select'],
+    ['[data-pattern-instance-id] [data-pattern-instance-action="skip"]', 'tree.entity.pattern-instance.skip'],
+    ['[data-pattern-instance-id] [data-pattern-instance-action="independent"]', 'tree.entity.pattern-instance.independent'],
+    ['[data-pattern-instance-id] [data-body-export]', 'tree.entity.pattern-instance.export'],
+    ['[data-pattern-action="edit"]', 'tree.entity.pattern.edit'],
+    ['[data-pattern-action="visibility"]', 'tree.entity.pattern.visibility'],
+    ['[data-pattern-action="dissolve"]', 'tree.entity.pattern.dissolve'],
+    ['[data-pattern-action="delete"]', 'tree.entity.pattern.delete'],
+    ['.hi-sel[data-sel]', 'tree.feature.select'],
+    ['[data-move-feature="up"]', 'tree.feature.move-earlier'],
+    ['[data-move-feature="down"]', 'tree.feature.move-later'],
+    ['[data-rollback-feature]', 'tree.feature.rollback-toggle'],
+    ['[data-edit]', 'tree.feature.edit'],
+    ['[data-del]', 'tree.feature.delete'],
+    ['.hist-item[draggable="true"]', 'tree.feature.drag-reorder'],
+    ['[data-body-id] [data-body-action="select"]', 'tree.body.select'],
+    ['[data-body-id] [data-body-action="activate"]', 'tree.body.activate'],
+    ['[data-body-id] [data-body-action="visibility"]', 'tree.body.visibility'],
+    ['[data-body-id] [data-body-action="isolate"]', 'tree.body.isolate'],
+    ['[data-body-id] [data-body-action="rename"]', 'tree.body.rename'],
+    ['[data-body-id] [data-body-action="suppress"]', 'tree.body.suppress'],
+    ['[data-body-id] [data-body-export]', 'tree.body.export'],
+    ['[data-body-id] [data-body-action="delete"]', 'tree.body.delete'],
+    ['[data-occurrence-id] [data-occurrence-action="expand"]', 'tree.assembly.occurrence.expand'],
+    ['[data-occurrence-id] [data-occurrence-action="select"]', 'tree.assembly.occurrence.select'],
+    ['[data-occurrence-id] [data-occurrence-action="visibility"]', 'tree.assembly.occurrence.visibility'],
+    ['[data-occurrence-id] [data-occurrence-action="suppress"]', 'tree.assembly.occurrence.suppress'],
+    ['[data-runtime-occurrence-id] [data-occurrence-export]', 'tree.assembly.occurrence.export'],
+    ['[data-runtime-occurrence-id] [data-runtime-occurrence-action="select"]', 'tree.assembly.runtime-occurrence.select'],
+    ['[data-mate-id] [data-mate-action="select"]', 'tree.assembly.mate.select'],
+    ['[data-mate-id] [data-mate-action="suppress"]', 'tree.assembly.mate.suppress'],
+    ['[data-mate-id] [data-mate-action="delete"]', 'tree.assembly.mate.delete'],
+    ['[data-inspection-kind="section"] [data-inspection-action="toggle"]', 'tree.inspection.section.toggle'],
+    ['[data-inspection-kind="section"] [data-inspection-action="delete"]', 'tree.inspection.section.delete'],
+    ['[data-inspection-kind="explode"] [data-inspection-action="toggle"]', 'tree.inspection.explode.toggle'],
+    ['[data-inspection-kind="explode"] [data-inspection-action="delete"]', 'tree.inspection.explode.delete'],
+    ['[data-inspection-kind="stage"] [data-inspection-action="visibility"]', 'tree.inspection.stage.visibility'],
+    ['[data-inspection-kind="stage"] [data-inspection-action="spacing-less"]', 'tree.inspection.stage.spacing-less'],
+    ['[data-inspection-kind="stage"] [data-inspection-action="spacing-more"]', 'tree.inspection.stage.spacing-more'],
+    ['[data-inspection-kind="measurement"] [data-inspection-action="evaluate"]', 'tree.inspection.measurement.evaluate'],
+    ['[data-inspection-kind="measurement"] [data-inspection-action="delete"]', 'tree.inspection.measurement.delete'],
+    ['[data-pname]', 'parameter.row.rename'],
+    ['[data-pval]', 'parameter.row.set-value'],
+    ['[data-pdel]', 'parameter.row.delete'],
+    ['.ws-template-card', 'template.card.select'],
+    ['[data-recover]', 'recovery.entry.restore'],
+    ['[data-inspection-context="clear"]', 'inspector.context.inspection.clear'],
+    ['[data-mate-context="edit"]', 'inspector.context.mate.edit'],
+    ['[data-mate-context="suppress"]', 'inspector.context.mate.suppress'],
+    ['[data-mate-context="delete"]', 'inspector.context.mate.delete'],
+    ['[data-occurrence-context="visibility"]', 'inspector.context.occurrence.visibility'],
+    ['[data-occurrence-context="suppress"]', 'inspector.context.occurrence.suppress'],
+    ['[data-occurrence-context="isolate"]', 'inspector.context.occurrence.isolate'],
+    ['[data-occurrence-context="edit"]', 'inspector.context.occurrence.edit-context'],
+    ['[data-occurrence-context="variant"]', 'inspector.context.occurrence.variant'],
+    ['[data-occurrence-context="independent"]', 'inspector.context.occurrence.independent'],
+    ['[data-occurrence-context="transform"]', 'inspector.context.occurrence.transform'],
+    ['[data-occurrence-context="linked"]', 'inspector.context.occurrence.linked'],
+    ['[data-occurrence-context="delete"]', 'inspector.context.occurrence.delete'],
+    ['[data-occurrence-context="export"]', 'inspector.context.occurrence.export'],
+    ['[data-pattern-context="edit"]', 'inspector.context.pattern.edit'],
+    ['[data-pattern-context="skip"]', 'inspector.context.pattern.skip'],
+    ['[data-body-name]', 'inspector.context.body.rename'],
+    ['[data-body-context="active"]', 'inspector.context.body.activate'],
+    ['[data-body-context="visibility"]', 'inspector.context.body.visibility'],
+    ['[data-body-context="isolate"]', 'inspector.context.body.isolate'],
+    ['[data-body-context="suppress"]', 'inspector.context.body.suppress'],
+    ['[data-body-context="subtract"]', 'inspector.context.body.subtract'],
+    ['[data-body-context="intersect"]', 'inspector.context.body.intersect'],
+    ['[data-body-context="add"]', 'inspector.context.body.union'],
+    ['[data-body-context="delete"]', 'inspector.context.body.delete'],
+    ['[data-cx]', 'inspector.context.feature.dimension'],
+    ['[data-cxthrough]', 'inspector.context.feature.through'],
+    ['[data-cxpat="n"]', 'inspector.context.feature.pattern-count'],
+    ['[data-cxpat="a"]', 'inspector.context.feature.pattern-a'],
+    ['[data-cxpat="b"]', 'inspector.context.feature.pattern-b'],
+    ['[data-cxedit]', 'inspector.context.feature.edit'],
+    ['[data-cxdel]', 'inspector.context.feature.delete'],
+    ['#bw-v5-command-form input, #bw-v5-command-form select, #bw-v5-command-form textarea', 'dialog.command.field'],
+    ['[data-template-category]', 'dialog.template.category'],
+  ]);
+  function labelV6DynamicControls(root = document) {
+    for (const [selector, controlId] of V6_DYNAMIC_CONTROL_BINDINGS) {
+      const matches = root instanceof Element && root.matches(selector) ? [root] : [];
+      const descendants = typeof root.querySelectorAll === 'function' ? root.querySelectorAll(selector) : [];
+      for (const element of [...matches, ...descendants]) {
+        if (!element.dataset.v6ControlId) element.dataset.v6ControlId = controlId;
+      }
+    }
+    const pauseButtons = [
+      ...(root instanceof Element && root.matches('.ws-agent-pair button[value="pause"]') ? [root] : []),
+      ...(typeof root.querySelectorAll === 'function' ? root.querySelectorAll('.ws-agent-pair button[value="pause"]') : []),
+    ];
+    for (const button of pauseButtons) {
+      button.dataset.v6ControlId = /^resume$/i.test(button.textContent.trim())
+        ? 'app.agent-activity.resume'
+        : 'app.agent-activity.pause';
+    }
+  }
+  labelV6DynamicControls();
+  new MutationObserver(() => labelV6DynamicControls())
+    .observe(document.body, { childList: true, subtree: true });
   const prepareStoredDocument = (candidate, prepareLegacy) =>
     v5RuntimeTools.isStudioV5Project(candidate)
       ? v5RuntimeTools.decorateStudioV5Project(v5RuntimeTools.canonicalStudioV5Project(candidate))
@@ -172,17 +282,15 @@
   recoveryDialog?.addEventListener('click', (event) => {
     if (event.target === recoveryDialog) closeRecovery();
   });
-  recoveryList?.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-recover]');
-    const snapshot = button && recoveryEntries.get(button.dataset.recover);
-    if (!snapshot) return;
+  async function restoreRecoveryEntry(snapshot, { preserveAgent = false } = {}) {
+    if (!snapshot) throw new Error('That recovery entry is no longer available.');
     let recovered;
     let targetProject = null;
     try {
       const { prepareStudioDocument } = await documentToolsReady;
       recovered = prepareStoredDocument(snapshot.document, prepareStudioDocument);
     } catch (error) {
-      return say('Could not recover project: ' + String(error?.message || error));
+      throw new Error('Could not recover project: ' + String(error?.message || error));
     }
     if (snapshot.projectId !== projectId) {
       try {
@@ -192,29 +300,48 @@
         targetProject = stored ? hydrateProjectRecord(stored, (candidate) => prepareStoredDocument(candidate, prepareStudioDocument)) : null;
       } catch (error) {
         setStorageState('unavailable', String(error?.message || error));
-        return say('Could not read that project journal. Modeling and export still work.');
+        throw new Error('Could not read that project journal. Modeling and export still work.');
       }
     }
     closeRecovery();
-    startOperation(() => {
-      if (snapshot.projectId === projectId) {
-        commit('Restore recovered state', () => recovered);
-      } else if (targetProject) {
-        projectId = targetProject.projectId;
-        doc = targetProject.document;
-        undoStack.splice(0, undoStack.length, ...targetProject.undoStack);
-        redoStack.splice(0, redoStack.length, ...targetProject.redoStack);
-        trimHistoryStacks();
-        commit('Restore recovered state', () => recovered);
-      } else {
-        projectId = snapshot.projectId || makeProjectId();
-        doc = normalizeDoc(recovered);
-        undoStack.length = 0;
-        redoStack.length = 0;
-        afterDocumentChange();
-        resetAgentForProjectChange('Recovered another project');
-      }
-      say('Recovered ' + (snapshot.title || 'local project') + '.');
+    if (snapshot.projectId === projectId) {
+      commit('Restore recovered state', () => recovered, { actor: preserveAgent ? 'agent' : 'human' });
+    } else if (targetProject) {
+      projectId = targetProject.projectId;
+      doc = targetProject.document;
+      commandRevision = targetProject.commandRevision;
+      undoStack.splice(0, undoStack.length, ...targetProject.undoStack);
+      redoStack.splice(0, redoStack.length, ...targetProject.redoStack);
+      trimHistoryStacks();
+      resetAgentForProjectChange('Recovered another project', {
+        preserveConnection: preserveAgent,
+        keepRevision: true,
+      });
+      commit('Restore recovered state', () => recovered, { actor: preserveAgent ? 'agent' : 'human' });
+    } else {
+      projectId = snapshot.projectId || makeProjectId();
+      doc = normalizeDoc(recovered);
+      undoStack.length = 0;
+      redoStack.length = 0;
+      resetAgentForProjectChange('Recovered another project', { preserveConnection: preserveAgent });
+      afterDocumentChange();
+      if (preserveAgent) emitAgentProjectTransition('Recovered another project');
+    }
+    say('Recovered ' + (snapshot.title || 'local project') + '.');
+    return {
+      snapshotId: snapshot.snapshotId,
+      projectId,
+      revision: commandRevision,
+      title: doc.title,
+      documentHash: v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+    };
+  }
+  recoveryList?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-recover]');
+    const snapshot = button && recoveryEntries.get(button.dataset.recover);
+    if (!snapshot) return;
+    startOperation(() => restoreRecoveryEntry(snapshot), {
+      nextLabel: 'restore “' + (snapshot.title || 'local project') + '”',
     });
   });
 
@@ -225,15 +352,18 @@
     fullscreenButton?.setAttribute('aria-pressed', String(on));
     if (fullscreenLabel) fullscreenLabel.textContent = on ? 'Exit full screen' : 'Full screen';
   };
-  fullscreenButton?.addEventListener('click', async () => {
+  const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else if (appEl?.requestFullscreen) await appEl.requestFullscreen();
       else say('Full screen is not available in this browser.');
+      return document.fullscreenElement === appEl;
     } catch {
       say('Full screen is not available in this browser.');
+      return false;
     }
-  });
+  };
+  fullscreenButton?.addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', () => {
     syncFullscreen();
     requestAnimationFrame(() => resize());
@@ -313,10 +443,28 @@
   let sceneInteractiveSolidBatchEntries = new Map();
   let sceneInteractiveTriangleCount = 0;
   let sceneProxyObjects = [];
+  let renderSerial = 0;
+  let lastRenderedDocumentRevision = 0;
+  let lastRenderedKernelRevision = -1;
+  let lastRenderedUiRevision = 0;
+  const renderSettlementWaiters = new Set();
+
+  function completeRenderedFrame() {
+    renderSerial++;
+    lastRenderedKernelRevision = latestAppliedRevision;
+    if (latestAppliedRevision >= latestRequestedRevision) lastRenderedDocumentRevision = commandRevision;
+    if (v6InteractionRuntime) lastRenderedUiRevision = Math.max(lastRenderedUiRevision, v6InteractionRuntime.uiRevision);
+    for (const resolve of renderSettlementWaiters) resolve(renderSerial);
+    renderSettlementWaiters.clear();
+  }
 
   function renderScene() {
     const useBatches = sceneBatchObjects.length > 0 && !transformPreview && mode.kind !== 'picking-edges';
-    if (!useBatches) return renderer.render(scene, camera);
+    if (!useBatches) {
+      renderer.render(scene, camera);
+      completeRenderedFrame();
+      return;
+    }
     // SwiftShader remains vertex-bound on the largest assemblies even at a
     // tiny drawing-buffer resolution. During a pointer gesture, render a
     // body-aware bounds LOD (same placement, visibility, color, and clipping)
@@ -341,6 +489,7 @@
       for (const [object, visible] of capVisibility) object.visible = visible;
       for (const [object, visible] of visibility) object.visible = visible;
     }
+    completeRenderedFrame();
   }
 
   // On phones the site header wraps and its height varies, so the fixed
@@ -536,24 +685,7 @@
     return kernelReady;
   }
 
-  async function kernelCall(kind, revision, options = {}) {
-    // OpenCascade writers/readers and retained TopoDS wrappers are scoped to
-    // one canonical project. A document replacement therefore gets a fresh
-    // worker instead of inheriting allocator/cache state from the previous
-    // project (especially after STEP interchange).
-    if (kernelWorker && kernelWorkerProjectId && kernelWorkerProjectId !== projectId) {
-      const previousWorker = kernelWorker;
-      try { previousWorker.terminate(); } catch {}
-      kernelWorker = null;
-      kernelReady = null;
-      kernelWorkerProjectId = null;
-      successfulV5Rebuilds = 0;
-      kernelRestarting = false;
-      kernelRestartCount++;
-      rejectKernelPending(new Error('The CAD kernel reset because the active project changed.'));
-    }
-    const worker = await loadKernel();
-    kernelWorkerProjectId = projectId;
+  function makeKernelRequest(kind, revision, options = {}) {
     const requestId = ++kernelRequestSeq;
     const request = {
       requestId,
@@ -573,6 +705,74 @@
       request.delayMs = nextKernelReplyDelay;
       nextKernelReplyDelay = 0;
     }
+    return request;
+  }
+
+  function isolatedKernelCall(kind, revision, options = {}) {
+    // OpenCascade's STEP/STL writer mutates process-global kernel state and,
+    // in the vendored WASM build, can poison a later modeling allocation.
+    // Run exports in a disposable worker so the authoritative modeling cache
+    // and every subsequent edit remain in an untouched allocator.
+    const request = makeKernelRequest(kind, revision, options);
+    return new Promise((resolve, reject) => {
+      const worker = new Worker('/static/studio-kernel.worker.js', { type: 'module' });
+      let posted = false;
+      let settled = false;
+      const timer = setTimeout(() => {
+        finish(reject, new Error('The isolated CAD export worker did not respond in time.'));
+      }, KERNEL_REQUEST_TIMEOUT);
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { worker.terminate(); } catch {}
+        callback(value);
+      };
+      worker.addEventListener('message', (event) => {
+        const message = event.data;
+        if (message?.kind === 'kernel-status') {
+          if (message.status === 'ready' && !posted) {
+            posted = true;
+            try { worker.postMessage(request); }
+            catch (error) { finish(reject, error); }
+          } else if (message.status === 'failed') {
+            finish(reject, new Error(message.message || 'The isolated CAD export kernel failed to load.'));
+          }
+          return;
+        }
+        if (message?.requestId !== request.requestId) return;
+        if (message.kind === 'kernel-error') finish(reject, new Error(message.message || 'The isolated CAD export failed.'));
+        else finish(resolve, message);
+      });
+      worker.addEventListener('error', (event) => {
+        finish(reject, new Error(event.message || 'The isolated CAD export worker stopped.'));
+      });
+    });
+  }
+
+  async function kernelCall(kind, revision, options = {}) {
+    if (kind === 'export-step' || kind === 'export-stl') {
+      return isolatedKernelCall(kind, revision, options);
+    }
+    // OpenCascade writers/readers and retained TopoDS wrappers are scoped to
+    // one canonical project. A document replacement therefore gets a fresh
+    // worker instead of inheriting allocator/cache state from the previous
+    // project (especially after STEP interchange).
+    if (kernelWorker && kernelWorkerProjectId && kernelWorkerProjectId !== projectId) {
+      const previousWorker = kernelWorker;
+      try { previousWorker.terminate(); } catch {}
+      kernelWorker = null;
+      kernelReady = null;
+      kernelWorkerProjectId = null;
+      successfulV5Rebuilds = 0;
+      kernelRestarting = false;
+      kernelRestartCount++;
+      rejectKernelPending(new Error('The CAD kernel reset because the active project changed.'));
+    }
+    const worker = await loadKernel();
+    kernelWorkerProjectId = projectId;
+    const request = makeKernelRequest(kind, revision, options);
+    const requestId = request.requestId;
     const response = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!kernelPending.delete(requestId)) return;
@@ -643,6 +843,10 @@
   let agentCommitInProgress = false;
   let pendingPairingWindow = null;
   let pendingPairingOrigin = null;
+  let localAgentBridgeFrame = null;
+  let localAgentBridgeTimer = null;
+  const LOCAL_AGENT_BRIDGE_PORT = 49784;
+  const LOCAL_AGENT_BRIDGE_ORIGIN = 'http://127.0.0.1:' + LOCAL_AGENT_BRIDGE_PORT;
   let lastInspection = null;
 
   const deepCopy = (o) => JSON.parse(JSON.stringify(o));
@@ -772,7 +976,16 @@
       restoredUndo = [];
       restoredRedo = [];
     }
-    return { projectId: record.projectId || makeProjectId(), document, undoStack: restoredUndo, redoStack: restoredRedo };
+    const restoredRevision = Number.isInteger(record.commandRevision) && record.commandRevision >= 0
+      ? record.commandRevision
+      : restoredUndo.length + restoredRedo.length;
+    return {
+      projectId: record.projectId || makeProjectId(),
+      document,
+      undoStack: restoredUndo,
+      redoStack: restoredRedo,
+      commandRevision: restoredRevision,
+    };
   }
 
   function syncHistoryActions() {
@@ -809,10 +1022,40 @@
     element.title = message + ' · click to disconnect';
   }
 
-  function resetAgentForProjectChange(reason) {
-    commandRevision = 0;
-    if (activeAgentConnection) revokeAgentConnection(reason || 'Project changed');
+  function labelAgentDialog(dialog, id) {
+    const heading = dialog.querySelector('h2');
+    const description = dialog.querySelector('p:not(.ws-agent-kicker)');
+    if (heading) {
+      heading.id = id + '-title';
+      dialog.setAttribute('aria-labelledby', heading.id);
+    }
+    if (description) {
+      description.id = id + '-description';
+      dialog.setAttribute('aria-describedby', description.id);
+    }
+  }
+
+  function resetAgentForProjectChange(reason, options = {}) {
+    if (options.keepRevision !== true) commandRevision = 0;
     liveAgentService = null;
+    if (!activeAgentConnection) return;
+    if (options.preserveConnection === true) {
+      activeAgentConnection.previews.clear();
+      activeAgentConnection.permissionContext.projectIds = [projectId];
+      updateAgentActivity(reason || 'Project changed', 'agent');
+      return;
+    }
+    revokeAgentConnection(reason || 'Project changed');
+  }
+
+  function emitAgentProjectTransition(label) {
+    v6InteractionRuntime?.emit('document.changed', {
+      revision: commandRevision,
+      label,
+      actor: 'agent',
+      projectTransition: true,
+      documentHash: v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+    }, { actor: 'agent', uiRevision: v6InteractionRuntime.uiRevision });
   }
 
   async function ensureLiveAgentService() {
@@ -835,8 +1078,8 @@
               actualRevision: commandRevision,
             });
           }
-          if (command.historyAction === 'undo') undo();
-          else if (command.historyAction === 'redo') redo();
+          if (command.historyAction === 'undo') undo({ actor: 'agent' });
+          else if (command.historyAction === 'redo') redo({ actor: 'agent' });
           else throw new agentTools.CadAgentError('UNKNOWN_HISTORY_ACTION', 'Unknown live history action.');
           return { project: doc, revision: commandRevision };
         }
@@ -849,6 +1092,7 @@
         updateAgentActivity('Committed: ' + command.label, 'agent');
         return { project: doc, revision: commandRevision };
       },
+      visibleStudio: true,
     });
     return liveAgentService;
   }
@@ -857,10 +1101,22 @@
     const allowed = new Set([
       'project.read',
       'project.edit',
+      'project.replace',
+      'project.recover',
       'artifact.render',
       'artifact.export-project',
       'artifact.export-step',
       'artifact.export-stl',
+      'artifact.export-narration',
+      'ui.read',
+      'ui.select',
+      'ui.navigate',
+      'ui.command-draft',
+      'ui.present-preview',
+      'ui.present-demo',
+      'ui.present-narration',
+      'ui.wait-events',
+      'session.launch-visible',
     ]);
     const granted = (Array.isArray(requested?.granted) ? requested.granted : ['project.read'])
       .filter((permission) => allowed.has(permission));
@@ -883,14 +1139,20 @@
     const connectionToken = crypto.randomUUID?.() || newId() + '-' + newId() + '-' + Date.now();
     const mode = ['read-only', 'preview-required', 'scoped-auto-commit'].includes(options.mode) ? options.mode : 'preview-required';
     const permissionContext = approvedPermissionContext(options.permissionContext);
-    if (mode === 'read-only') permissionContext.granted = permissionContext.granted.filter((permission) => permission !== 'project.edit');
+    if (mode === 'read-only') {
+      const mutatingPermissions = new Set(['project.edit', 'project.replace', 'project.recover']);
+      permissionContext.granted = permissionContext.granted.filter((permission) => !mutatingPermissions.has(permission));
+    }
+    v6NarrationCueLog.length = 0;
     activeAgentConnection = {
       sessionId,
       connectionToken,
       clientLabel: String(options.clientLabel || 'Local CAD agent').trim().slice(0, 80) || 'Local CAD agent',
+      skillVersion: typeof options.skillVersion === 'string' ? options.skillVersion.slice(0, 40) : 'unknown',
       permissionContext,
       mode,
       paused: false,
+      recovered: options.resume === true,
       previews: new Map(),
       bridgeWindow: options.bridgeWindow || null,
       bridgeOrigin: options.bridgeOrigin || null,
@@ -898,15 +1160,17 @@
     };
     service.previews.clear();
     updateAgentActivity('Connected · revision ' + commandRevision, 'agent');
+    say(options.resume ? 'CAD agent reconnected.' : 'CAD agent connected.');
     return {
       protocol: agentTools.CAD_AGENT_PROTOCOL,
       sessionId,
       projectId,
       revision: commandRevision,
+      uiRevision: getV6InteractionRuntime().snapshot().uiRevision,
       connectionToken,
       permissionContext: deepCopy(activeAgentConnection.permissionContext),
       mode: activeAgentConnection.mode,
-      capabilities: service.capabilities(),
+      capabilities: service.capabilities({ detail: 'summary' }),
     };
   }
 
@@ -917,14 +1181,20 @@
       dialog.className = 'ws-agent-pair';
       const clientLabel = String(options.clientLabel || 'Local CAD agent').trim().slice(0, 80) || 'Local CAD agent';
       const permissions = approvedPermissionContext(options.permissionContext).granted;
+      const expiry = typeof options.expiresAt === 'string' && Number.isFinite(Date.parse(options.expiresAt))
+        ? new Date(options.expiresAt).toLocaleString()
+        : 'Session policy default';
       dialog.innerHTML =
         '<form method="dialog"><p class="ws-agent-kicker">STRUCTURED AGENT ACCESS</p>' +
         '<h2></h2><p>This connection uses typed CAD commands, not screen control. Every edit is previewed, revision-checked, validated, visible in History, and undoable.</p>' +
-        '<dl><dt>Project</dt><dd></dd><dt>Permissions</dt><dd></dd></dl>' +
-        '<div><button value="cancel">Deny</button><button value="approve" class="primary">Connect</button></div></form>';
+        '<dl><dt>Project</dt><dd></dd><dt>Permissions</dt><dd></dd><dt>Skill</dt><dd></dd><dt>Expires</dt><dd></dd></dl>' +
+        '<div><button value="cancel" data-v6-control-id="app.agent.connection-deny">Deny</button><button value="approve" class="primary" data-v6-control-id="app.agent.connection-approve">Connect</button></div></form>';
+      labelAgentDialog(dialog, 'bw-agent-connect');
       dialog.querySelector('h2').textContent = clientLabel + ' wants to connect';
       dialog.querySelectorAll('dd')[0].textContent = doc.title;
       dialog.querySelectorAll('dd')[1].textContent = permissions.join(', ');
+      dialog.querySelectorAll('dd')[2].textContent = String(options.skillVersion || 'Not reported');
+      dialog.querySelectorAll('dd')[3].textContent = expiry;
       const requestedMode = ['read-only', 'preview-required', 'scoped-auto-commit'].includes(options.mode) ? options.mode : 'preview-required';
       dialog.querySelector('dl').insertAdjacentHTML('beforeend', '<dt>Mode</dt><dd></dd>');
       dialog.querySelector('dl dd:last-child').textContent = requestedMode === 'scoped-auto-commit' ? 'Scoped auto-commit' : requestedMode === 'read-only' ? 'Read only' : 'Preview approval required';
@@ -949,9 +1219,21 @@
   function revokeAgentConnection(reason = 'Disconnected', notifyBridge = true) {
     const previous = activeAgentConnection;
     if (liveAgentService) liveAgentService.previews.clear();
+    v6InteractionRuntime?.interrupt?.('SESSION_REVOKED', reason);
+    v6InteractionRuntime?.emit?.('session.revoked', { reason }, { actor: 'human' });
     activeAgentConnection = null;
+    v6InteractionRuntime = null;
+    v6RevealedEntity = null;
+    if (appEl?.dataset.agentRevealedEntity) delete appEl.dataset.agentRevealedEntity;
+    hideV6Narration();
     const element = $('bw-agent-activity');
     if (element) element.hidden = true;
+    clearTimeout(localAgentBridgeTimer);
+    localAgentBridgeTimer = null;
+    localAgentBridgeFrame?.remove();
+    localAgentBridgeFrame = null;
+    pendingPairingWindow = null;
+    pendingPairingOrigin = null;
     if (notifyBridge && previous?.bridgeWindow && !previous.bridgeWindow.closed) {
       previous.bridgeWindow.postMessage({ source: 'bomwiki-cad-studio', message: { type: 'session.revoked', reason } }, previous.bridgeOrigin);
     }
@@ -968,7 +1250,8 @@
       dialog.innerHTML =
         '<form method="dialog"><p class="ws-agent-kicker">AGENT PREVIEW</p><h2>Apply this CAD change?</h2>' +
         '<p></p><dl><dt>Creates</dt><dd></dd><dt>Updates</dt><dd></dd><dt>Deletes</dt><dd></dd><dt>Revision</dt><dd></dd></dl>' +
-        '<div><button value="reject">Reject</button><button value="approve" class="primary">Apply change</button></div></form>';
+        '<div><button value="reject" data-v6-control-id="app.agent.preview-reject">Reject</button><button value="approve" class="primary" data-v6-control-id="app.agent.preview-approve">Apply change</button></div></form>';
+      labelAgentDialog(dialog, 'bw-agent-preview-approval');
       dialog.querySelector('p:not(.ws-agent-kicker)').textContent = preview?.label || 'The connected agent wants to commit its validated preview.';
       const values = dialog.querySelectorAll('dd');
       values[0].textContent = String(count('created'));
@@ -1017,7 +1300,10 @@
         changeSet: deepCopy(response.result.changeSet),
       });
     }
-    if (request.payload?.kind === 'commit') activeAgentConnection.previews.delete(request.payload.previewId);
+    if (request.payload?.kind === 'commit') {
+      if (response.status === 'ok') activeAgentConnection.previews.clear();
+      else activeAgentConnection.previews.delete(request.payload.previewId);
+    }
     const successMessage = request.payload?.kind === 'preview'
       ? 'Preview ready'
       : request.payload?.kind === 'commit'
@@ -1058,6 +1344,7 @@
       '<form method="dialog"><p class="ws-agent-kicker">AGENT ACTIVITY</p><h2></h2><p></p>' +
       '<dl><dt>Mode</dt><dd></dd><dt>Project</dt><dd></dd><dt>Revision</dt><dd></dd><dt>Status</dt><dd></dd></dl>' +
       '<div><button value="close">Close</button><button value="pause"></button><button value="revoke" class="ws-agent-danger">Disconnect</button></div></form>';
+    labelAgentDialog(dialog, 'bw-agent-session');
     dialog.querySelector('h2').textContent = activeAgentConnection.clientLabel;
     dialog.querySelector('p:not(.ws-agent-kicker)').textContent = 'This client uses structured, revision-controlled CAD commands. It cannot inspect the page or control the pointer.';
     const values = dialog.querySelectorAll('dd');
@@ -1073,60 +1360,51 @@
       if (!activeAgentConnection) return;
       if (action === 'pause') {
         activeAgentConnection.paused = !activeAgentConnection.paused;
+        if (activeAgentConnection.paused) {
+          liveAgentService?.previews.clear();
+          v6InteractionRuntime?.interrupt?.('SESSION_PAUSED', 'The user paused this agent session.');
+          v6InteractionRuntime?.emit?.('session.paused', { reason: 'Paused by user' }, { actor: 'human' });
+          postToPairingWindow({ type: 'session.paused', reason: 'The user paused this Studio session.' });
+        } else {
+          v6InteractionRuntime?.emit?.('session.resumed', {}, { actor: 'human' });
+          postToPairingWindow({ type: 'session.resumed' });
+        }
         updateAgentActivity(activeAgentConnection.paused ? 'Paused by you' : 'Connected · revision ' + commandRevision, activeAgentConnection.paused ? 'human' : 'agent');
       } else if (action === 'revoke') revokeAgentConnection('Disconnected by user');
     }, { once: true });
     dialog.showModal();
   }
 
-  function validatedPairingUrl(raw) {
-    let url;
-    try {
-      url = new URL(String(raw || '').trim());
-    } catch {
-      throw new agentTools.CadAgentError('INVALID_PAIRING_URL', 'Paste the complete pairing URL returned by the local BOMwiki CAD MCP server.');
-    }
-    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || !url.port || url.pathname !== '/pair' || !url.hash.slice(1) || url.username || url.password) {
-      throw new agentTools.CadAgentError('INVALID_PAIRING_URL', 'Pairing URLs must use the local http://127.0.0.1:<port>/pair#<secret> bridge.');
-    }
-    return url;
-  }
-
-  function openLoopbackPairDialog() {
+  function openLoopbackPairDialog(options = {}) {
     if (activeAgentConnection) return openAgentSessionDialog();
     closeHelp();
-    const dialog = document.createElement('dialog');
-    dialog.className = 'ws-agent-pair';
-    dialog.innerHTML =
-      '<form><p class="ws-agent-kicker">LOCAL MCP CONNECTION</p><h2>Connect a CAD agent</h2>' +
-      '<p>In your agent, call <code>cad_session</code> with action <code>connect</code>. Paste the returned loopback URL here. Studio will show the client and permissions before anything is shared.</p>' +
-      '<label class="ws-agent-url">Pairing URL<input type="url" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:…/pair#…"></label>' +
-      '<p class="ws-agent-inline-error" role="alert" hidden></p>' +
-      '<div><button type="button" value="cancel">Cancel</button><button type="submit" class="primary">Open pairing</button></div></form>';
-    document.body.appendChild(dialog);
-    const input = dialog.querySelector('input');
-    const error = dialog.querySelector('.ws-agent-inline-error');
-    dialog.querySelector('[value="cancel"]').addEventListener('click', () => dialog.close());
-    dialog.querySelector('form').addEventListener('submit', (event) => {
-      event.preventDefault();
-      try {
-        const url = validatedPairingUrl(input.value);
-        url.searchParams.set('studioOrigin', location.origin);
-        const popup = window.open(url.href, 'bomwiki-cad-agent-pair', 'popup,width=520,height=560');
-        if (!popup) throw new agentTools.CadAgentError('PAIRING_POPUP_BLOCKED', 'Allow this user-requested local pairing window, then try again.');
-        pendingPairingWindow = popup;
-        pendingPairingOrigin = url.origin;
-        dialog.close();
-        say('Local agent bridge opened — review the connection request next.');
-      } catch (reason) {
-        error.textContent = String(reason?.message || reason);
-        error.hidden = false;
-        input.focus();
-      }
-    });
-    dialog.addEventListener('close', () => dialog.remove(), { once: true });
-    dialog.showModal();
-    input.focus();
+    const nonce = typeof options.nonce === 'string' && /^[A-Za-z0-9-]{20,200}$/.test(options.nonce)
+      ? options.nonce
+      : '';
+    localAgentBridgeFrame?.remove();
+    clearTimeout(localAgentBridgeTimer);
+    const frame = document.createElement('iframe');
+    frame.hidden = true;
+    frame.title = 'BOMwiki CAD local agent bridge';
+    const url = new URL('/pair', LOCAL_AGENT_BRIDGE_ORIGIN);
+    url.searchParams.set('studioOrigin', location.origin);
+    url.searchParams.set('embed', '1');
+    if (nonce) url.searchParams.set('nonce', nonce);
+    frame.src = url.href;
+    localAgentBridgeFrame = frame;
+    pendingPairingWindow = frame.contentWindow;
+    pendingPairingOrigin = url.origin;
+    document.body.appendChild(frame);
+    pendingPairingWindow = frame.contentWindow;
+    localAgentBridgeTimer = setTimeout(() => {
+      if (activeAgentConnection || localAgentBridgeFrame !== frame) return;
+      frame.remove();
+      localAgentBridgeFrame = null;
+      pendingPairingWindow = null;
+      pendingPairingOrigin = null;
+      say('No local BOMwiki CAD agent is waiting. Start the integration and choose Connect agent again.', true);
+    }, 5000);
+    say(options.recovery ? 'Finding the local agent session to recover…' : 'Finding the local CAD agent…');
   }
 
   async function sha256Hex(bytes) {
@@ -1142,28 +1420,408 @@
     return btoa(binary);
   }
 
+  function base64ToBytes(encoded) {
+    if (typeof encoded !== 'string' || encoded.length > 512 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The import chunk is not bounded base64 data.');
+    }
+    let binary;
+    try {
+      binary = atob(encoded);
+    } catch {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The import chunk is not valid base64 data.');
+    }
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+
+  function boundedArtifactDimension(value, fallback) {
+    const dimension = value == null ? fallback : value;
+    if (!Number.isInteger(dimension) || dimension < 128 || dimension > 2048) {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_DIMENSION', 'Render dimensions must be integers from 128 to 2048 pixels.');
+    }
+    return dimension;
+  }
+
+  function resolveArtifactBodyScope(args = {}, options = {}) {
+    const allowedKinds = new Set(['body', 'occurrence', 'part', 'assembly']);
+    const scopeDocument = options.document || doc;
+    const scopeBodyResults = (options.bodyResults || lastBodyResults).map((entry) => entry.body
+      ? {
+          bodyId: entry.body.id,
+          bodyName: entry.body.name,
+          sourceBodyId: entry.sourceBodyId || entry.body.id,
+          occurrenceInstance: entry.occurrenceInstance || null,
+          geometry: { valid: entry.valid === true },
+          visible: entry.visible !== false,
+          suppressed: entry.suppressed === true,
+        }
+      : entry);
+    const explicit = Array.isArray(args.entities) ? args.entities : null;
+    if (explicit && (explicit.length < 1 || explicit.length > 100)) {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_SCOPE', 'Artifact entity scope requires between 1 and 100 stable references.');
+    }
+    if (args.scope != null && !['selection', 'visible-model'].includes(args.scope)) {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_SCOPE', 'Artifact scope must be selection or visible-model.');
+    }
+    const selectedRefs = currentV6Selections().map((entry) => deepCopy(entry.owner || entry));
+    const mode = explicit ? 'entities' : args.scope || (selectedRefs.length ? 'selection' : 'visible-model');
+    const requestedEntities = explicit || (mode === 'selection' ? selectedRefs : []);
+    const candidates = scopeBodyResults.filter((entry) => entry.geometry?.valid && !entry.suppressed);
+    const resolved = new Set();
+    if (mode === 'visible-model') {
+      for (const entry of candidates) if (entry.visible !== false) resolved.add(entry.bodyId);
+    } else {
+      for (const ref of requestedEntities) {
+        if (!ref || typeof ref !== 'object' || !allowedKinds.has(ref.kind) || typeof ref.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(ref.id)) {
+          throw new agentTools.CadAgentError('INVALID_ARTIFACT_SCOPE', 'Artifact entities require stable body, occurrence, part, or assembly references.');
+        }
+        let matched = false;
+        for (const entry of candidates) {
+          const occurrence = entry.occurrenceInstance;
+          if (ref.kind === 'body' && (entry.bodyId === ref.id || entry.sourceBodyId === ref.id)) {
+            resolved.add(entry.bodyId);
+            matched = true;
+          } else if (ref.kind === 'occurrence' && occurrence?.occurrencePath?.includes(ref.id)) {
+            resolved.add(entry.bodyId);
+            matched = true;
+          }
+          else if (ref.kind === 'part' && (
+            occurrence?.definition?.partId === ref.id ||
+            (scopeDocument.rootDocument?.kind === 'part' && scopeDocument.rootDocument.partId === ref.id)
+          )) {
+            resolved.add(entry.bodyId);
+            matched = true;
+          } else if (ref.kind === 'assembly' && scopeDocument.rootDocument?.kind === 'assembly' && scopeDocument.rootDocument.assemblyId === ref.id) {
+            resolved.add(entry.bodyId);
+            matched = true;
+          }
+        }
+        if (!matched) {
+          throw new agentTools.CadAgentError('MISSING_REFERENCE', `${ref.kind} "${ref.id}" has no exact exportable body in the current result.`);
+        }
+      }
+    }
+    if (!resolved.size) throw new agentTools.CadAgentError('ARTIFACT_SCOPE_EMPTY', 'The requested artifact scope has no exact exportable bodies.');
+    const bodyIds = [...resolved].sort();
+    const bodies = bodyIds.map((bodyId) => {
+      const entry = scopeBodyResults.find((candidate) => candidate.bodyId === bodyId);
+      return {
+        bodyId,
+        bodyName: entry?.bodyName || bodyId,
+        sourceBodyId: entry?.sourceBodyId || bodyId,
+        occurrenceId: entry?.occurrenceInstance?.occurrenceId || null,
+        occurrencePath: deepCopy(entry?.occurrenceInstance?.occurrencePath || []),
+      };
+    });
+    return { mode, requestedEntities: deepCopy(requestedEntities), bodyIds, bodies };
+  }
+
+  async function captureV6ModelRender(scope, width, height) {
+    const exportScene = new THREE.Scene();
+    exportScene.background = scene.background?.clone?.() || scene.background || null;
+    exportScene.environment = scene.environment || null;
+    for (const child of scene.children) if (child.isLight) exportScene.add(child.clone());
+    const exportGroup = new THREE.Group();
+    exportGroup.position.copy(partGroup.position);
+    exportGroup.quaternion.copy(partGroup.quaternion);
+    exportGroup.scale.copy(partGroup.scale);
+    exportGroup.updateMatrix();
+    exportScene.add(exportGroup);
+    const selected = new Set(scope.bodyIds);
+    const linesByBody = new Map(edgeLines.map((line) => [line.userData.bodyId, line]));
+    for (const bodyId of selected) {
+      const mesh = bodyMeshes.get(bodyId);
+      if (!mesh) throw new agentTools.CadAgentError('RENDER_SCOPE_NOT_AVAILABLE', `Body "${bodyId}" has no rendered exact mesh.`);
+      const meshClone = mesh.clone(true);
+      meshClone.visible = true;
+      exportGroup.add(meshClone);
+      const line = linesByBody.get(bodyId);
+      if (line) {
+        const lineClone = line.clone(true);
+        lineClone.visible = line.visible;
+        exportGroup.add(lineClone);
+      }
+    }
+    exportGroup.updateMatrixWorld(true);
+    const exportCamera = camera.clone();
+    exportCamera.aspect = width / height;
+    exportCamera.updateProjectionMatrix();
+    const target = new THREE.WebGLRenderTarget(width, height, {
+      depthBuffer: true,
+      stencilBuffer: true,
+    });
+    target.texture.colorSpace = renderer.outputColorSpace;
+    const previousTarget = renderer.getRenderTarget();
+    const pixels = new Uint8Array(width * height * 4);
+    try {
+      renderer.setRenderTarget(target);
+      renderer.clear(true, true, true);
+      renderer.render(exportScene, exportCamera);
+      renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);
+    } finally {
+      renderer.setRenderTarget(previousTarget);
+      target.dispose();
+    }
+    const flipped = new Uint8ClampedArray(pixels.length);
+    const rowBytes = width * 4;
+    for (let row = 0; row < height; row++) {
+      flipped.set(pixels.subarray(row * rowBytes, (row + 1) * rowBytes), (height - row - 1) * rowBytes);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new agentTools.CadAgentError('RENDER_TRANSFER_FAILED', 'A 2D encoder is unavailable for the model render.');
+    context.putImageData(new ImageData(flipped, width, height), 0, 0);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new agentTools.CadAgentError('RENDER_TRANSFER_FAILED', 'Studio could not encode the model render.');
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+
+  function subtitleTimestamp(milliseconds, separator) {
+    const bounded = Math.max(0, Math.round(milliseconds));
+    const hours = Math.floor(bounded / 3_600_000);
+    const minutes = Math.floor((bounded % 3_600_000) / 60_000);
+    const seconds = Math.floor((bounded % 60_000) / 1000);
+    const millis = bounded % 1000;
+    return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':') +
+      separator + String(millis).padStart(3, '0');
+  }
+
+  function narrationArtifact(format) {
+    const trustedSources = new Set(['capability-template', 'presentation-template', 'evidence-template', 'attention-template']);
+    const cues = v6NarrationCueLog
+      .filter((entry) => entry.state === 'completed' && Number.isFinite(entry.completedAtMs) && trustedSources.has(entry.source))
+      .map((entry) => ({ ...entry, text: String(entry.text || '').replace(/\s+/g, ' ').trim() }))
+      .filter((entry) => entry.text);
+    const origin = cues[0]?.startedAtMs || 0;
+    const blocks = cues.map((cue, index) => {
+      const start = Math.max(0, cue.startedAtMs - origin);
+      const end = Math.max(start + 250, cue.completedAtMs - origin);
+      const timing = format === 'webvtt'
+        ? `${subtitleTimestamp(start, '.')} --> ${subtitleTimestamp(end, '.')}`
+        : `${subtitleTimestamp(start, ',')} --> ${subtitleTimestamp(end, ',')}`;
+      return format === 'webvtt'
+        ? `${cue.cueId}\n${timing}\n${cue.text}`
+        : `${index + 1}\n${timing}\n${cue.text}`;
+    });
+    const text = format === 'webvtt' ? `WEBVTT\n\n${blocks.join('\n\n')}${blocks.length ? '\n' : ''}` : `${blocks.join('\n\n')}${blocks.length ? '\n' : ''}`;
+    return {
+      bytes: new TextEncoder().encode(text),
+      mediaType: format === 'webvtt' ? 'text/vtt; charset=utf-8' : 'application/x-subrip; charset=utf-8',
+      manifest: {
+        kind: 'visible-narration',
+        visibleOnly: true,
+        cueCount: cues.length,
+        cues: cues.map(({ cueId, correlationId, kind, source }) => ({ cueId, correlationId, kind, source })),
+      },
+    };
+  }
+
+  const MAX_LIVE_IMPORT_BYTES = 32 * 1024 * 1024;
+  const MAX_LIVE_IMPORT_TRANSFERS = 4;
+  const LIVE_IMPORT_TTL_MS = 2 * 60 * 1000;
+  const liveImportTransfers = new Map();
+
+  function pruneLiveImportTransfers() {
+    const cutoff = Date.now() - LIVE_IMPORT_TTL_MS;
+    for (const [transferId, transfer] of liveImportTransfers) {
+      if (transfer.createdAt < cutoff) liveImportTransfers.delete(transferId);
+    }
+  }
+
+  function requireLiveImportTransfer(transferId) {
+    pruneLiveImportTransfers();
+    const transfer = liveImportTransfers.get(transferId);
+    if (!transfer) {
+      throw new agentTools.CadAgentError('ARTIFACT_TRANSFER_MISSING', 'The bounded import transfer is missing or expired.');
+    }
+    return transfer;
+  }
+
+  async function liveAgentImportArtifact(args) {
+    if (!activeAgentConnection.permissionContext.granted.includes('project.replace')) {
+      throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "project.replace" is required.');
+    }
+    const action = args.action;
+    if (action === 'import.begin') {
+      const unknownKeys = Object.keys(args).filter((key) =>
+        !['action', 'transferId', 'format', 'filename', 'bytes', 'sha256', 'totalChunks'].includes(key));
+      if (unknownKeys.length) {
+        throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The import-begin request contains unadvertised fields.', { unknownKeys });
+      }
+      pruneLiveImportTransfers();
+      if (liveImportTransfers.size >= MAX_LIVE_IMPORT_TRANSFERS) {
+        throw new agentTools.CadAgentError('LIMIT_PENDING_REQUESTS', 'Studio already has four bounded import transfers in progress.');
+      }
+      if (
+        typeof args.transferId !== 'string' || !/^import-[A-Za-z0-9-]{20,200}$/.test(args.transferId) ||
+        !['project', 'step'].includes(args.format) ||
+        typeof args.filename !== 'string' || !args.filename || args.filename.length > 240 ||
+        !Number.isInteger(args.bytes) || args.bytes < 1 || args.bytes > MAX_LIVE_IMPORT_BYTES ||
+        typeof args.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(args.sha256) ||
+        !Number.isInteger(args.totalChunks) ||
+        args.totalChunks !== Math.ceil(args.bytes / (192 * 1024)) ||
+        args.totalChunks > 256
+      ) {
+        throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The import transfer metadata is invalid or exceeds its advertised bounds.');
+      }
+      liveImportTransfers.set(args.transferId, {
+        transferId: args.transferId,
+        format: args.format,
+        filename: args.filename,
+        bytes: args.bytes,
+        sha256: args.sha256,
+        totalChunks: args.totalChunks,
+        chunks: new Array(args.totalChunks),
+        createdAt: Date.now(),
+      });
+      return { transferId: args.transferId, ready: true, totalChunks: args.totalChunks };
+    }
+    if (action === 'import.chunk') {
+      const unknownKeys = Object.keys(args).filter((key) =>
+        !['action', 'transferId', 'index', 'dataBase64'].includes(key));
+      if (unknownKeys.length) {
+        throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The import-chunk request contains unadvertised fields.', { unknownKeys });
+      }
+      const transfer = requireLiveImportTransfer(args.transferId);
+      if (!Number.isInteger(args.index) || args.index < 0 || args.index >= transfer.totalChunks) {
+        throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The import chunk index is outside the advertised transfer.');
+      }
+      const chunk = base64ToBytes(args.dataBase64);
+      const expectedChunkBytes = args.index === transfer.totalChunks - 1
+        ? transfer.bytes - (args.index * 192 * 1024)
+        : 192 * 1024;
+      if (chunk.byteLength !== expectedChunkBytes) {
+        throw new agentTools.CadAgentError('ARTIFACT_IMPORT_SIZE', 'The import chunk does not match its declared bounded transfer size.');
+      }
+      transfer.chunks[args.index] = chunk;
+      return { transferId: transfer.transferId, index: args.index, bytes: chunk.byteLength, accepted: true };
+    }
+    if (action === 'import.abort') {
+      const unknownKeys = Object.keys(args).filter((key) => !['action', 'transferId'].includes(key));
+      if (unknownKeys.length) {
+        throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The import-abort request contains unadvertised fields.', { unknownKeys });
+      }
+      const removed = liveImportTransfers.delete(args.transferId);
+      return { transferId: args.transferId, aborted: removed };
+    }
+    if (action !== 'import.commit') {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The live import action is not advertised.');
+    }
+    const unknownKeys = Object.keys(args).filter((key) => !['action', 'transferId'].includes(key));
+    if (unknownKeys.length) {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The import-commit request contains unadvertised fields.', { unknownKeys });
+    }
+    const transfer = requireLiveImportTransfer(args.transferId);
+    if (transfer.chunks.filter((chunk) => chunk instanceof Uint8Array).length !== transfer.totalChunks) {
+      throw new agentTools.CadAgentError('ARTIFACT_TRANSFER_MISSING', 'The import transfer is incomplete.');
+    }
+    const bytes = new Uint8Array(transfer.chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+    let offset = 0;
+    for (const chunk of transfer.chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    if (bytes.byteLength !== transfer.bytes || await sha256Hex(bytes) !== transfer.sha256) {
+      liveImportTransfers.delete(transfer.transferId);
+      throw new agentTools.CadAgentError('ARTIFACT_TRANSFER_INTEGRITY', 'The imported artifact failed byte-count or SHA-256 validation.');
+    }
+    liveImportTransfers.delete(transfer.transferId);
+    if (v6AgentCommandDraft || isWorking(mode.kind) || v5Dialog?.open) {
+      throw new agentTools.CadAgentError('COMMAND_BLOCKED', 'Finish or cancel the active command before importing another project.');
+    }
+    const imported = await prepareImportedProject(bytes, transfer.format, transfer.filename);
+    if (v6AgentCommandDraft || isWorking(mode.kind) || v5Dialog?.open) {
+      throw new agentTools.CadAgentError('COMMAND_BLOCKED', 'A command opened while the artifact was loading; the project was not replaced.');
+    }
+    const result = await activateImportedProject(imported, transfer.filename, { preserveAgent: true });
+    const runtime = getV6InteractionRuntime();
+    runtime.emit('artifact.completed', {
+      direction: 'import',
+      format: transfer.format,
+      bytes: transfer.bytes,
+      sha256: transfer.sha256,
+      documentHash: result.documentHash,
+      importManifest: deepCopy(result.importManifest),
+    }, { actor: 'agent', uiRevision: runtime.uiRevision });
+    return {
+      ...result,
+      direction: 'import',
+      format: transfer.format,
+      bytes: transfer.bytes,
+      sha256: transfer.sha256,
+    };
+  }
+
   async function liveAgentArtifact(args) {
+    if (typeof args.action === 'string' && args.action.startsWith('import.')) {
+      return liveAgentImportArtifact(args);
+    }
     if (args.path) throw new agentTools.CadAgentError('LIVE_PATH_NOT_AVAILABLE', 'A browser session cannot write an arbitrary host path. Request the artifact data and let the MCP host save it within its approved output root.');
+    const unknownKeys = Object.keys(args).filter((key) => !['format', 'scope', 'entities', 'width', 'height'].includes(key));
+    if (unknownKeys.length) {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_REQUEST', 'The artifact request contains unadvertised fields.', { unknownKeys });
+    }
+    if (args.entities && args.scope) {
+      throw new agentTools.CadAgentError('INVALID_ARTIFACT_SCOPE', 'Choose either explicit stable entities or a semantic selection/visible-model scope.');
+    }
     const format = args.format;
-    const permission = format === 'project' ? 'artifact.export-project' : format === 'step' ? 'artifact.export-step' : format === 'stl' ? 'artifact.export-stl' : 'artifact.render';
+    const permission = format === 'project'
+      ? 'artifact.export-project'
+      : format === 'step'
+        ? 'artifact.export-step'
+        : format === 'stl'
+          ? 'artifact.export-stl'
+          : format === 'png'
+            ? 'artifact.render'
+            : ['webvtt', 'srt'].includes(format)
+              ? 'artifact.export-narration'
+              : null;
+    if (!permission) throw new agentTools.CadAgentError('CAPABILITY_DISABLED', `Artifact format "${format}" is not advertised.`);
     if (!activeAgentConnection.permissionContext.granted.includes(permission)) throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "' + permission + '" is required.');
     let bytes;
     let mediaType;
     let manifest = null;
     if (format === 'project') {
+      if (args.scope || args.entities || args.width || args.height) throw new agentTools.CadAgentError('INVALID_ARTIFACT_SCOPE', 'Project export always contains the complete canonical project.');
       bytes = new TextEncoder().encode(JSON.stringify(v5RuntimeTools.canonicalStudioV5Project(doc), null, 2) + '\n');
       mediaType = 'application/json';
     } else if (format === 'step' || format === 'stl') {
-      const response = await kernelCall(format === 'step' ? 'export-step' : 'export-stl', documentRevision, { bodyIds: selectedExportBodyIds() });
+      if (args.width || args.height) throw new agentTools.CadAgentError('INVALID_ARTIFACT_SCOPE', 'CAD exports do not accept render dimensions.');
+      const scope = resolveArtifactBodyScope(args);
+      const response = await kernelCall(format === 'step' ? 'export-step' : 'export-stl', documentRevision, { bodyIds: scope.bodyIds });
       if (!response.blob || response.errors?.length) throw new agentTools.CadAgentError('ARTIFACT_EXPORT_FAILED', response.errors?.[0]?.message || 'The exact CAD export failed.');
       bytes = new Uint8Array(await response.blob.arrayBuffer());
       mediaType = response.blob.type || (format === 'step' ? 'model/step' : 'model/stl');
-      manifest = response.manifest || null;
+      manifest = { ...(response.manifest || {}), kind: 'selected-entity-cad', scope };
+    } else if (format === 'png') {
+      const scope = resolveArtifactBodyScope(args);
+      const width = boundedArtifactDimension(args.width, 720);
+      const height = boundedArtifactDimension(args.height, 405);
+      bytes = await captureV6ModelRender(scope, width, height);
+      mediaType = 'image/png';
+      const snapshot = v6StudioSnapshot();
+      manifest = {
+        kind: 'model-only-render',
+        width,
+        height,
+        scope,
+        camera: snapshot.viewport.camera,
+        displayMode: snapshot.viewport.displayMode,
+        activeSectionId: snapshot.viewport.activeSectionId || null,
+        activeExplodedViewId: snapshot.viewport.activeExplodedViewId || null,
+        renderedDocumentRevision: snapshot.viewport.renderedDocumentRevision,
+        renderedKernelRevision: snapshot.viewport.renderedKernelRevision,
+        browserChromeIncluded: false,
+      };
     } else {
-      throw new agentTools.CadAgentError('CAPABILITY_DISABLED', 'Live render transfer is not available in this runtime.', { repairOptions: [{ kind: 'inspect-capabilities', capability: 'artifact.render', reasonCode: 'LIVE_RENDER_TRANSFER_NOT_AVAILABLE' }] });
+      if (args.scope || args.entities || args.width || args.height) throw new agentTools.CadAgentError('INVALID_ARTIFACT_SCOPE', 'Narration exports contain the completed visible cue track.');
+      ({ bytes, mediaType, manifest } = narrationArtifact(format));
     }
     if (bytes.byteLength > 1024 * 1024) throw new agentTools.CadAgentError('ARTIFACT_TOO_LARGE_FOR_LOOPBACK', 'This artifact exceeds the 1 MiB live-transfer limit. Use the normal Studio download or a headless output path.');
-    return {
+    const result = {
       format,
       bytes: bytes.byteLength,
       mediaType,
@@ -1172,13 +1830,4001 @@
       documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
       ...(manifest ? { manifest } : {}),
     };
+    getV6InteractionRuntime().emit('artifact.completed', {
+      format,
+      bytes: result.bytes,
+      mediaType,
+      sha256: result.sha256,
+      documentHash: result.documentHash,
+      manifest: deepCopy(manifest),
+    }, { actor: 'agent', uiRevision: getV6InteractionRuntime().uiRevision });
+    const narrationTemplateId = ['project', 'step', 'stl', 'png'].includes(format)
+      ? `artifact-${format}`
+      : null;
+    if (narrationTemplateId) {
+      await getV6InteractionRuntime().presentTrustedNarration({
+        templateId: narrationTemplateId,
+        correlationId: `artifact-${format}-${result.sha256.slice(0, 12)}`,
+      });
+    }
+    return result;
   }
+
+  let v6InteractionRuntime = null;
+  let v6RevealedEntity = null;
+  let v6FramedEntities = [];
+  let v6FramedBounds = null;
+  let v6SemanticSelection = [];
+  let v6SelectionOverlayObjects = [];
+  let v6TopologyCache = null;
+  let v6CameraTransitionGeneration = 0;
+  const v6TreeExpansion = new Map();
+  const v6PanelOpen = new Map([
+    ['model-tree', true],
+    ['inspector', true],
+    ['project', true],
+    ['history', true],
+    ['diagnostics', false],
+  ]);
+  let v6HistoryRevision = null;
+  let v6FocusedActionId = null;
+  let v6ProjectSheetRequested = false;
+  let v6DisplayModeOverride;
+  let v6ActiveSectionOverride;
+  let v6ActiveExplodedViewOverride;
+  let v6AgentCommandDraft = null;
+  let v6VisiblePreview = null;
+  let v6DirectParameterPreviewOperations = [];
+  let v6SemanticBatchBasePreviewId = null;
+  const v6DeferredPreviewCancellations = new Set();
+  const v6NarrationCueLog = [];
+  let v6DraftSequence = 0;
+  let v6ClosingCommand = false;
+  let v6ApplyingSemanticAction = false;
+  let v6ObservedHostState = null;
+  let v6HostCaptureQueued = false;
+  let activeViewName = 'iso';
+
+  function noteV6HostUiChange(kind, payload = {}) {
+    if (!v6InteractionRuntime || v6ApplyingSemanticAction) return;
+    v6InteractionRuntime.hostChanged(kind, payload, { actor: 'human' });
+    v6ObservedHostState = v6ComparableHostState(v6StudioSnapshot());
+  }
+
+  function primaryV6EntitySelection() {
+    if (selectedMateId) return { kind: 'mate', id: selectedMateId };
+    if (selectedOccurrenceId) return { kind: 'occurrence', id: selectedOccurrenceId };
+    if (selectedBodyId) return { kind: 'body', id: selectedBodyId };
+    if (selectedFeatureId) return { kind: 'feature', id: selectedFeatureId };
+    if (selectedDatumId) return { kind: 'datum', id: selectedDatumId };
+    if (selectedSketchId) return { kind: 'sketch', id: selectedSketchId };
+    return null;
+  }
+
+  function currentV6Selections() {
+    if (v6SemanticSelection.length) return deepCopy(v6SemanticSelection);
+    const primary = primaryV6EntitySelection();
+    return primary ? [primary] : [];
+  }
+
+  function currentV6Selection() {
+    return currentV6Selections()[0] || null;
+  }
+
+  function v6CanonicalKey(value) {
+    if (Array.isArray(value)) return '[' + value.map(v6CanonicalKey).join(',') + ']';
+    if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + v6CanonicalKey(value[key])).join(',') + '}';
+    return JSON.stringify(value);
+  }
+
+  function v6StableHash(value) {
+    const text = v6CanonicalKey(value);
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < text.length; index++) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
+  function v6TopologyInventory() {
+    if (v6TopologyCache) return v6TopologyCache;
+    const items = [];
+    for (const [bodyId, mesh] of bodyMeshes) {
+      for (const face of mesh.userData.topologyFaces || []) {
+        const signature = { kind: 'face', ...deepCopy(face.sig) };
+        items.push({
+          owner: { kind: 'body', id: bodyId },
+          stableId: 'face:' + String(face.faceId),
+          topologySignature: signature,
+          expectedGeometry: face.geomType === 'PLANE' ? 'plane'
+            : face.geomType === 'CYLINDER' ? 'cylinder'
+              : face.geomType === 'CONE' ? 'cone'
+                : 'other',
+          _faceId: face.faceId,
+        });
+      }
+    }
+    for (const line of edgeLines) {
+      for (const entry of line.userData.edgeEntries || []) {
+        const signature = { kind: 'edge', ...deepCopy(entry.sig) };
+        items.push({
+          owner: { kind: 'body', id: line.userData.bodyId },
+          stableId: 'edge:' + v6StableHash(signature),
+          topologySignature: signature,
+          expectedGeometry: entry.sig?.curveType === 'LINE' ? 'line' : entry.sig?.curveType === 'CIRCLE' ? 'circle' : 'other',
+          _line: line,
+          _entry: entry,
+        });
+      }
+    }
+    for (const [bodyId, mesh] of bodyMeshes) {
+      for (const vertex of mesh.userData.topologyVertices || []) {
+        const point = deepCopy(vertex.sig?.p);
+        if (!Array.isArray(point) || point.length !== 3) continue;
+        const vertexSignature = { kind: 'vertex', p: point };
+        items.push({
+          owner: { kind: 'body', id: bodyId },
+          stableId: 'vertex:' + v6StableHash(vertexSignature),
+          topologySignature: vertexSignature,
+          expectedGeometry: 'other',
+          _point: point,
+        });
+      }
+    }
+    v6TopologyCache = items;
+    return v6TopologyCache;
+  }
+
+  function v6PublicTopologyInventory() {
+    return v6TopologyInventory().map(({ _faceId, _line, _entry, _point, ...entry }) => deepCopy(entry));
+  }
+
+  function v6SelectionRefKey(ref) {
+    return v6CanonicalKey(ref);
+  }
+
+  function v6SubshapeExists(ref) {
+    return v6TopologyInventory().some((candidate) =>
+      candidate.owner.kind === ref.owner?.kind &&
+      candidate.owner.id === ref.owner?.id &&
+      candidate.stableId === ref.stableId &&
+      v6CanonicalKey(candidate.topologySignature) === v6CanonicalKey(ref.topologySignature));
+  }
+
+  function v6EntityExists(entity) {
+    if (entity?.owner) return v6SubshapeExists(entity);
+    if (entity.kind === 'feature') return doc.features.some((entry) => entry.id === entity.id);
+    if (entity.kind === 'parameter') return (doc.params || []).some((entry) => entry.id === entity.id);
+    if (entity.kind === 'body') {
+      if (lastBodyResults.some((entry) => entry.bodyId === entity.id)) return true;
+      return v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part'
+        && v5RuntimeTools.studioV5RootPart(doc).bodies.some((entry) => entry.id === entity.id);
+    }
+    if (entity.kind === 'occurrence') {
+      if (lastBodyResults.some((entry) => entry.occurrenceInstance?.occurrenceId === entity.id)) return true;
+      return v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+        && v5RuntimeTools.studioV5RootAssembly(doc).occurrences.some((entry) => entry.id === entity.id);
+    }
+    if (!v5RuntimeTools.isStudioV5Project(doc)) return false;
+    if (doc.rootDocument?.kind === 'part') {
+      const part = v5RuntimeTools.studioV5RootPart(doc);
+      if (entity.kind === 'datum') return part.referenceGeometry.some((entry) => entry.id === entity.id);
+      if (entity.kind === 'sketch') return part.sketches.some((entry) => entry.id === entity.id);
+      if (entity.kind === 'body-pattern') return (part.bodyPatterns || []).some((entry) => entry.id === entity.id);
+    }
+    if (doc.rootDocument?.kind === 'assembly') {
+      const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
+      if (entity.kind === 'mate') return assembly.mates.some((entry) => entry.id === entity.id);
+      if (entity.kind === 'occurrence-pattern') return assembly.occurrencePatterns.some((entry) => entry.id === entity.id);
+      if (entity.kind === 'section') return assembly.sectionViews.some((entry) => entry.id === entity.id);
+      if (entity.kind === 'exploded-view') return assembly.explodedViews.some((entry) => entry.id === entity.id);
+      if (entity.kind === 'measurement') return v5InspectionTools.studioV5Measurements(doc).some((entry) => entry.id === entity.id);
+      if (entity.kind === 'stage-group') return v5InspectionTools.studioV5AxialStageGroups(doc).some((entry) => entry.id === entity.id);
+    }
+    return false;
+  }
+
+  const V6_TREE_INVOKE_OPERATIONS = Object.freeze({
+    body: new Set(['select', 'isolate', 'export', 'pattern-instance.select', 'pattern-instance.independent', 'pattern-instance.export']),
+    'body-pattern': new Set(['pattern.dissolve']),
+    datum: new Set(['datum.select']),
+    sketch: new Set(['sketch.select']),
+    occurrence: new Set(['occurrence.expand', 'occurrence.select', 'occurrence.export', 'runtime-occurrence.select']),
+    feature: new Set(['select']),
+    mate: new Set(['mate.select']),
+    measurement: new Set(['measurement.evaluate']),
+  });
+
+  const V6_INSPECTOR_INVOKE_OPERATIONS = new Set([
+    'inspection.clear',
+    'body.isolate',
+    'occurrence.isolate',
+    'occurrence.export',
+  ]);
+
+  function v6TreeInvocationSupported(entity, operation) {
+    return Boolean(V6_TREE_INVOKE_OPERATIONS[entity?.kind]?.has(operation));
+  }
+
+  function clearV6Selection() {
+    v6SemanticSelection = [];
+    selectedFeatureId = null;
+    selectedBodyId = null;
+    selectedOccurrenceId = null;
+    selectedMateId = null;
+    selectedDatumId = null;
+    selectedSketchId = null;
+    renderHistory();
+    renderBodies();
+    renderContext();
+    syncBodyMeshState();
+    syncV6TreeSelectionClasses();
+  }
+
+  function selectV6Entity(entity) {
+    const target = entity?.owner || entity;
+    if (target.kind === 'body') selectBody(target.id);
+    else if (target.kind === 'occurrence') selectOccurrence(target.id);
+    else if (target.kind === 'feature') selectFeature(target.id);
+    else if (target.kind === 'mate') selectMate(target.id);
+    else if (target.kind === 'datum') {
+      selectedDatumId = target.id;
+      selectedSketchId = null;
+      selectedBodyId = null;
+      selectedFeatureId = null;
+      renderDatums();
+      renderAdvancedSketches();
+    } else if (target.kind === 'sketch') {
+      selectedSketchId = target.id;
+      selectedDatumId = null;
+      selectedBodyId = null;
+      selectedFeatureId = null;
+      renderDatums();
+      renderAdvancedSketches();
+    } else if (target.kind === 'body-pattern') {
+      selectedDatumId = null;
+      selectedSketchId = null;
+      selectedBodyId = null;
+      selectedFeatureId = null;
+      renderBodyPatterns();
+    }
+  }
+
+  function setV6SemanticSelection(selection) {
+    const unique = [];
+    const seen = new Set();
+    for (const ref of selection) {
+      const key = v6SelectionRefKey(ref);
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(deepCopy(ref));
+      }
+    }
+    if (!unique.length) return clearV6Selection();
+    selectV6Entity(unique[0]);
+    v6SemanticSelection = unique;
+    renderContext();
+    syncBodyMeshState();
+    syncV6TreeSelectionClasses();
+  }
+
+  function showV6Narration(cue) {
+    const overlay = $('bw-agent-narration');
+    const text = $('bw-agent-narration-text');
+    const live = $('bw-agent-narration-live');
+    if (!overlay || !text) return;
+    overlay.dataset.kind = cue.kind;
+    overlay.dataset.cueId = cue.cueId;
+    overlay.dataset.correlationId = cue.correlationId;
+    overlay.dataset.state = 'visible';
+    overlay.dataset.avoidDialog = v5Dialog?.open ? 'true' : 'false';
+    text.textContent = cue.text;
+    overlay.hidden = false;
+    if (live) live.textContent = cue.text;
+    const existing = v6NarrationCueLog.find((entry) => entry.cueId === cue.cueId);
+    if (!existing) {
+      v6NarrationCueLog.push({
+        cueId: cue.cueId,
+        correlationId: cue.correlationId,
+        kind: cue.kind,
+        text: cue.text,
+        source: cue.source,
+        startedAtMs: performance.now(),
+        completedAtMs: null,
+        state: 'visible',
+      });
+      if (v6NarrationCueLog.length > 1000) v6NarrationCueLog.splice(0, v6NarrationCueLog.length - 1000);
+    }
+  }
+
+  function completeV6Narration(cue, { persist } = {}) {
+    const overlay = $('bw-agent-narration');
+    if (!overlay || overlay.dataset.cueId !== cue.cueId) return;
+    overlay.dataset.state = 'completed';
+    if (!persist) overlay.hidden = true;
+    const entry = v6NarrationCueLog.find((candidate) => candidate.cueId === cue.cueId);
+    if (entry) {
+      entry.completedAtMs = performance.now();
+      entry.state = cue.state;
+    }
+  }
+
+  function hideV6Narration() {
+    const overlay = $('bw-agent-narration');
+    const live = $('bw-agent-narration-live');
+    if (overlay) overlay.hidden = true;
+    if (live) live.textContent = '';
+  }
+
+  function v6ActiveDocumentRef() {
+    if (v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part') {
+      return { kind: 'part', id: doc.rootDocument.partId };
+    }
+    if (v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly') {
+      return { kind: 'assembly', id: doc.rootDocument.assemblyId };
+    }
+    return { kind: 'legacy-part', id: projectId };
+  }
+
+  function v6PanelState() {
+    const selection = currentV6Selection();
+    return [...v6PanelOpen].map(([panelId, open]) => ({
+      panelId,
+      open,
+      ...(panelId === 'inspector' && selection ? { target: deepCopy(selection.owner || selection) } : {}),
+    }));
+  }
+
+  const V6_TREE_SECTION_ELEMENT_IDS = Object.freeze({
+    origin: 'bw-part-origin',
+    datums: 'bw-tree-section-datums',
+    sketches: 'bw-tree-section-sketches',
+    patterns: 'bw-tree-section-patterns',
+    components: 'bw-assembly-components',
+    mates: 'bw-assembly-mates',
+    inspection: 'bw-assembly-inspection',
+  });
+  const v6ProgrammaticTreeSectionStates = new Map();
+
+  function v6TreeSectionState() {
+    return Object.entries(V6_TREE_SECTION_ELEMENT_IDS).map(([sectionId, elementId]) => {
+      const element = $(elementId);
+      return {
+        sectionId,
+        expanded: Boolean(element?.open),
+        visible: Boolean(element && !element.hidden),
+      };
+    });
+  }
+
+  function setV6TreeSectionExpanded(sectionId, expanded) {
+    const element = $(V6_TREE_SECTION_ELEMENT_IDS[sectionId]);
+    if (!element || element.hidden) {
+      throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'The requested model-tree section is not visible in the active document.', {
+        sectionId,
+        repairOptions: [{ kind: 'activate-compatible-document' }],
+      });
+    }
+    setV6TreeSectionOpen(sectionId, expanded);
+    requestSceneRender();
+    return { sectionId, expanded: element.open };
+  }
+
+  function setV6TreeSectionOpen(sectionId, expanded) {
+    const element = $(V6_TREE_SECTION_ELEMENT_IDS[sectionId]);
+    if (!element || element.open === expanded) return;
+    v6ProgrammaticTreeSectionStates.set(sectionId, expanded);
+    element.open = expanded;
+  }
+
+  function v6ExpandedEntities() {
+    const expanded = [];
+    if (v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly') {
+      const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
+      for (const occurrence of assembly.occurrences) {
+        const entity = { kind: 'occurrence', id: occurrence.id };
+        if (v6TreeExpansion.get(v6SelectionRefKey(entity)) !== false) expanded.push(entity);
+      }
+    }
+    for (const [key, value] of v6TreeExpansion) {
+      if (!value) continue;
+      try {
+        const entity = JSON.parse(key);
+        if (entity?.kind && entity?.id && !expanded.some((entry) => entry.kind === entity.kind && entry.id === entity.id)) expanded.push(entity);
+      } catch {}
+    }
+    return expanded.slice(0, 100);
+  }
+
+  function v6ActiveCommandState() {
+    if (v6AgentCommandDraft) {
+      return {
+        commandId: v6AgentCommandDraft.commandId,
+        state: v6AgentCommandDraft.state,
+        draftId: v6AgentCommandDraft.draftId,
+        baseRevision: v6AgentCommandDraft.baseRevision,
+        transactionId: v6AgentCommandDraft.transactionId,
+        ...(v6AgentCommandDraft.editEntity
+          ? { editEntity: deepCopy(v6AgentCommandDraft.editEntity) }
+          : {}),
+        ...(v6AgentCommandDraft.bootstrapOperations?.length
+          ? { bootstrapOperations: deepCopy(v6AgentCommandDraft.bootstrapOperations) }
+          : {}),
+        ...(v6AgentCommandDraft.materialContext
+          ? { materialContext: deepCopy(v6AgentCommandDraft.materialContext) }
+          : {}),
+        inputValues: deepCopy(v6AgentCommandDraft.inputValues),
+        boundSelections: deepCopy(v6AgentCommandDraft.boundSelections),
+        generatedIds: deepCopy(v6AgentCommandDraft.generatedIds || {}),
+        diagnostics: deepCopy(v6AgentCommandDraft.diagnostics),
+        ...(sketch.isOpen() ? { toolId: sketch.activeTool() } : {}),
+        ...(sketch.isOpen() && sketch.selectedShapeIndex() >= 0
+          ? { selectedShapeIndex: sketch.selectedShapeIndex() }
+          : {}),
+        ...(isWorking(mode.kind) ? { stage: mode.kind } : {}),
+      };
+    }
+    if (['idle', 'rebuilding'].includes(mode.kind)) return undefined;
+    return {
+      commandId: currentOpType || mode.kind,
+      state: 'draft',
+      inputValues: {},
+      boundSelections: {},
+      diagnostics: [],
+    };
+  }
+
+  function v6SurfaceState() {
+    return {
+      help: { open: Boolean(helpDialog?.open) },
+      templates: {
+        open: Boolean(templateDialog?.open),
+        selectedTemplateId: selectedTemplate?.id || null,
+        category: templateCategory,
+        search: String($('bw-template-search')?.value || ''),
+      },
+      recovery: {
+        open: Boolean(recoveryDialog?.open),
+        entryIds: [...recoveryEntries.keys()].slice(0, 200),
+        entries: [...recoveryEntries.values()].slice(0, 200).map((entry) => ({
+          snapshotId: entry.snapshotId,
+          projectId: entry.projectId,
+          title: entry.title,
+          label: entry.label,
+          featureCount: entry.featureCount,
+          updatedAt: entry.updatedAt,
+        })),
+      },
+      clear: { open: Boolean(clearDecision?.open) },
+      draftDecision: {
+        open: Boolean(draftDecision?.open),
+        nextLabel: String(queuedOperation?.opts?.nextLabel || ''),
+        controlId: String(queuedOperation?.opts?.controlId || ''),
+      },
+      transition: {
+        open: Boolean(transitionToast && !transitionToast.hidden),
+        title: String($('bw-transition-title')?.textContent || ''),
+        undoAvailable: Boolean(transitionUndo),
+      },
+      tour: {
+        open: Boolean(tourEl && !tourEl.hidden),
+        kind: tourKind,
+        index: tourIndex,
+        count: tourSteps().length,
+      },
+      welcome: { open: Boolean($('bw-welcome') && !$('bw-welcome').hidden) },
+      fullscreen: { active: document.fullscreenElement === appEl },
+    };
+  }
+
+  function v6StudioSnapshot() {
+    const selection = currentV6Selections();
+    const assembly = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc)
+      : null;
+    const renderState = buildErrors.size || bodyBuildErrors.size
+      ? 'failed'
+      : mode.kind === 'rebuilding' || latestAppliedRevision < latestRequestedRevision
+        ? 'rebuilding'
+        : sceneRenderDirty
+          ? 'rendering'
+          : 'idle';
+    const activeCommand = v6ActiveCommandState();
+    return {
+      activeDocument: v6ActiveDocumentRef(),
+      workspaceId: activeWorkspace,
+      ...(activeCommand ? { activeCommand } : {}),
+      selection: deepCopy(selection),
+      tree: {
+        ...(v6RevealedEntity ? { revealed: deepCopy(v6RevealedEntity) } : {}),
+        expanded: v6ExpandedEntities(),
+        sections: v6TreeSectionState(),
+        exportBodyIds: [...exportBodyIds].sort().slice(0, 1000),
+      },
+      panels: v6PanelState(),
+      surfaces: v6SurfaceState(),
+      inspection: lastInspection ? deepCopy(lastInspection) : null,
+      viewport: {
+        viewId: activeViewName,
+        camera: {
+          position: camera.position.toArray(),
+          target: orbit.target.toArray(),
+          up: camera.up.toArray(),
+          projection: 'perspective',
+        },
+        displayMode: activeV6DisplayMode(),
+        navigationMode: navMode,
+        framedEntities: deepCopy(v6FramedEntities),
+        ...(v6FramedBounds ? { framedBounds: deepCopy(v6FramedBounds) } : {}),
+        ...(activeV6SectionId() ? { activeSectionId: activeV6SectionId() } : {}),
+        ...(activeV6ExplodedViewId() ? { activeExplodedViewId: activeV6ExplodedViewId() } : {}),
+        ...(isolatedBodyId ? { isolatedBodyId } : {}),
+        ...(appEl?.dataset.isolateOccurrence ? { isolatedOccurrenceId: appEl.dataset.isolateOccurrence } : {}),
+        renderState,
+        renderedDocumentRevision: lastRenderedDocumentRevision,
+        renderedKernelRevision: lastRenderedKernelRevision,
+        renderedUiRevision: lastRenderedUiRevision,
+      },
+      connection: {
+        clientLabel: activeAgentConnection?.clientLabel || 'No connected agent',
+        mode: activeAgentConnection?.mode || 'disconnected',
+        paused: Boolean(activeAgentConnection?.paused),
+      },
+      ...(v6VisiblePreview ? {
+        preview: {
+          previewId: v6VisiblePreview.previewId,
+          baseRevision: v6VisiblePreview.baseRevision,
+          visible: v6VisiblePreview.visible,
+          highlightedEntities: deepCopy(v6VisiblePreview.highlightedEntities),
+          validation: deepCopy(v6VisiblePreview.validation),
+          evidence: deepCopy(v6VisiblePreview.evidence),
+          transactionHash: v6VisiblePreview.transactionHash,
+          documentHashAfter: v6VisiblePreview.changeSet?.documentHashAfter,
+        },
+      } : {}),
+      ...(v6HistoryRevision != null ? { history: { visibleRevision: v6HistoryRevision } } : {}),
+      ...(v6FocusedActionId ? { focusedActionId: v6FocusedActionId } : {}),
+    };
+  }
+
+  function v6ComparableHostState(snapshot) {
+    return {
+      document: snapshot.activeDocument,
+      workspace: snapshot.workspaceId,
+      selection: snapshot.selection,
+      tree: snapshot.tree,
+      panels: snapshot.panels,
+      surfaces: snapshot.surfaces,
+      inspection: snapshot.inspection,
+      viewport: snapshot.viewport,
+      command: snapshot.activeCommand || null,
+    };
+  }
+
+  function captureV6HumanState(event) {
+    if (event?.target?.closest?.('#bw-agent-activity, .ws-agent-pair')) return;
+    if (!v6InteractionRuntime || v6ApplyingSemanticAction || v6HostCaptureQueued) return;
+    v6HostCaptureQueued = true;
+    queueMicrotask(() => {
+      v6HostCaptureQueued = false;
+      if (!v6InteractionRuntime || v6ApplyingSemanticAction) return;
+      const snapshot = v6StudioSnapshot();
+      const current = v6ComparableHostState(snapshot);
+      const previous = v6ObservedHostState || current;
+      const scopes = Object.keys(current).filter((scope) =>
+        JSON.stringify(current[scope]) !== JSON.stringify(previous[scope]));
+      if (!scopes.length) return;
+      v6InteractionRuntime.hostChanged('ui.changed', { scopes }, { actor: 'human' });
+      v6ObservedHostState = v6ComparableHostState(v6StudioSnapshot());
+    });
+  }
+
+  function captureV6HumanTreeToggle(event) {
+    if (!event?.target?.matches?.('[data-tree-section]')) return;
+    const sectionId = event.target.dataset.treeSection;
+    if (v6ProgrammaticTreeSectionStates.get(sectionId) === event.target.open) {
+      v6ProgrammaticTreeSectionStates.delete(sectionId);
+      return;
+    }
+    v6ProgrammaticTreeSectionStates.delete(sectionId);
+    captureV6HumanState(event);
+  }
+
+  function validateV6UiAction(action) {
+    if (action.kind === 'document.activate' && action.documentId !== v6ActiveDocumentRef().id) {
+      throw new v6InteractionTools.CadUiError('ACTIVE_DOCUMENT_CHANGED', 'The requested document is not an open Studio document.', {
+        activeDocument: v6ActiveDocumentRef(),
+        repairOptions: [{ kind: 'refresh-ui-state' }],
+      });
+    }
+    if (action.kind === 'workspace.activate' && !WORKSPACE_META[action.workspaceId]) {
+      throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'Workspace "' + action.workspaceId + '" is not available.');
+    }
+    if (action.kind === 'workspace.activate' && action.workspaceId === 'sketch') {
+      throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'Sketch workspace activation is available only through an active sketch command.');
+    }
+    if (['selection.set', 'selection.add', 'selection.remove', 'tree.reveal', 'tree.expand', 'tree.collapse', 'inspector.showEntity'].includes(action.kind) && !v6EntityExists(action.entity)) {
+      throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested entity is not present in the current document.', {
+        entity: action.entity,
+        repairOptions: [{ kind: 'refresh-project-tree' }],
+      });
+    }
+    if (action.kind === 'tree.invoke') {
+      if (!v6EntityExists(action.entity)) {
+        throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested dynamic tree entity is not present in the current document.', {
+          entity: action.entity,
+          repairOptions: [{ kind: 'refresh-project-tree' }],
+        });
+      }
+      if (!v6TreeInvocationSupported(action.entity, action.operation)) {
+        throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'That dynamic tree operation is not released for this entity kind.');
+      }
+    }
+    if (action.kind === 'tree.setSectionExpanded') {
+      const element = $(V6_TREE_SECTION_ELEMENT_IDS[action.sectionId]);
+      if (!element || element.hidden) {
+        throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'The requested model-tree section is not visible in the active document.', {
+          sectionId: action.sectionId,
+          repairOptions: [{ kind: 'activate-compatible-document' }],
+        });
+      }
+    }
+    if (action.kind === 'inspector.invoke' && !V6_INSPECTOR_INVOKE_OPERATIONS.has(action.operation)) {
+      throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'That dynamic inspector operation is not released.');
+    }
+    if (action.kind === 'viewport.standardView' && !VIEW_DIRS[action.viewId]) {
+      throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'View "' + action.viewId + '" is not available.');
+    }
+    if (action.kind === 'viewport.setCamera') {
+      if (action.camera.projection !== 'perspective') {
+        throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'This renderer currently advertises a perspective camera only.');
+      }
+      const position = new THREE.Vector3().fromArray(action.camera.position);
+      const target = new THREE.Vector3().fromArray(action.camera.target);
+      const up = new THREE.Vector3().fromArray(action.camera.up);
+      const direction = target.clone().sub(position);
+      if (direction.lengthSq() < 1e-12 || up.lengthSq() < 1e-12 || Math.abs(direction.normalize().dot(up.normalize())) > 0.9999) {
+        throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'Camera position, target, and up must define a non-degenerate view.');
+      }
+    }
+    if (action.kind === 'viewport.setDisplayMode' && !['shaded', 'shaded-edges', 'wireframe', 'hidden-line', 'ghost'].includes(action.displayModeId)) {
+      throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'Display mode "' + action.displayModeId + '" is not available.');
+    }
+    const assembly = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc)
+      : null;
+    if (action.kind === 'viewport.activateSection' && !assembly?.sectionViews.some((entry) => entry.id === action.sectionId)) {
+      throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'The requested saved section does not exist.');
+    }
+    if (action.kind === 'viewport.activateExplodedView' && !assembly?.explodedViews.some((entry) => entry.id === action.explodedViewId)) {
+      throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'The requested saved exploded view does not exist.');
+    }
+    if (['panel.open', 'panel.close'].includes(action.kind) && !v6PanelOpen.has(action.panelId)) {
+      throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'Panel "' + action.panelId + '" is not advertised.');
+    }
+    if (['tree.expand', 'tree.collapse'].includes(action.kind) && !v6TreeEntityExpandable(action.entity)) {
+      throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'Only occurrence rows with visible model-tree children can be expanded or collapsed.', {
+        entity: action.entity,
+        repairOptions: [{ kind: 'select-expandable-occurrence' }],
+      });
+    }
+    if (action.kind === 'history.showRevision' && action.revision > commandRevision) {
+      throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'Revision ' + action.revision + ' is newer than the active project revision.');
+    }
+    if (action.kind === 'history.undo' && !undoStack.length) {
+      throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'There is no project transaction to undo.');
+    }
+    if (action.kind === 'history.redo' && !redoStack.length) {
+      throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'There is no project transaction to redo.');
+    }
+    if (['history.undo', 'history.redo'].includes(action.kind) && (v6AgentCommandDraft || isWorking(mode.kind) || v5Dialog?.open)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Finish or cancel the active command before changing project history.');
+    }
+    if (action.kind === 'control.invoke') {
+      const supported = new Set([
+        'project.templates',
+        'project.clear',
+        'body.create',
+        'app.help',
+        'dialog.clear.cancel',
+        'dialog.draft.keep',
+        'dialog.draft.discard',
+        'dialog.template.close',
+        'dialog.help.close',
+        'dialog.recovery.close',
+        'dialog.tour.back',
+        'dialog.tour.next',
+        'dialog.tour.skip',
+        'welcome.templates',
+        'welcome.help',
+        'help.tour',
+        'help.templates',
+        'notice.legacy-dismiss',
+      ]);
+      if (!supported.has(action.controlId)) {
+        throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'The requested normal Studio control is not released through control.invoke.');
+      }
+    }
+    if (action.kind === 'control.setValue' && action.controlId !== 'template.search') {
+      throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'The requested normal Studio field is not released through control.setValue.');
+    }
+    if (action.kind === 'template.select' && templateLibrary.length && !templateLibrary.some((entry) => entry.id === action.templateId)) {
+      throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested template is not present in the loaded template library.');
+    }
+    if (action.kind === 'template.filter' && templateCategories.length && !['All parts', ...templateCategories].includes(action.category)) {
+      throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested template category is not advertised.');
+    }
+    if (action.kind === 'template.use') {
+      if (v6AgentCommandDraft || isWorking(mode.kind) || v5Dialog?.open) {
+        throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Finish or cancel the active command before opening a template.');
+      }
+      if (!templateDialog?.open && $('bw-welcome')?.hidden) {
+        throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Open the normal template library or welcome surface before using a template.');
+      }
+      if (templateLibrary.length && !templateLibrary.some((entry) => entry.id === action.templateId)) {
+        throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested template is not present in the loaded template library.');
+      }
+    }
+    if (action.kind === 'project.newBlank') {
+      if ($('bw-welcome')?.hidden) {
+        throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'The blank-sketch control is available from the normal welcome surface.');
+      }
+      if (v6AgentCommandDraft || isWorking(mode.kind) || v5Dialog?.open) {
+        throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Finish or cancel the active command before starting a blank project.');
+      }
+    }
+    if (action.kind === 'recovery.restore') {
+      if (!recoveryDialog?.open || !recoveryEntries.has(action.snapshotId)) {
+        throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'Open recovery and choose one of its advertised entry IDs before restoring.');
+      }
+      if (v6AgentCommandDraft || isWorking(mode.kind) || v5Dialog?.open) {
+        throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Finish or cancel the active command before restoring a project.');
+      }
+    }
+    if (action.kind === 'transition.undo' && (!transitionToast || transitionToast.hidden || !transitionUndo)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'There is no undoable project transition.');
+    }
+    if (action.kind === 'transition.dismiss' && (!transitionToast || transitionToast.hidden)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'There is no project transition notification to dismiss.');
+    }
+    if (action.kind === 'command.open') {
+      const commandDefinition = v6CommandDefinition(action.commandId);
+      const modelCommand = action.commandId.startsWith('model.');
+      const supportedVisibleCommand =
+        modelCommand ||
+        action.commandId.startsWith('assembly.') ||
+        action.commandId.startsWith('inspection.');
+      if (commandDefinition?.state !== 'available' || !supportedVisibleCommand) {
+        throw new v6InteractionTools.CadUiError('COMMAND_NOT_AVAILABLE', 'The requested normal Studio command is not advertised.');
+      }
+      if (modelCommand && doc.rootDocument?.kind !== 'part') {
+        throw new v6InteractionTools.CadUiError('COMMAND_NOT_AVAILABLE', 'This modeling command requires an active part document or assembly edit context.');
+      }
+      const createAssembly = action.commandId === 'assembly.create';
+      const exitAssemblyContext = action.commandId === 'assembly.exit-context';
+      const hasAssemblyEditContext = Boolean(
+        doc.metadata?.editContext?.assemblyId &&
+        doc.assemblyDefinitions?.some((entry) => entry.id === doc.metadata.editContext.assemblyId),
+      );
+      if (!modelCommand && (
+        (createAssembly && (doc.rootDocument?.kind !== 'part' || hasAssemblyEditContext)) ||
+        (exitAssemblyContext && !hasAssemblyEditContext) ||
+        (!createAssembly && !exitAssemblyContext && !assembly)
+      )) {
+        throw new v6InteractionTools.CadUiError('COMMAND_NOT_AVAILABLE', createAssembly
+          ? 'Create Assembly requires an active part document.'
+          : exitAssemblyContext
+            ? 'Return to assembly requires an active assembly edit context.'
+            : 'This command requires an active assembly document.');
+      }
+      // Selection and command-context preconditions are deliberately checked by
+      // openV6AgentCommand/openAssemblyCommand during ordered application. A
+      // batch may establish its selection in an earlier action, so inspecting
+      // the pre-batch selection here would reject a valid atomic sequence.
+    }
+    if (action.kind === 'command.bindSelection') {
+      const field = v6AdvertisedCommandField(action.fieldId);
+      if (field?.kind !== 'selection') {
+        throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'No advertised visible command has such a selection field.');
+      }
+      if (
+        action.entities.length < (field.minItems || 0) ||
+        action.entities.length > (field.maxItems || 100)
+      ) {
+        throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' has invalid selection cardinality.');
+      }
+      for (const entity of action.entities) {
+        const selectionKind = entity.owner ? entity.topologySignature.kind : entity.kind;
+        if (!field.selectionKinds.includes(selectionKind)) {
+          throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' does not accept ' + selectionKind + ' selections.');
+        }
+      }
+      if (v6AgentCommandDraft?.commandId === 'assembly.component-transform' && action.fieldId === 'occurrence') {
+        const occurrence = assembly?.occurrences.find((entry) => entry.id === action.entities[0]?.id);
+        if (!occurrence) throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'The selected occurrence is not a direct child of the active assembly.');
+        if (occurrence.fixed || assembly.mates.some((mate) => !mate.suppressed && mate.occurrenceIds.includes(occurrence.id))) {
+          throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'The selected component is fixed or driven by an active mate.');
+        }
+      }
+    }
+    if (action.kind === 'command.setInput' || action.kind === 'command.clearInput') {
+      const field = v6AdvertisedCommandField(action.fieldId);
+      if (!field || field.kind === 'selection') {
+        throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'No advertised visible command has such a typed input field.');
+      }
+      if (action.kind === 'command.setInput') {
+        const value = action.value;
+        if (field.kind === 'boolean' && typeof value !== 'boolean') {
+          throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' requires a boolean.');
+        }
+        if (field.kind === 'enum' && !field.values.includes(value)) {
+          throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' is outside the advertised enum.');
+        }
+        if (field.kind === 'vector3' && (!Array.isArray(value) || value.length !== 3 || !value.every(Number.isFinite))) {
+          throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' requires three finite numbers.');
+        }
+        if (field.kind === 'matrix4' && (!Array.isArray(value) || value.length !== 16 || !value.every(Number.isFinite))) {
+          throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' requires 16 finite numbers.');
+        }
+      }
+    }
+  }
+
+  function scheduleV6PresentationFrame(callback) {
+    let fired = false;
+    const timer = setTimeout(() => {
+      if (fired) return;
+      fired = true;
+      callback(performance.now());
+    }, 16);
+    requestAnimationFrame((time) => {
+      if (fired) return;
+      fired = true;
+      clearTimeout(timer);
+      callback(time);
+    });
+  }
+
+  function waitForV6PresentationFrame() {
+    return new Promise((resolve) => scheduleV6PresentationFrame(resolve));
+  }
+
+  async function revealV6TreeEntity(entity) {
+    if (entity.kind === 'occurrence') {
+      showWorkspace('assembly', false);
+      renderAssemblyTree();
+    } else {
+      renderHistory();
+      renderBodies();
+    }
+    await waitForV6PresentationFrame();
+    const candidates = entity.kind === 'body'
+      ? document.querySelectorAll('[data-body-id]')
+      : entity.kind === 'occurrence'
+        ? document.querySelectorAll('[data-occurrence-id], [data-runtime-occurrence-id]')
+        : document.querySelectorAll('#bw-history [data-sel]');
+    const row = [...candidates].find((candidate) => {
+      if (entity.kind === 'body') return candidate.dataset.bodyId === entity.id;
+      if (entity.kind === 'occurrence') return (candidate.dataset.occurrenceId || candidate.dataset.runtimeOccurrenceId) === entity.id;
+      return candidate.dataset.sel === entity.id;
+    });
+    if (!row) {
+      throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The entity exists but has no visible model-tree row.', {
+        entity,
+        repairOptions: [{ kind: 'refresh-project-tree' }],
+      });
+    }
+    document.querySelectorAll('.is-agent-revealed').forEach((candidate) => candidate.classList.remove('is-agent-revealed'));
+    row.classList.add('is-agent-revealed');
+    row.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    return row.getAttribute('aria-label') || row.textContent?.trim() || entity.id;
+  }
+
+  function setV6TreeExpanded(entity, expanded) {
+    v6TreeExpansion.set(v6SelectionRefKey(entity), expanded);
+    renderAssemblyTree();
+    const row = [...document.querySelectorAll('[data-occurrence-id], [data-runtime-occurrence-id], [data-body-id], #bw-history [data-sel]')]
+      .find((candidate) =>
+        (candidate.dataset.occurrenceId || candidate.dataset.runtimeOccurrenceId || candidate.dataset.bodyId || candidate.dataset.sel) === entity.id);
+    if (row) row.setAttribute('aria-expanded', String(expanded));
+    requestSceneRender();
+    return { entity: deepCopy(entity), expanded };
+  }
+
+  function v6TreeEntityExpandable(entity) {
+    if (entity?.kind !== 'occurrence') return false;
+    if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') return false;
+    return v5RuntimeTools.studioV5RootAssembly(doc).occurrences.some((entry) => entry.id === entity.id);
+  }
+
+  function renderV6Diagnostics(diagnosticId = null) {
+    const body = $('bw-v6-diagnostics-body');
+    if (!body) return [];
+    const diagnostics = [
+      ...[...buildErrors].map(([id, message]) => ({ id, message: String(message) })),
+      ...[...bodyBuildErrors].map(([id, message]) => ({ id, message: String(message) })),
+    ].filter((entry) => !diagnosticId || entry.id === diagnosticId);
+    body.replaceChildren();
+    if (!diagnostics.length) {
+      const empty = document.createElement('p');
+      empty.className = 'ctx-sub';
+      empty.textContent = diagnosticId ? 'No current diagnostic matches ' + diagnosticId + '.' : 'No current kernel or document diagnostics.';
+      body.appendChild(empty);
+    } else {
+      for (const diagnostic of diagnostics) {
+        const item = document.createElement('div');
+        item.className = 'v6-diagnostic';
+        item.dataset.diagnosticId = diagnostic.id;
+        item.textContent = diagnostic.id + ': ' + diagnostic.message;
+        body.appendChild(item);
+      }
+    }
+    return diagnostics;
+  }
+
+  function syncV6PanelVisibility() {
+    appEl.classList.toggle('v6-model-tree-closed', !v6PanelOpen.get('model-tree'));
+    appEl.classList.toggle('v6-inspector-closed', !v6PanelOpen.get('inspector') && !v6PanelOpen.get('diagnostics'));
+    appEl.classList.toggle('v6-project-closed', !v6PanelOpen.get('project'));
+    appEl.classList.toggle('v6-history-closed', !v6PanelOpen.get('history'));
+    const diagnostics = $('bw-v6-diagnostics');
+    if (diagnostics) diagnostics.hidden = !v6PanelOpen.get('diagnostics');
+    if (v6PanelOpen.get('diagnostics')) {
+      $('bw-context-wrap')?.toggleAttribute('hidden', true);
+      $('bw-inspector-empty')?.toggleAttribute('hidden', true);
+    } else {
+      renderContext();
+    }
+    sideEl?.classList.toggle('m-open-project', Boolean(v6ProjectSheetRequested && v6PanelOpen.get('project') && window.matchMedia('(max-width: 760px)').matches));
+    syncMtabs?.();
+    requestSceneRender();
+  }
+
+  async function setV6Panel(panelId, open) {
+    v6PanelOpen.set(panelId, open);
+    if (panelId === 'project') v6ProjectSheetRequested = open;
+    if (panelId === 'diagnostics' && open) {
+      v6PanelOpen.set('inspector', true);
+    }
+    if (panelId === 'inspector' && open) v6PanelOpen.set('diagnostics', false);
+    if (panelId === 'history' && open) v6PanelOpen.set('model-tree', true);
+    syncV6PanelVisibility();
+    await waitForV6PresentationFrame();
+    if (panelId === 'history' && open) $('bw-history')?.scrollIntoView({ block: 'nearest' });
+    return { panelId, open: Boolean(v6PanelOpen.get(panelId)) };
+  }
+
+  function v6CameraTargetForStandardView(viewId) {
+    const { c, r } = partView();
+    const direction = VIEW_DIRS[viewId];
+    if (!direction) return null;
+    const vector = new THREE.Vector3(...direction).normalize().multiplyScalar(r * 1.6);
+    return { position: c.clone().add(vector), target: c, up: new THREE.Vector3(0, 1, 0) };
+  }
+
+  async function transitionV6Camera(next, { mode = 'normal', transition = 'cut' } = {}) {
+    const generation = ++v6CameraTransitionGeneration;
+    const startPosition = camera.position.clone();
+    const startTarget = orbit.target.clone();
+    const startUp = camera.up.clone();
+    const duration = transition === 'animate' ? (mode === 'recording' ? 700 : 260) : 0;
+    if (duration) {
+      const started = performance.now();
+      await new Promise((resolve, reject) => {
+        const frame = (time) => {
+          if (generation !== v6CameraTransitionGeneration) {
+            reject(new v6InteractionTools.CadUiError('SESSION_PAUSED', 'The visible camera transition was interrupted.'));
+            return;
+          }
+          const fraction = Math.min(1, (time - started) / duration);
+          const eased = fraction < 0.5 ? 2 * fraction * fraction : 1 - Math.pow(-2 * fraction + 2, 2) / 2;
+          camera.position.lerpVectors(startPosition, next.position, eased);
+          orbit.target.lerpVectors(startTarget, next.target, eased);
+          camera.up.lerpVectors(startUp, next.up, eased).normalize();
+          camera.updateProjectionMatrix();
+          orbit.update();
+          requestSceneRender();
+          if (fraction < 1) scheduleV6PresentationFrame(frame);
+          else resolve();
+        };
+        scheduleV6PresentationFrame(frame);
+      });
+    } else {
+      camera.position.copy(next.position);
+      orbit.target.copy(next.target);
+      camera.up.copy(next.up).normalize();
+      camera.updateProjectionMatrix();
+      orbit.update();
+      requestSceneRender();
+    }
+  }
+
+  function v6BoundsForSelection(selection) {
+    partGroup.updateMatrixWorld(true);
+    const bounds = new THREE.Box3();
+    let found = false;
+    const addMesh = (mesh) => {
+      if (!mesh?.visible) return;
+      bounds.expandByObject(mesh);
+      found = true;
+    };
+    const addPoint = (point, object) => {
+      if (!object) return;
+      const world = new THREE.Vector3().fromArray(point);
+      object.localToWorld(world);
+      bounds.expandByPoint(world);
+      found = true;
+    };
+    const addFace = (match) => {
+      const range = faceRanges.find((entry) => entry.bodyId === match.owner.id && entry.faceId === match._faceId);
+      const mesh = range?.mesh;
+      const position = mesh?.geometry?.getAttribute?.('position');
+      const index = mesh?.geometry?.getIndex?.();
+      if (!mesh || !position || !index) return;
+      mesh.updateMatrixWorld(true);
+      for (let triangleIndex = range.t0 * 3; triangleIndex < range.t1 * 3; triangleIndex++) {
+        const vertexIndex = index.getX(triangleIndex);
+        addPoint([position.getX(vertexIndex), position.getY(vertexIndex), position.getZ(vertexIndex)], mesh);
+      }
+    };
+    const addEdge = (match) => {
+      const line = match._line;
+      const position = line?.geometry?.getAttribute?.('position');
+      if (!line || !position || !match._entry) return;
+      line.updateMatrixWorld(true);
+      for (let vertexIndex = match._entry.start; vertexIndex < match._entry.start + match._entry.count; vertexIndex++) {
+        addPoint([position.getX(vertexIndex), position.getY(vertexIndex), position.getZ(vertexIndex)], line);
+      }
+    };
+    const topology = v6TopologyInventory();
+    for (const ref of selection) {
+      if (ref.owner) {
+        const match = topology.find((candidate) => candidate.stableId === ref.stableId && candidate.owner.id === ref.owner.id);
+        if (!match) continue;
+        if (match.topologySignature.kind === 'face') addFace(match);
+        else if (match.topologySignature.kind === 'edge') addEdge(match);
+        else addPoint(match.topologySignature.p, bodyMeshes.get(match.owner.id));
+        continue;
+      }
+      if (ref.kind === 'body') addMesh(bodyMeshes.get(ref.id));
+      if (ref.kind === 'occurrence') {
+        for (const result of lastBodyResults.filter((entry) => entry.occurrenceInstance?.occurrencePath?.includes(ref.id))) addMesh(bodyMeshes.get(result.bodyId));
+      }
+      if (ref.kind === 'feature') {
+        const feature = doc.features.find((entry) => entry.id === ref.id);
+        const ids = [feature?.createdBodyId, ...(feature?.resultPolicy?.targetBodyIds || [])].filter(Boolean);
+        for (const id of ids) addMesh(bodyMeshes.get(id));
+      }
+    }
+    return found && !bounds.isEmpty() ? bounds : null;
+  }
+
+  async function fitV6Bounds(bounds, context) {
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    const radius = Math.max(0.5, size.length() / 2);
+    const direction = camera.position.clone().sub(orbit.target);
+    if (direction.lengthSq() < 1e-12) direction.set(1, 0.8, 1);
+    direction.normalize();
+    const distance = Math.max(4, radius / Math.sin(THREE.MathUtils.degToRad(camera.fov) / 2) * 1.18);
+    await transitionV6Camera({
+      position: center.clone().add(direction.multiplyScalar(distance)),
+      target: center,
+      up: camera.up.clone(),
+    }, context);
+    return {
+      min: bounds.min.toArray(),
+      max: bounds.max.toArray(),
+      center: center.toArray(),
+      size: size.toArray(),
+    };
+  }
+
+  function focusV6Action(actionId) {
+    document.querySelectorAll('[data-v6-focused-action="true"]').forEach((element) => delete element.dataset.v6FocusedAction);
+    const targets = {
+      'model-tree': $('bw-tree'),
+      inspector: $('bw-side'),
+      project: $('bw-project-actions'),
+      history: $('bw-history'),
+      diagnostics: $('bw-v6-diagnostics'),
+      viewport: $('bw-studio'),
+    };
+    const capabilitySurface = actionId.startsWith('viewport.')
+      ? targets.viewport
+      : actionId.startsWith('selection.') || actionId.startsWith('tree.')
+        ? targets['model-tree']
+        : actionId.startsWith('inspector.')
+          ? targets.inspector
+          : actionId.startsWith('history.')
+            ? targets.history
+            : actionId.startsWith('diagnostics.')
+              ? targets.diagnostics
+              : actionId.startsWith('panel.')
+                ? targets.project
+                : actionId.startsWith('workspace.')
+                  ? document.querySelector('[data-workspace="' + CSS.escape(activeWorkspace) + '"]')
+                  : null;
+    const target = targets[actionId] || capabilitySurface || document.querySelector('[data-workspace="' + CSS.escape(actionId) + '"]');
+    if (!target) throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'No visible Studio surface is registered for action "' + actionId + '".');
+    target.dataset.v6FocusedAction = 'true';
+    target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    v6FocusedActionId = actionId;
+    return { actionId, visible: true };
+  }
+
+  function emitV6CommandEvent(kind, payload, context = {}, actor = 'agent') {
+    const runtime = getV6InteractionRuntime();
+    return runtime.emit(kind, payload, {
+      actor,
+      correlationId: context.correlationId || null,
+      uiRevision: context.targetUiRevision ?? runtime.uiRevision,
+    });
+  }
+
+  function v6CommandOccurrence(draft = v6AgentCommandDraft) {
+    const occurrenceId = draft?.boundSelections?.occurrence?.[0]?.id;
+    if (!occurrenceId || !v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') return null;
+    return v5RuntimeTools.studioV5RootAssembly(doc).occurrences.find((entry) => entry.id === occurrenceId) || null;
+  }
+
+  function renderV6CommandPreview() {
+    const surface = $('bw-v6-command-preview');
+    const title = $('bw-v6-command-preview-title');
+    const summary = $('bw-v6-command-preview-summary');
+    const evidence = $('bw-v6-command-preview-evidence');
+    const apply = $('bw-v5-command-apply');
+    if (!surface || !title || !summary || !evidence || !apply) return;
+    const preview = v6VisiblePreview;
+    const draft = v6AgentCommandDraft;
+    surface.hidden = !preview?.visible;
+    apply.disabled = Boolean(draft) && !preview?.visible;
+    apply.textContent = preview?.visible ? 'Apply exact preview' : draft ? 'Preview required' : 'Apply';
+    v5Dialog?.toggleAttribute('data-v6-agent-command', Boolean(draft));
+    if (!preview?.visible) {
+      title.textContent = draft?.state === 'blocked' ? 'Preview needs attention' : 'Ready to preview';
+      summary.textContent = '';
+      evidence.replaceChildren();
+      return;
+    }
+    const changeSet = preview.changeSet || {};
+    const counts = {
+      created: changeSet.created?.length || 0,
+      updated: changeSet.updated?.length || 0,
+      deleted: changeSet.deleted?.length || 0,
+    };
+    title.textContent = preview.validation?.valid ? 'Exact validation passed' : 'Preview blocked';
+    summary.textContent =
+      `${counts.created} created · ${counts.updated} updated · ${counts.deleted} deleted. ` +
+      'The document remains unchanged until this exact preview is committed.' +
+      (preview.confirmation?.required ? ' Confirmation is required for this destructive change.' : '');
+    evidence.replaceChildren();
+    const rows = [
+      ['Revision', String(preview.baseRevision)],
+      ['Transaction', preview.transactionHash],
+      ['Document hash', preview.changeSet?.documentHashAfter || 'unavailable'],
+      ['Kernel', preview.validation?.exactGeometry ? 'exact geometry valid' : 'exact validation unavailable'],
+      ['Bodies', String(preview.evidence?.bodyResults?.length || 0)],
+      ['Approval', preview.confirmation?.required ? 'required · destructive change' : 'required by session policy'],
+    ];
+    for (const [label, value] of rows) {
+      const term = document.createElement('dt');
+      const detail = document.createElement('dd');
+      term.textContent = label;
+      detail.textContent = value;
+      evidence.append(term, detail);
+    }
+  }
+
+  function setV6TransformPreviewMatrix(matrix) {
+    const occurrence = v6CommandOccurrence();
+    if (!occurrence) throw new v6InteractionTools.CadUiError('COMMAND_FIELD_REQUIRED', 'The visible transform draft has no component occurrence.');
+    if (!transformPreview?.object || transformPreview.occurrenceId !== occurrence.id) {
+      if (!beginAssemblyTransformPreview(occurrence)) {
+        throw new v6InteractionTools.CadUiError('RENDER_SETTLEMENT_TIMEOUT', 'The selected component has no rendered geometry for visible preview.');
+      }
+    }
+    transformPreview.object.matrix.fromArray(cadMatrixToScene(matrix));
+    transformPreview.object.matrix.decompose(
+      transformPreview.object.position,
+      transformPreview.object.quaternion,
+      transformPreview.object.scale,
+    );
+    transformPreview.object.updateMatrixWorld(true);
+    transformControls.dispatchEvent({ type: 'objectChange' });
+    requestSceneRender();
+  }
+
+  function cancelV6PreviewServiceRecord(previewId) {
+    if (!previewId) return;
+    liveAgentService?.cancelPreview(previewId);
+    activeAgentConnection?.previews.delete(previewId);
+  }
+
+  function cancelV6PreviewRecord() {
+    const previewId = v6VisiblePreview?.previewId;
+    if (previewId) {
+      if (v6ApplyingSemanticAction && previewId === v6SemanticBatchBasePreviewId) {
+        v6DeferredPreviewCancellations.add(previewId);
+      } else {
+        cancelV6PreviewServiceRecord(previewId);
+      }
+    }
+    v6VisiblePreview = null;
+    if (v6AgentCommandDraft) {
+      v6AgentCommandDraft.previewId = null;
+      if (v6AgentCommandDraft.state !== 'blocked') v6AgentCommandDraft.state = 'draft';
+    }
+    renderV6CommandPreview();
+  }
+
+  function invalidateV6CommandPreview() {
+    cancelV6PreviewRecord();
+    endTransformPreview(true);
+    const occurrence = v6CommandOccurrence();
+    if (v6AgentCommandDraft?.commandId === 'assembly.component-transform' && occurrence) beginAssemblyTransformPreview(occurrence);
+  }
+
+  function v6CommandDefinition(commandId = v6AgentCommandDraft?.commandId) {
+    return v6InteractionTools.cadUiCapabilityManifest().commands.find((entry) => entry.id === commandId) || null;
+  }
+
+  function v6CommandField(fieldId) {
+    return v6CommandDefinition()?.fields.find((entry) => entry.id === fieldId) || null;
+  }
+
+  function v6AdvertisedCommandField(fieldId) {
+    const active = v6CommandField(fieldId);
+    if (active) return active;
+    const candidates = v6InteractionTools.cadUiCapabilityManifest().commands
+      .filter((entry) => entry.state === 'available')
+      .flatMap((entry) => entry.fields)
+      .filter((entry) => entry.id === fieldId);
+    if (!candidates.length) return null;
+    const field = deepCopy(candidates[0]);
+    if (field.kind === 'enum') {
+      field.values = [...new Set(candidates.flatMap((entry) => entry.values || []))];
+    } else if (field.kind === 'selection') {
+      field.selectionKinds = [...new Set(candidates.flatMap((entry) => entry.selectionKinds || []))];
+      field.minItems = Math.min(...candidates.map((entry) => entry.minItems || 0));
+      field.maxItems = Math.max(...candidates.map((entry) => entry.maxItems || 100));
+    }
+    return field;
+  }
+
+  function v6AssemblyCommandRoute(commandId) {
+    if (commandId.startsWith('assembly.mate.')) {
+      return { command: 'mate', mateKind: commandId.slice('assembly.mate.'.length) };
+    }
+    return {
+      command: commandId === 'assembly.component-transform'
+        ? 'transform'
+        : commandId.slice('assembly.'.length),
+      mateKind: null,
+    };
+  }
+
+  function v6InspectionCommandRoute(commandId) {
+    return { command: commandId.slice('inspection.'.length) };
+  }
+
+  function v6ModelCommandRoute(commandId) {
+    return { command: commandId.slice('model.'.length) };
+  }
+
+  const V6_BASIC_MODEL_COMMANDS = new Set([
+    'model.extrude',
+    'model.cut',
+    'model.revolve',
+    'model.fillet',
+    'model.chamfer',
+    'model.shell',
+  ]);
+
+  function v6FormControl(name) {
+    return $('bw-v5-command-form')?.elements?.namedItem?.(name) || null;
+  }
+
+  function v6FormText(name) {
+    return String(v6FormControl(name)?.value ?? '').trim();
+  }
+
+  function v6FormNumber(name, fallback = 0) {
+    const value = Number(v6FormControl(name)?.value);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function v6FormBoolean(name) {
+    return v6FormControl(name)?.checked === true;
+  }
+
+  function v6DefinitionSelection(value) {
+    const [kind, id] = String(value || '').split(':');
+    if (!id || !['part', 'assembly'].includes(kind)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_REQUIRED', 'Choose a reusable part or assembly definition.');
+    }
+    return { kind, id };
+  }
+
+  function v6MateReferenceSelection(value) {
+    const stored = v5Dialog.__assemblyReferences?.find((entry) => entry.id === value)?.reference;
+    if (stored?.ownerKind === 'body') {
+      const signature = stored.signature || {};
+      const topologyKind = signature.kind || signature.topologyKind || (signature.n ? 'face' : signature.l != null ? 'edge' : 'vertex');
+      return {
+        owner: { kind: 'body', id: stored.ownerId },
+        stableId: 'mate-' + topologyKind + '-' + v6CanonicalKey({ ownerId: stored.ownerId, signature }).replace('fnv1a32:', ''),
+        topologySignature: {
+          kind: topologyKind,
+          p: deepCopy(signature.p || [0, 0, 0]),
+          ...(topologyKind === 'face' ? { n: deepCopy(signature.n || [0, 0, 1]) } : {}),
+          ...(topologyKind === 'edge' ? {
+            l: Number(signature.l) || 0,
+            curveType: signature.curveType || 'other',
+            ...(Number.isFinite(signature.r) ? { r: signature.r } : {}),
+            ...(signature.c ? { c: deepCopy(signature.c) } : {}),
+          } : {}),
+        },
+      };
+    }
+    const [occurrenceId, datumId] = String(value || '').split('|');
+    if (datumId) return { kind: 'datum', id: datumId };
+    if (occurrenceId) return { kind: 'occurrence', id: occurrenceId };
+    throw new v6InteractionTools.CadUiError('COMMAND_FIELD_REQUIRED', 'Choose a stable assembly geometry reference.');
+  }
+
+  function v6ModelTopologySelection(bodyId, kind, signature) {
+    const topologySignature = {
+      ...deepCopy(signature),
+      kind,
+      p: deepCopy(signature?.p || [0, 0, 0]),
+    };
+    return {
+      owner: { kind: 'body', id: bodyId },
+      stableId: 'model-' + kind + '-' + v6CanonicalKey({ bodyId, topologySignature }).replace('fnv1a32:', ''),
+      topologySignature,
+    };
+  }
+
+  function v6InitialAssemblyDraft(commandId, identity = null) {
+    const route = v6AssemblyCommandRoute(commandId);
+    const occurrenceId = v5Dialog.dataset.occurrenceId || selectedOccurrenceId || null;
+    const activeAssembly = doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc)
+      : doc.assemblyDefinitions?.find((entry) => entry.id === doc.metadata?.editContext?.assemblyId);
+    const occurrence = occurrenceId
+      ? activeAssembly?.occurrences.find((entry) => entry.id === occurrenceId)
+      : null;
+    const base = {
+      commandId,
+      draftId: identity?.draftId || `draft-${++v6DraftSequence}-${commandRevision}`,
+      transactionId: identity?.transactionId || `visible-${crypto.randomUUID?.() || commandRevision + '-' + Date.now()}`,
+      baseRevision: commandRevision,
+      state: 'draft',
+      inputValues: {},
+      boundSelections: {},
+      generatedIds: deepCopy(identity?.generatedIds || {}),
+      diagnostics: [],
+      previewId: null,
+    };
+    if (route.command === 'create') {
+      base.inputValues = {
+        name: v6FormText('name'),
+        occurrenceName: v6FormText('occurrenceName'),
+        fixed: v6FormBoolean('fixed'),
+      };
+      base.generatedIds.assemblyId ||= 'assembly-' + newId();
+      base.generatedIds.occurrenceId ||= 'occurrence-' + newId();
+    } else if (route.command === 'insert') {
+      base.inputValues = {
+        name: v6FormText('name'),
+        translation: ['x', 'y', 'z'].map((name) => v6FormNumber(name)),
+        fixed: v6FormBoolean('fixed'),
+      };
+      base.boundSelections.definition = [v6DefinitionSelection(v6FormText('definition'))];
+      base.generatedIds.occurrenceId ||= 'occurrence-' + newId();
+    } else if (route.command === 'linked') {
+      base.inputValues = {
+        name: v6FormText('name'),
+        translation: ['x', 'y', 'z'].map((name) => v6FormNumber(name)),
+      };
+      base.boundSelections.occurrence = [{ kind: 'occurrence', id: occurrence.id }];
+      base.generatedIds.occurrenceId ||= 'occurrence-' + newId();
+    } else if (route.command === 'independent') {
+      base.inputValues = { name: v6FormText('name') };
+      base.boundSelections.occurrence = [{ kind: 'occurrence', id: occurrence.id }];
+      base.generatedIds.partId ||= 'part-independent-' + newId();
+    } else if (route.command === 'replace') {
+      base.boundSelections.occurrence = [{ kind: 'occurrence', id: occurrence.id }];
+      base.boundSelections.definition = [v6DefinitionSelection(v6FormText('definition'))];
+    } else if (route.command === 'variant') {
+      base.inputValues = {
+        parameterOverrides: String(v6FormControl('parameterOverrides')?.value || '')
+          .split(/\r?\n/)
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+      };
+      base.boundSelections.occurrence = [{ kind: 'occurrence', id: occurrence.id }];
+    } else if (route.command === 'transform') {
+      const matrix = String(v6FormControl('matrix')?.value || '')
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .map(Number);
+      base.inputValues = {
+        gizmoMode: v6FormText('gizmoMode') || 'translate',
+        gizmoSnap: v6FormNumber('gizmoSnap', 1),
+        ...(matrix.length === 16 && matrix.every(Number.isFinite) ? { transform: matrix } : {}),
+      };
+      base.boundSelections.occurrence = [{ kind: 'occurrence', id: occurrence.id }];
+      if (!base.inputValues.transform) {
+        base.state = 'blocked';
+        base.diagnostics = [{
+          code: 'COMMAND_FIELD_INVALID',
+          severity: 'error',
+          message: 'Rigid 4×4 transform requires 16 finite numbers.',
+          fieldId: 'transform',
+        }];
+      }
+    } else if (route.command === 'edit-context') {
+      base.boundSelections.occurrence = [{ kind: 'occurrence', id: occurrence.id }];
+    } else if (route.command === 'pattern') {
+      base.inputValues = {
+        name: v6FormText('name'),
+        patternKind: v6FormText('patternKind'),
+        generatedCount: v6FormNumber('generatedCount', 1),
+        spacing: v6FormNumber('spacing'),
+        totalAngle: v6FormNumber('totalAngle', 360),
+      };
+      base.boundSelections.occurrence = [{ kind: 'occurrence', id: occurrence.id }];
+      base.generatedIds.patternId ||= 'occurrence-pattern-' + newId();
+    } else if (route.command === 'mate') {
+      const fixed = route.mateKind === 'fixed';
+      const mateId = v5Dialog.dataset.mateId || '';
+      const anchorOccurrenceId = v6FormText('anchorOccurrenceId');
+      const movingOccurrenceId = v6FormText('movingOccurrenceId');
+      base.inputValues = {
+        name: v6FormText('name'),
+        value: v6FormNumber('value'),
+        flip: v6FormBoolean('flip'),
+      };
+      base.boundSelections = {
+        movingOccurrence: [{ kind: 'occurrence', id: movingOccurrenceId }],
+        ...(fixed ? {} : {
+          anchorOccurrence: [{ kind: 'occurrence', id: anchorOccurrenceId }],
+          anchorReference: [v6MateReferenceSelection(v6FormText('anchorReference'))],
+          movingReference: [v6MateReferenceSelection(v6FormText('movingReference'))],
+        }),
+      };
+      if (mateId) {
+        base.editEntity = { kind: 'mate', id: mateId };
+        base.generatedIds.mateId = mateId;
+      } else {
+        base.generatedIds.mateId ||= 'mate-' + newId();
+      }
+    }
+    return base;
+  }
+
+  function v6InitialInspectionDraft(commandId, identity = null) {
+    const route = v6InspectionCommandRoute(commandId);
+    const base = {
+      commandId,
+      draftId: identity?.draftId || `draft-${++v6DraftSequence}-${commandRevision}`,
+      transactionId: identity?.transactionId || `visible-${crypto.randomUUID?.() || commandRevision + '-' + Date.now()}`,
+      baseRevision: commandRevision,
+      state: 'draft',
+      inputValues: {},
+      boundSelections: {},
+      generatedIds: deepCopy(identity?.generatedIds || {}),
+      diagnostics: [],
+      previewId: null,
+    };
+    if (route.command === 'section') {
+      const scopeOccurrenceId = v6FormText('scopeOccurrenceId');
+      base.inputValues = {
+        name: v6FormText('name'),
+        sectionKind: v6FormText('sectionKind'),
+        offset: v6FormNumber('offset'),
+        cap: v6FormBoolean('cap'),
+        reverse: v6FormBoolean('reverse'),
+        hatchSpacing: v6FormNumber('hatchSpacing'),
+        hatchAngle: v6FormNumber('hatchAngle'),
+        capFillColor: v6FormText('capFillColor'),
+        hatchColor: v6FormText('hatchColor'),
+      };
+      if (scopeOccurrenceId) base.boundSelections.scopeOccurrence = [{ kind: 'occurrence', id: scopeOccurrenceId }];
+      base.generatedIds.sectionId ||= 'section-' + newId();
+    } else if (route.command === 'explode') {
+      const occurrenceId = v5Dialog.dataset.occurrenceId || selectedOccurrenceId;
+      base.inputValues = {
+        name: v6FormText('name'),
+        translation: ['x', 'y', 'z'].map((name) => v6FormNumber(name)),
+      };
+      if (occurrenceId) base.boundSelections.occurrence = [{ kind: 'occurrence', id: occurrenceId }];
+      base.generatedIds.explodedViewId ||= 'exploded-' + newId();
+    } else if (route.command === 'stage') {
+      const ids = (name) => v6FormText(name).split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
+      base.inputValues = {
+        name: v6FormText('name'),
+        occurrenceIds: ids('occurrenceIds'),
+        distanceMateIds: ids('distanceMateIds'),
+        start: v6FormNumber('start'),
+        spacing: v6FormNumber('spacing'),
+        visible: v6FormBoolean('visible'),
+      };
+      base.generatedIds.stageGroupId ||= 'stage-group-' + newId();
+    } else if (route.command === 'measure') {
+      const bodyIds = v6FormText('bodyIds').split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
+      base.inputValues = {
+        name: v6FormText('name'),
+        measurementKind: v6FormText('measurementKind'),
+      };
+      base.boundSelections.bodies = bodyIds.map((id) => ({ kind: 'body', id }));
+      base.generatedIds.measurementId ||= 'measurement-' + newId();
+    } else if (route.command === 'material') {
+      const partId = v5Dialog.dataset.partId || '';
+      const bodyId = v5Dialog.dataset.sourceBodyId || '';
+      const occurrenceId = v5Dialog.dataset.occurrenceId || '';
+      const materialId = v6FormText('materialId');
+      const material = v5Dialog.__candidate?.materials?.find((entry) => entry.id === materialId);
+      if (bodyId) base.boundSelections.body = [{ kind: 'body', id: bodyId }];
+      if (materialId) base.boundSelections.material = [{ kind: 'material', id: materialId }];
+      base.materialContext = {
+        partId,
+        bodyId,
+        ...(occurrenceId ? { occurrenceId } : {}),
+        ...(material?.appearanceId ? { appearanceId: material.appearanceId } : {}),
+      };
+      base.bootstrapOperations = [{ kind: 'material.ensureGeneric', input: {} }];
+    }
+    return base;
+  }
+
+  function v6InitialModelDraft(commandId, identity = null) {
+    const route = v6ModelCommandRoute(commandId);
+    const form = $('bw-v5-command-form');
+    const base = {
+      commandId,
+      draftId: identity?.draftId || `draft-${++v6DraftSequence}-${commandRevision}`,
+      transactionId: identity?.transactionId || `visible-${crypto.randomUUID?.() || commandRevision + '-' + Date.now()}`,
+      baseRevision: commandRevision,
+      state: 'draft',
+      inputValues: {},
+      boundSelections: {},
+      generatedIds: deepCopy(identity?.generatedIds || {}),
+      diagnostics: [],
+      previewId: null,
+    };
+    let editedEntity = v5Dialog.dataset.datumId
+      ? { kind: 'datum', id: v5Dialog.dataset.datumId }
+      : v5Dialog.dataset.sketchId
+        ? { kind: 'sketch', id: v5Dialog.dataset.sketchId }
+        : v5Dialog.dataset.patternId
+          ? { kind: 'body-pattern', id: v5Dialog.dataset.patternId }
+          : v5Dialog.dataset.featureId
+            ? { kind: 'feature', id: v5Dialog.dataset.featureId }
+            : null;
+    if (editedEntity) base.editEntity = editedEntity;
+    if (V6_BASIC_MODEL_COMMANDS.has(commandId)) {
+      const feature = commandId === 'model.shell'
+        ? shellPick.snapshot()
+        : commandId === 'model.fillet' || commandId === 'model.chamfer'
+          ? picker.snapshot()
+          : facePick.active()
+            ? facePick.snapshot()
+            : sketch.snapshot();
+      if (!feature) {
+        throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'The normal Studio feature editor is not active.');
+      }
+      if (!editedEntity && doc.features.some((entry) => entry.id === feature.id)) {
+        editedEntity = { kind: 'feature', id: feature.id };
+        base.editEntity = editedEntity;
+      }
+      base.generatedIds.featureId ||= feature.id;
+      if (commandId === 'model.extrude' || commandId === 'model.cut' || commandId === 'model.revolve') {
+        base.inputValues = {
+          sketch: deepCopy(feature.sketch?.shapes || []),
+          sketchZ: deepCopy(feature.sketch?.z ?? 0),
+          ...(commandId === 'model.revolve' ? {} : { height: deepCopy(feature.h ?? 20) }),
+          ...(commandId === 'model.cut' ? { through: feature.through === true } : {}),
+          ...(commandId === 'model.revolve' ? {} : {
+            patternKind: feature.pattern?.kind || 'none',
+            patternCount: deepCopy(feature.pattern?.n ?? 4),
+            patternA: deepCopy(feature.pattern?.kind === 'circular' ? (feature.pattern?.cx ?? 0) : (feature.pattern?.dx ?? 10)),
+            patternB: deepCopy(feature.pattern?.kind === 'circular' ? (feature.pattern?.cy ?? 0) : (feature.pattern?.dy ?? 0)),
+          }),
+          resultPolicy: feature.resultPolicy?.kind || 'new-body',
+          bodyName: feature.resultPolicy?.bodyName || 'Body 1',
+        };
+        if (feature.resultPolicy?.targetBodyIds?.[0]) {
+          base.boundSelections.targetBody = [{ kind: 'body', id: feature.resultPolicy.targetBodyIds[0] }];
+        }
+        if (feature.onFace) {
+          const support = v6TopologyInventory().find((entry) =>
+            entry.owner?.kind === 'body' &&
+            (!feature.inputRefs?.[0]?.ownerId || entry.owner.id === feature.inputRefs[0].ownerId) &&
+            entry.topologySignature?.kind === 'face' &&
+            faceMatches(feature.onFace, entry.topologySignature));
+          if (support) {
+            base.boundSelections.supportFace = [deepCopy({
+              owner: support.owner,
+              stableId: support.stableId,
+              topologySignature: support.topologySignature,
+              expectedGeometry: support.expectedGeometry,
+            })];
+          }
+        }
+      } else if (commandId === 'model.fillet' || commandId === 'model.chamfer') {
+        base.inputValues = { radius: deepCopy(feature.r ?? 2) };
+        base.boundSelections.edges = picker.semanticSelections();
+      } else {
+        const bodyId = feature.resultPolicy?.targetBodyIds?.[0] || selectedBodyId;
+        base.inputValues = { thickness: deepCopy(feature.t ?? 2) };
+        if (bodyId) base.boundSelections.body = [{ kind: 'body', id: bodyId }];
+        base.boundSelections.faces = shellPick.semanticSelections();
+      }
+      return base;
+    }
+    const documentPart = v5RuntimeTools.studioV5RootPart(doc);
+    const candidatePart = v5RuntimeTools.studioV5RootPart(v5Dialog.__candidate);
+    base.bootstrapOperations = candidatePart.referenceGeometry
+      .filter((entry) =>
+        entry.id.startsWith('datum-origin-') &&
+        !documentPart.referenceGeometry.some((existing) => existing.id === entry.id))
+      .map((entry) => ({
+        kind: 'datum.create',
+        input: {
+          id: entry.id,
+          name: entry.name,
+          datumKind: entry.kind,
+          definition: deepCopy(entry.definition),
+        },
+      }));
+    const select = (fieldId, kind, id) => {
+      if (id) base.boundSelections[fieldId] = [{ kind, id }];
+    };
+    const selectMany = (fieldId, kind, ids) => {
+      const values = (ids || []).filter(Boolean).map((id) => ({ kind, id }));
+      if (values.length) base.boundSelections[fieldId] = values;
+    };
+    if (route.command === 'split') {
+      base.inputValues = {
+        name: v6FormText('name'),
+        keepOriginal: v6FormBoolean('keepOriginal'),
+        keepTools: v6FormBoolean('keepTools'),
+      };
+      select('targetBody', 'body', v6FormText('targetBodyId'));
+      select('toolBody', 'body', v6FormText('toolBodyId'));
+      base.generatedIds.splitId ||= 'split-' + newId();
+    } else if (route.command === 'plane') {
+      const definition = planeDefinitionFromForm(form);
+      base.inputValues = { name: v6FormText('name'), mode: definition.mode };
+      if (definition.mode === 'offset') {
+        base.inputValues.offset = definition.offset;
+        select('referenceDatum', 'datum', definition.referenceDatumId);
+      } else if (definition.mode === 'angle') {
+        base.inputValues.angle = definition.angle;
+        select('referenceDatum', 'datum', definition.referenceDatumId);
+        select('axisDatum', 'datum', definition.axisDatumId);
+      } else if (definition.mode === 'midplane') {
+        select('firstDatum', 'datum', definition.firstDatumId);
+        select('secondDatum', 'datum', definition.secondDatumId);
+      } else if (definition.mode === 'three-point') {
+        base.inputValues.points = definition.points;
+      } else {
+        base.inputValues.normal = definition.normal || definition.tangent;
+        select('pointDatum', 'datum', definition.pointDatumId);
+      }
+      base.generatedIds.datumId ||= editedEntity?.kind === 'datum' ? editedEntity.id : 'datum-' + newId();
+    } else if (route.command === 'profile' || route.command === 'path') {
+      const profile = route.command === 'profile';
+      base.inputValues = {
+        name: v6FormText('name'),
+        curveKind: v6FormText('curveKind'),
+        points: parsePointRows(v6FormControl('points')?.value, profile ? 2 : 3, profile ? 'Profile' : 'Path'),
+      };
+      if (profile) select('planeDatum', 'datum', v6FormText('planeDatumId'));
+      base.generatedIds.sketchId ||= editedEntity?.kind === 'sketch' ? editedEntity.id : 'sketch-' + route.command + '-' + newId();
+    } else if (route.command === 'loft') {
+      const patch = advancedFeatureFromForm(form, route.command);
+      base.inputValues = {
+        name: patch.name,
+        startContinuity: patch.continuity.start,
+        endContinuity: patch.continuity.end,
+        ruled: patch.ruled,
+      };
+      selectMany('sections', 'sketch', patch.sections);
+      selectMany('guideSketch', 'sketch', patch.guideSketchIds);
+      select('centerlineSketch', 'sketch', patch.centerlineSketchId);
+      base.generatedIds.featureId ||= 'feature-loft-' + newId();
+    } else if (route.command === 'sweep') {
+      const patch = advancedFeatureFromForm(form, route.command);
+      base.inputValues = {
+        name: patch.name,
+        orientation: patch.orientation,
+        twistAngle: patch.twistAngle,
+        scaleEnd: patch.scaleEnd,
+        referenceDirection: patch.referenceDirection,
+      };
+      select('profileSketch', 'sketch', patch.profileSketchId);
+      select('pathSketch', 'sketch', patch.pathSketchId);
+      select('guideSketch', 'sketch', patch.guideSketchId);
+      base.generatedIds.featureId ||= 'feature-sweep-' + newId();
+    } else if (route.command === 'revolve-advanced') {
+      base.inputValues = {
+        name: v6FormText('name'),
+        angle: formNumber(form, 'angle'),
+        startAngle: formNumber(form, 'startAngle'),
+        symmetric: v6FormBoolean('symmetric'),
+      };
+      select('profileSketch', 'sketch', v6FormText('profileSketchId'));
+      select('axisDatum', 'datum', v6FormText('axisDatumId'));
+      base.generatedIds.featureId ||= 'feature-revolve-' + newId();
+    } else if (['draft', 'thicken', 'variable-fillet'].includes(route.command)) {
+      const patch = advancedModifierFromForm(form, route.command);
+      const bodyId = patch.bodyId;
+      base.inputValues = { name: patch.name };
+      select('body', 'body', bodyId);
+      if (route.command === 'draft') {
+        Object.assign(base.inputValues, {
+          angle: patch.angle,
+          flip: patch.flip,
+          tangentPropagation: patch.tangentPropagation,
+        });
+        select('neutralPlane', 'datum', patch.neutralPlaneDatumId);
+        base.boundSelections.faces = patch.faces.map((signature) => v6ModelTopologySelection(bodyId, 'face', signature));
+      } else if (route.command === 'thicken') {
+        Object.assign(base.inputValues, {
+          bodyName: patch.bodyName,
+          thickness: patch.thickness,
+          symmetric: patch.symmetric,
+          flip: patch.flip,
+        });
+        base.boundSelections.faces = patch.faces.map((signature) => v6ModelTopologySelection(bodyId, 'face', signature));
+      } else {
+        Object.assign(base.inputValues, {
+          startRadius: patch.startRadius,
+          endRadius: patch.endRadius,
+          tangentPropagation: patch.tangentPropagation,
+        });
+        base.boundSelections.edges = patch.edges.map((signature) => v6ModelTopologySelection(bodyId, 'edge', signature));
+      }
+      base.generatedIds.featureId ||= 'feature-' + route.command + '-' + newId();
+    } else if (route.command === 'pattern') {
+      const patch = bodyPatternFromForm(form);
+      base.inputValues = {
+        name: patch.name,
+        patternKind: patch.kind,
+        outputMode: patch.outputMode,
+        count: patch.count,
+        distribution: patch.distribution,
+        symmetric: patch.symmetric,
+        orientation: patch.orientation,
+        count2: patch.count2,
+        symmetric2: patch.symmetric2,
+        spacing2: patch.spacing2,
+        extent2: patch.extent2,
+        tableValues2: patch.positions2,
+        spacing: patch.spacing,
+        extent: patch.extent,
+        totalAngle: patch.totalAngle,
+        spacingAngle: patch.spacingAngle,
+        radialOffset: patch.radialOffset,
+        axialOffset: patch.axialOffset,
+        tableValues: patch.positions || patch.angles || patch.parameters || [],
+        skippedIndices: patch.skippedIndices,
+      };
+      select('sourceBody', 'body', patch.sourceBodyId);
+      selectMany('directionDatums', 'datum', patch.directionDatumIds);
+      select('axisDatum', 'datum', patch.axisDatumId);
+      select('planeDatum', 'datum', patch.planeDatumId);
+      select('pathSketch', 'sketch', patch.pathSketchId);
+      base.generatedIds.patternId ||= editedEntity?.kind === 'body-pattern' ? editedEntity.id : 'pattern-' + newId();
+    } else if (['move', 'copy', 'rotate', 'mirror', 'scale', 'align'].includes(route.command)) {
+      const transform = transformFromForm(form, route.command);
+      const bodyId = v5Dialog.dataset.bodyId || selectedBodyId;
+      select('body', 'body', bodyId);
+      if (route.command === 'move' || route.command === 'copy') {
+        base.inputValues.translation = transform.translation;
+        base.inputValues.gizmoSnap = formNumber(form, 'gizmoSnap', 1);
+      } else if (route.command === 'rotate') {
+        base.inputValues.angle = transform.angle;
+        base.inputValues.gizmoSnap = formNumber(form, 'gizmoSnap', 15);
+        select('axisDatum', 'datum', transform.axisDatumId);
+      } else if (route.command === 'mirror') {
+        base.inputValues.moveOriginal = v6FormBoolean('moveOriginal');
+        select('planeDatum', 'datum', transform.planeDatumId);
+      } else if (route.command === 'scale') {
+        base.inputValues.factor = transform.factor;
+        base.inputValues.center = transform.center;
+      } else {
+        base.inputValues.offset = transform.offset;
+        base.inputValues.flip = transform.flip;
+        select('fromDatum', 'datum', transform.fromDatumId);
+        select('toDatum', 'datum', transform.toDatumId);
+      }
+      base.generatedIds.featureId ||= 'transform-' + newId();
+    }
+    return base;
+  }
+
+  function v6InitialVisibleCommandDraft(commandId, identity = null) {
+    return commandId.startsWith('model.')
+      ? v6InitialModelDraft(commandId, identity)
+      : commandId.startsWith('assembly.')
+      ? v6InitialAssemblyDraft(commandId, identity)
+      : v6InitialInspectionDraft(commandId, identity);
+  }
+
+  function v6SetFormControl(name, value) {
+    const control = v6FormControl(name);
+    if (!control) return false;
+    if (control.type === 'checkbox') control.checked = Boolean(value);
+    else {
+      const requested = String(value ?? '');
+      control.value = requested;
+      if (control.tagName === 'SELECT' && control.value !== requested) return false;
+    }
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+
+  function v6SetVisibleCommandFormInput(fieldId, value) {
+    if (V6_BASIC_MODEL_COMMANDS.has(v6AgentCommandDraft?.commandId)) {
+      if (v6AgentCommandDraft.commandId === 'model.shell') return shellPick.setSemanticInput(fieldId, value);
+      if (v6AgentCommandDraft.commandId === 'model.fillet' || v6AgentCommandDraft.commandId === 'model.chamfer') {
+        return picker.setSemanticInput(fieldId, value);
+      }
+      return sketch.setSemanticInput(fieldId, value);
+    }
+    if (fieldId === 'translation') {
+      if (!Array.isArray(value) || value.length !== 3) return false;
+      const prefix = v6AgentCommandDraft?.commandId.startsWith('model.') ? 't' : '';
+      return ['x', 'y', 'z'].every((name, index) => v6SetFormControl(prefix + name, value[index]));
+    }
+    if (fieldId === 'center') return ['x', 'y', 'z'].every((name, index) => v6SetFormControl('c' + name, value[index]));
+    if (fieldId === 'referenceDirection') return ['x', 'y', 'z'].every((name, index) => v6SetFormControl('r' + name, value[index]));
+    if (fieldId === 'normal') return v6SetFormControl('normalCsv', value.join(', '));
+    if (fieldId === 'points') {
+      if (v6AgentCommandDraft?.commandId === 'model.plane') {
+        return value.length === 3 && value.every((point, index) => v6SetFormControl('point' + index, point.join(', ')));
+      }
+      return v6SetFormControl('points', formatPointRows(value));
+    }
+    if (fieldId === 'transform') return v6SetFormControl('matrix', value.join(', '));
+    if (fieldId === 'parameterOverrides') return v6SetFormControl('parameterOverrides', value.join('\n'));
+    if (fieldId === 'occurrenceIds' || fieldId === 'distanceMateIds') return v6SetFormControl(fieldId, value.join('\n'));
+    if (fieldId === 'tableValues' || fieldId === 'tableValues2') return v6SetFormControl(fieldId, value.join('\n'));
+    if (fieldId === 'skippedIndices') return v6SetFormControl(fieldId, value.join(', '));
+    return v6SetFormControl(fieldId, value);
+  }
+
+  function v6SetTopologyFormSelection(entities) {
+    const select = v6FormControl('topology');
+    if (!select || !v5Dialog.__topologyChoices) return false;
+    const comparable = (signature) => {
+      const copy = deepCopy(signature || {});
+      delete copy.kind;
+      return v6CanonicalKey(copy);
+    };
+    const wanted = new Set(entities.map((entry) => comparable(entry.topologySignature)));
+    let matched = 0;
+    [...select.options].forEach((option) => {
+      const selected = wanted.has(comparable(v5Dialog.__topologyChoices[Number(option.value)]));
+      option.selected = selected;
+      if (selected) matched++;
+    });
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return matched === wanted.size;
+  }
+
+  function v6RestoreModelDraftForm(skipFieldId) {
+    for (const [inputFieldId, value] of Object.entries(v6AgentCommandDraft.inputValues)) {
+      v6SetVisibleCommandFormInput(inputFieldId, value);
+    }
+    for (const [selectionFieldId, values] of Object.entries(v6AgentCommandDraft.boundSelections)) {
+      if (selectionFieldId === skipFieldId || ['body', 'targetBody', 'sourceBody'].includes(selectionFieldId)) continue;
+      v6SetVisibleCommandFormSelection(selectionFieldId, values);
+    }
+  }
+
+  function v6ReopenModelCommandForBody(fieldId, bodyId) {
+    selectedBodyId = bodyId;
+    setV6SemanticSelection([{ kind: 'body', id: bodyId }]);
+    const command = v6ModelCommandRoute(v6AgentCommandDraft.commandId).command;
+    v6ClosingCommand = true;
+    try {
+      openV5Command(command);
+    } finally {
+      v6ClosingCommand = false;
+    }
+    if (!v5Dialog?.open) return false;
+    v6RestoreModelDraftForm(fieldId);
+    return true;
+  }
+
+  function v6ModelSelectionExists(entity) {
+    if (entity?.owner) return v6EntityExists(entity.owner);
+    if (v6EntityExists(entity)) return true;
+    if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'part') return false;
+    const part = v5RuntimeTools.studioV5RootPart(doc);
+    if (entity.kind === 'datum') return part.referenceGeometry.some((entry) => entry.id === entity.id);
+    if (entity.kind === 'sketch') return part.sketches.some((entry) => entry.id === entity.id);
+    return false;
+  }
+
+  function v6SetVisibleCommandFormSelection(fieldId, entities) {
+    const entity = entities[0];
+    if (V6_BASIC_MODEL_COMMANDS.has(v6AgentCommandDraft?.commandId)) {
+      if (v6AgentCommandDraft.commandId === 'model.shell') return shellPick.setSemanticSelection(fieldId, entities);
+      if (v6AgentCommandDraft.commandId === 'model.fillet' || v6AgentCommandDraft.commandId === 'model.chamfer') {
+        return picker.setSemanticSelection(fieldId, entities);
+      }
+      return sketch.setSemanticSelection(fieldId, entities);
+    }
+    if (v6AgentCommandDraft?.commandId === 'inspection.material') {
+      if (fieldId === 'material') return v6SetFormControl('materialId', entity?.id || '');
+      if (fieldId === 'body') {
+        const result = lastBodyResults.find((entry) => entry.sourceBodyId === entity?.id || entry.bodyId === entity?.id);
+        if (!result) return false;
+        selectedBodyId = result.bodyId;
+        const occurrenceId = result.occurrenceInstance?.occurrencePath?.[0] || result.occurrenceInstance?.occurrenceId || null;
+        if (occurrenceId) selectedOccurrenceId = occurrenceId;
+        setV6SemanticSelection([{ kind: 'body', id: result.bodyId }]);
+        v6ClosingCommand = true;
+        try {
+          openInspectionCommand('material');
+        } finally {
+          v6ClosingCommand = false;
+        }
+        const materialId = v6AgentCommandDraft.boundSelections.material?.[0]?.id;
+        if (materialId) v6SetFormControl('materialId', materialId);
+        return v5Dialog?.open && v5Dialog.dataset.sourceBodyId === entity.id;
+      }
+    }
+    if (
+      v6AgentCommandDraft?.commandId.startsWith('model.') &&
+      ['body', 'targetBody', 'sourceBody'].includes(fieldId)
+    ) {
+      return Boolean(entity?.id) && v6ReopenModelCommandForBody(fieldId, entity.id);
+    }
+    if (fieldId === 'targetBody') return v6SetFormControl('targetBodyId', entity?.id || '');
+    if (fieldId === 'toolBody') return v6SetFormControl('toolBodyId', entity?.id || '');
+    if (fieldId === 'body') return v6SetFormControl('bodyId', entity?.id || '');
+    if (fieldId === 'sourceBody') return v6SetFormControl('sourceBodyId', entity?.id || '');
+    if (fieldId === 'sections') return v6SetFormControl('sectionIds', entities.map((entry) => entry.id).join('\n'));
+    if (fieldId === 'directionDatums') {
+      return v6SetFormControl('directionDatumId', entities[0]?.id || '') &&
+        v6SetFormControl('directionDatumId2', entities[1]?.id || '');
+    }
+    if (fieldId === 'faces' || fieldId === 'edges') return v6SetTopologyFormSelection(entities);
+    const modelSelectionControls = {
+      referenceDatum: 'referenceDatumId',
+      axisDatum: 'axisDatumId',
+      firstDatum: 'firstDatumId',
+      secondDatum: 'secondDatumId',
+      pointDatum: 'pointDatumId',
+      planeDatum: 'planeDatumId',
+      fromDatum: 'fromDatumId',
+      toDatum: 'toDatumId',
+      profileSketch: 'profileSketchId',
+      pathSketch: 'pathSketchId',
+      guideSketch: 'guideSketchId',
+      centerlineSketch: 'centerlineSketchId',
+      neutralPlane: 'neutralPlaneDatumId',
+    };
+    if (modelSelectionControls[fieldId]) return v6SetFormControl(modelSelectionControls[fieldId], entity?.id || '');
+    if (fieldId === 'scopeOccurrence') return v6SetFormControl('scopeOccurrenceId', entity?.id || '');
+    if (fieldId === 'bodies') return v6SetFormControl('bodyIds', entities.map((entry) => entry.id).join('\n'));
+    if (fieldId === 'definition') {
+      return v6SetFormControl('definition', entity.kind + ':' + entity.id);
+    }
+    if (fieldId === 'anchorOccurrence') return v6SetFormControl('anchorOccurrenceId', entity.id);
+    if (fieldId === 'movingOccurrence') return v6SetFormControl('movingOccurrenceId', entity.id);
+    if (fieldId === 'anchorReference' || fieldId === 'movingReference') {
+      const occurrenceField = fieldId === 'anchorReference' ? 'anchorOccurrence' : 'movingOccurrence';
+      const occurrenceId = v6AgentCommandDraft.boundSelections[occurrenceField]?.[0]?.id;
+      let optionValue = '';
+      if (!entity.owner && entity.kind === 'occurrence') optionValue = entity.id + '|';
+      else if (!entity.owner && entity.kind === 'datum') optionValue = occurrenceId + '|' + entity.id;
+      else {
+        const match = v5Dialog.__assemblyReferences?.find((entry) =>
+          entry.reference?.ownerId === entity.owner?.id &&
+          JSON.stringify(entry.reference?.signature?.p) === JSON.stringify(entity.topologySignature?.p));
+        optionValue = match?.id || '';
+      }
+      return Boolean(optionValue) && v6SetFormControl(fieldId, optionValue);
+    }
+    if (fieldId === 'occurrence') {
+      selectedOccurrenceId = entity.id;
+      setV6SemanticSelection([{ kind: 'occurrence', id: entity.id }]);
+      v5Dialog.dataset.occurrenceId = entity.id;
+      if (v6AgentCommandDraft.commandId !== 'assembly.component-transform') {
+        if (v6AgentCommandDraft.commandId.startsWith('assembly.')) {
+          const route = v6AssemblyCommandRoute(v6AgentCommandDraft.commandId);
+          openAssemblyCommand(route.command, route.mateKind);
+        } else {
+          openInspectionCommand(v6InspectionCommandRoute(v6AgentCommandDraft.commandId).command);
+        }
+        for (const [inputFieldId, value] of Object.entries(v6AgentCommandDraft.inputValues)) {
+          v6SetVisibleCommandFormInput(inputFieldId, value);
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function v6CommandIdForEditableFeature(feature) {
+    if (!feature) return null;
+    if (feature.type === 'extrude') return 'model.extrude';
+    if (feature.type === 'cut') return 'model.cut';
+    if (feature.type === 'revolve') return feature.profileSketchId ? 'model.revolve-advanced' : 'model.revolve';
+    if (feature.type === 'fillet') return Array.isArray(feature.variableRadii) ? 'model.variable-fillet' : 'model.fillet';
+    if (feature.type === 'chamfer') return 'model.chamfer';
+    if (feature.type === 'shell') return 'model.shell';
+    if (feature.type === 'loft') return 'model.loft';
+    if (feature.type === 'sweep') return 'model.sweep';
+    if (feature.type === 'draft') return 'model.draft';
+    if (feature.type === 'thicken') return 'model.thicken';
+    if (feature.type === 'transform') {
+      const mode = feature.transform?.mode || feature.operation;
+      return ['move', 'copy', 'rotate', 'mirror', 'scale', 'align'].includes(mode) ? `model.${mode}` : null;
+    }
+    return null;
+  }
+
+  function openV6AgentCommand(commandId, context, { forceNewBody = false } = {}) {
+    const commandDefinition = v6CommandDefinition(commandId);
+    const supportedVisibleCommand =
+      commandId.startsWith('model.') ||
+      commandId.startsWith('assembly.') ||
+      commandId.startsWith('inspection.');
+    if (commandDefinition?.state !== 'available' || !supportedVisibleCommand) {
+      throw new v6InteractionTools.CadUiError('COMMAND_NOT_AVAILABLE', 'The requested visible command is not advertised.');
+    }
+    if (v6AgentCommandDraft) {
+      throw new v6InteractionTools.CadUiError('COMMAND_ALREADY_OPEN', 'Finish or cancel the current visible command before opening another.');
+    }
+    if (v5Dialog?.open || isWorking(mode.kind)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'A human-authored Studio command is already open.');
+    }
+    if (!v5RuntimeTools.isStudioV5Project(doc)) throw new v6InteractionTools.CadUiError('COMMAND_NOT_AVAILABLE', 'Visible V6 commands require a schema-5 project.');
+    showWorkspace(commandId.startsWith('model.') ? 'solid' : 'assembly', false);
+    const bodyRef = currentV6Selections().find((entry) => !entry.owner && entry.kind === 'body');
+    if (bodyRef) selectedBodyId = bodyRef.id;
+    const occurrenceRef = currentV6Selections().find((entry) => !entry.owner && entry.kind === 'occurrence');
+    if (occurrenceRef) {
+      selectedOccurrenceId = occurrenceRef.id;
+      selectedBodyId = lastBodyResults.find((entry) => entry.occurrenceInstance?.occurrencePath?.[0] === occurrenceRef.id)?.bodyId || null;
+    }
+    const selectedEditableFeature = selectedFeatureId
+      ? doc.features.find((entry) =>
+          entry.id === selectedFeatureId && v6CommandIdForEditableFeature(entry) === commandId)
+      : null;
+    const selectedDatum = currentV6Selections().find((entry) => !entry.owner && entry.kind === 'datum');
+    const selectedSketch = currentV6Selections().find((entry) => !entry.owner && entry.kind === 'sketch');
+    const selectedPattern = currentV6Selections().find((entry) => !entry.owner && entry.kind === 'body-pattern');
+    if (V6_BASIC_MODEL_COMMANDS.has(commandId)) {
+      if (selectedEditableFeature && !forceNewBody) openEditorFor(selectedEditableFeature);
+      else {
+        openBasicFeatureCommand(v6ModelCommandRoute(commandId).command, {
+          semantic: true,
+          selections: currentV6Selections(),
+          forceNewBody,
+        });
+      }
+    } else if (commandId.startsWith('model.')) {
+      const route = v6ModelCommandRoute(commandId);
+      if (route.command === 'plane') openV5Command(route.command, selectedDatum?.id || null);
+      else if (route.command === 'profile' || route.command === 'path') {
+        openV5Command(route.command, null, null, selectedSketch?.id || null);
+      } else if (route.command === 'pattern') {
+        openV5Command(route.command, null, null, null, selectedPattern?.id || null);
+      } else openV5Command(route.command, null, selectedEditableFeature?.id);
+    } else if (commandId.startsWith('assembly.')) {
+      const route = v6AssemblyCommandRoute(commandId);
+      const selectedMate = route.command === 'mate' && selectedMateId && doc.rootDocument?.kind === 'assembly'
+        ? v5RuntimeTools.studioV5RootAssembly(doc).mates.find((entry) =>
+            entry.id === selectedMateId && entry.kind === route.mateKind)
+        : null;
+      openAssemblyCommand(route.command, route.mateKind, selectedMate?.id);
+    } else {
+      openInspectionCommand(v6InspectionCommandRoute(commandId).command);
+    }
+    const normalSurfaceOpen = V6_BASIC_MODEL_COMMANDS.has(commandId)
+      ? sketch.isOpen() || picker.active() || shellPick.active() || facePick.active()
+      : v5Dialog?.open;
+    if (!normalSurfaceOpen) throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Studio could not open the normal ' + commandDefinition.label + ' panel.');
+    v6AgentCommandDraft = v6InitialVisibleCommandDraft(commandId);
+    v6VisiblePreview = null;
+    renderV6CommandPreview();
+    emitV6CommandEvent('command.draftChanged', {
+      reason: 'opened',
+      activeCommand: v6ActiveCommandState(),
+    }, context);
+    return { activeCommand: v6ActiveCommandState(), panelVisible: true };
+  }
+
+  function bindV6CommandSelection(fieldId, entities, context) {
+    const field = v6CommandField(fieldId);
+    if (!v6AgentCommandDraft || field?.kind !== 'selection') {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'No visible command accepts that selection field.');
+    }
+    if (entities.length < (field.minItems || 0) || entities.length > (field.maxItems || 100)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' has invalid selection cardinality.');
+    }
+    for (const entity of entities) {
+      const selectionKind = entity.owner ? entity.topologySignature.kind : entity.kind;
+      if (!field.selectionKinds.includes(selectionKind)) {
+        throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' does not accept ' + selectionKind + ' selections.');
+      }
+      if (v6AgentCommandDraft.commandId.startsWith('model.')) {
+        const transientOriginDatum = !entity.owner &&
+          entity.kind === 'datum' &&
+          v6AgentCommandDraft.bootstrapOperations?.some((operation) =>
+            operation.kind === 'datum.create' && operation.input?.id === entity.id);
+        if (!v6ModelSelectionExists(entity) && !transientOriginDatum) {
+          throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' must reference geometry in the active part.');
+        }
+      }
+    }
+    invalidateV6CommandPreview();
+    v6AgentCommandDraft.boundSelections[fieldId] = deepCopy(entities);
+    if (!v6SetVisibleCommandFormSelection(fieldId, entities)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'Studio could not bind that semantic selection to the normal command field.');
+    }
+    if (v6AgentCommandDraft.commandId === 'assembly.component-transform' && fieldId === 'occurrence') {
+      const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
+      const occurrence = assembly.occurrences.find((entry) => entry.id === entities[0]?.id);
+      if (!occurrence) throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'The selected occurrence is not in the active assembly.');
+      v6AgentCommandDraft.inputValues.transform = deepCopy(occurrence.baseTransform);
+      const matrixInput = v5Fields?.querySelector('[name="matrix"]');
+      if (matrixInput) matrixInput.value = occurrence.baseTransform.join(', ');
+      beginAssemblyTransformPreview(occurrence);
+    }
+    if (v6AgentCommandDraft.commandId === 'inspection.material') {
+      const materialId = v6AgentCommandDraft.boundSelections.material?.[0]?.id || v6FormText('materialId');
+      const material = v5Dialog.__candidate?.materials?.find((entry) => entry.id === materialId);
+      v6AgentCommandDraft.materialContext = {
+        partId: v5Dialog.dataset.partId || '',
+        bodyId: v5Dialog.dataset.sourceBodyId || '',
+        ...(v5Dialog.dataset.occurrenceId ? { occurrenceId: v5Dialog.dataset.occurrenceId } : {}),
+        ...(material?.appearanceId ? { appearanceId: material.appearanceId } : {}),
+      };
+    }
+    v6AgentCommandDraft.baseRevision = commandRevision;
+    v6AgentCommandDraft.state = 'draft';
+    v6AgentCommandDraft.diagnostics = [];
+    renderV6CommandPreview();
+    emitV6CommandEvent('command.draftChanged', {
+      reason: 'selection-bound',
+      fieldId,
+      activeCommand: v6ActiveCommandState(),
+    }, context);
+    return { fieldId, entities: deepCopy(v6AgentCommandDraft.boundSelections[fieldId]) };
+  }
+
+  function setV6CommandInput(fieldId, value, context) {
+    const field = v6CommandField(fieldId);
+    if (!v6AgentCommandDraft || !field || field.kind === 'selection') {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'No visible command accepts that input field.');
+    }
+    const validValue =
+      (field.kind === 'boolean' && typeof value === 'boolean') ||
+      (field.kind === 'enum' && typeof value === 'string' && field.values.includes(value)) ||
+      (field.kind === 'text' && typeof value === 'string') ||
+      (field.kind === 'number-or-expression' && (
+        (typeof value === 'number' && Number.isFinite(value)) ||
+        (typeof value === 'string' && value.trim().length > 0)
+      )) ||
+      (field.kind === 'vector3' && Array.isArray(value) && value.length === 3 && value.every(Number.isFinite)) ||
+      (field.kind === 'matrix4' && Array.isArray(value) && value.length === 16 && value.every(Number.isFinite)) ||
+      ((field.kind === 'list' || field.kind === 'points') && Array.isArray(value));
+    if (!validValue) {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', field.label + ' does not accept that typed value.');
+    }
+    invalidateV6CommandPreview();
+    if (!v6SetVisibleCommandFormInput(fieldId, value)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'Studio could not write that typed value to the normal command field.');
+    }
+    v6AgentCommandDraft.inputValues[fieldId] = deepCopy(value);
+    v6AgentCommandDraft.state = 'draft';
+    v6AgentCommandDraft.diagnostics = [];
+    if (v6AgentCommandDraft.commandId === 'assembly.component-transform' && fieldId === 'transform') {
+      setV6TransformPreviewMatrix(value);
+    }
+    renderV6CommandPreview();
+    emitV6CommandEvent('command.draftChanged', {
+      reason: 'input-set',
+      fieldId,
+      activeCommand: v6ActiveCommandState(),
+    }, context);
+    return { fieldId, value: deepCopy(value) };
+  }
+
+  function clearV6CommandInput(fieldId, context) {
+    const field = v6CommandField(fieldId);
+    if (!v6AgentCommandDraft || !field || field.kind === 'selection') {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'No visible command accepts that input field.');
+    }
+    invalidateV6CommandPreview();
+    delete v6AgentCommandDraft.inputValues[fieldId];
+    v6SetVisibleCommandFormInput(fieldId, field.kind === 'boolean' ? false : field.kind === 'list' ? [] : '');
+    const required = field.required === true;
+    v6AgentCommandDraft.state = required ? 'blocked' : 'draft';
+    v6AgentCommandDraft.diagnostics = required ? [{
+      code: 'COMMAND_FIELD_REQUIRED',
+      severity: 'error',
+      message: field.label + ' is required.',
+      fieldId,
+    }] : [];
+    v5Error.textContent = required ? field.label + ' is required before preview.' : '';
+    renderV6CommandPreview();
+    emitV6CommandEvent('command.draftChanged', {
+      reason: 'input-cleared',
+      fieldId,
+      activeCommand: v6ActiveCommandState(),
+    }, context);
+    return { fieldId, cleared: true };
+  }
+
+  async function previewV6AgentCommand(context) {
+    if (!v6AgentCommandDraft) throw new v6InteractionTools.CadUiError('COMMAND_NOT_OPEN', 'Open an advertised command before requesting preview.');
+    if (v6AgentCommandDraft.baseRevision !== commandRevision) {
+      throw new v6InteractionTools.CadUiError('REVISION_CONFLICT', 'The project changed after this command draft opened.', {
+        expectedRevision: v6AgentCommandDraft.baseRevision,
+        actualRevision: commandRevision,
+        repairOptions: [{ kind: 'refresh-command-draft' }],
+      });
+    }
+    if (v6VisiblePreview) cancelV6PreviewRecord();
+    v6AgentCommandDraft.state = 'validating';
+    v6AgentCommandDraft.diagnostics = [];
+    v5Error.textContent = '';
+    renderV6CommandPreview();
+    emitV6CommandEvent('preview.started', {
+      commandId: v6AgentCommandDraft.commandId,
+      draftId: v6AgentCommandDraft.draftId,
+      baseRevision: commandRevision,
+    }, context);
+    try {
+      const built = v6InteractionTools.buildCadUiCommandTransaction({
+        draft: v6AgentCommandDraft,
+        expectedRevision: commandRevision,
+        transactionId: v6AgentCommandDraft.transactionId,
+      });
+      const draftFingerprint = v6CanonicalKey({
+        draftId: v6AgentCommandDraft.draftId,
+        baseRevision: v6AgentCommandDraft.baseRevision,
+        inputValues: v6AgentCommandDraft.inputValues,
+        boundSelections: v6AgentCommandDraft.boundSelections,
+        generatedIds: v6AgentCommandDraft.generatedIds,
+        editEntity: v6AgentCommandDraft.editEntity,
+        bootstrapOperations: v6AgentCommandDraft.bootstrapOperations,
+        materialContext: v6AgentCommandDraft.materialContext,
+      });
+      const service = await ensureLiveAgentService();
+      const preview = await service.preview(built.transaction, activeAgentConnection.permissionContext);
+      const currentDraftFingerprint = v6AgentCommandDraft
+        ? v6CanonicalKey({
+            draftId: v6AgentCommandDraft.draftId,
+            baseRevision: v6AgentCommandDraft.baseRevision,
+            inputValues: v6AgentCommandDraft.inputValues,
+            boundSelections: v6AgentCommandDraft.boundSelections,
+            generatedIds: v6AgentCommandDraft.generatedIds,
+            editEntity: v6AgentCommandDraft.editEntity,
+            bootstrapOperations: v6AgentCommandDraft.bootstrapOperations,
+            materialContext: v6AgentCommandDraft.materialContext,
+          })
+        : null;
+      if (currentDraftFingerprint !== draftFingerprint || commandRevision !== preview.baseRevision) {
+        service.cancelPreview(preview.previewId);
+        throw new v6InteractionTools.CadUiError('UI_REVISION_CONFLICT', 'The visible command draft changed during exact preview.', {
+          repairOptions: [{ kind: 'refresh-command-draft' }, { kind: 'preview-again' }],
+        });
+      }
+      const visibleCandidate = agentTools.applyCadTransaction(doc, built.transaction);
+      if (visibleCandidate.changeSet.documentHashAfter !== preview.changeSet.documentHashAfter) {
+        cancelV6PreviewServiceRecord(preview.previewId);
+        throw new v6InteractionTools.CadUiError('PREVIEW_PARITY_FAILED', 'Visible-command and direct transaction hashes do not match.');
+      }
+      activeAgentConnection.previews.set(preview.previewId, {
+        label: built.transaction.label,
+        changeSet: deepCopy(preview.changeSet),
+      });
+      v6AgentCommandDraft.state = 'preview';
+      v6AgentCommandDraft.previewId = preview.previewId;
+      v6VisiblePreview = {
+        ...deepCopy(preview),
+        visible: true,
+        transactionHash: built.transactionHash,
+        transaction: deepCopy(built.transaction),
+        highlightedEntities: Object.values(v6AgentCommandDraft.boundSelections)
+          .flat()
+          .map((entry) => deepCopy(entry.owner || entry))
+          .map((entry) => {
+            if (v6AgentCommandDraft.commandId !== 'inspection.material' || entry.kind !== 'body') return entry;
+            const runtimeBody = lastBodyResults.find((result) =>
+              result.sourceBodyId === entry.id || result.bodyId === entry.id);
+            return runtimeBody ? { kind: 'body', id: runtimeBody.bodyId } : entry;
+          })
+          .filter((entry, index, values) =>
+            values.findIndex((candidate) => candidate.kind === entry.kind && candidate.id === entry.id) === index),
+      };
+      if (v6AgentCommandDraft.commandId === 'assembly.component-transform') {
+        setV6TransformPreviewMatrix(v6AgentCommandDraft.inputValues.transform);
+      } else {
+        setV6SemanticSelection(v6VisiblePreview.highlightedEntities.filter((entry) => v6EntityExists(entry)));
+        requestSceneRender();
+      }
+      renderV6CommandPreview();
+      emitV6CommandEvent('preview.ready', {
+        previewId: preview.previewId,
+        baseRevision: preview.baseRevision,
+        transactionHash: built.transactionHash,
+        documentHashAfter: preview.changeSet.documentHashAfter,
+        validation: preview.validation,
+        highlightedEntities: deepCopy(v6VisiblePreview.highlightedEntities),
+      }, context);
+      return {
+        ...deepCopy(preview),
+        transactionHash: built.transactionHash,
+        visible: true,
+        directVisibleHashParity: true,
+      };
+    } catch (error) {
+      if (v6AgentCommandDraft) {
+        v6AgentCommandDraft.state = 'blocked';
+        v6AgentCommandDraft.diagnostics = [{
+          code: error?.code || 'PREVIEW_REJECTED',
+          severity: 'error',
+          message: String(error?.message || error),
+        }];
+        v5Error.textContent = String(error?.message || error);
+      }
+      renderV6CommandPreview();
+      emitV6CommandEvent('preview.rejected', {
+        code: error?.code || 'PREVIEW_REJECTED',
+        message: String(error?.message || error),
+      }, context);
+      throw error;
+    }
+  }
+
+  function presentV6Preview(previewId) {
+    if (!v6VisiblePreview || v6VisiblePreview.previewId !== previewId) {
+      throw new v6InteractionTools.CadUiError('PREVIEW_EXPIRED', 'The requested visible preview is not active.');
+    }
+    v6VisiblePreview.visible = true;
+    v6AgentCommandDraft.state = 'preview';
+    if (v6AgentCommandDraft.commandId === 'assembly.component-transform') {
+      setV6TransformPreviewMatrix(v6AgentCommandDraft.inputValues.transform);
+    }
+    renderV6CommandPreview();
+    return { previewId, visible: true };
+  }
+
+  function dismissV6Preview() {
+    if (!v6VisiblePreview) return { previewId: null, visible: false };
+    const previewId = v6VisiblePreview.previewId;
+    v6VisiblePreview.visible = false;
+    if (v6AgentCommandDraft?.commandId === 'assembly.component-transform') endTransformPreview(true);
+    renderV6CommandPreview();
+    return { previewId, visible: false };
+  }
+
+  function v6TransactionHighlightedEntities(transaction) {
+    const candidates = [];
+    const fieldKinds = [
+      ['bodyId', 'body'],
+      ['targetBodyId', 'body'],
+      ['toolBodyId', 'body'],
+      ['featureId', 'feature'],
+      ['occurrenceId', 'occurrence'],
+      ['mateId', 'mate'],
+      ['measurementId', 'measurement'],
+      ['parameterId', 'parameter'],
+      ['sectionId', 'section'],
+      ['explodedViewId', 'exploded-view'],
+      ['groupId', 'stage-group'],
+      ['patternId', 'body-pattern'],
+      ['targetBodyId', 'body'],
+      ['toolBodyId', 'body'],
+    ];
+    for (const operation of transaction?.operations || []) {
+      for (const [field, kind] of fieldKinds) {
+        const id = operation.input?.[field];
+        if (typeof id === 'string') candidates.push({ kind, id });
+      }
+    }
+    return candidates.filter((entry, index, values) =>
+      v6EntityExists(entry) &&
+      values.findIndex((candidate) => candidate.kind === entry.kind && candidate.id === entry.id) === index);
+  }
+
+  function v6TransactionOperationLabel(operation) {
+    const input = operation?.input || {};
+    const part = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part'
+      ? v5RuntimeTools.studioV5RootPart(doc)
+      : null;
+    const body = typeof input.bodyId === 'string' && v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part'
+      ? part?.bodies.find((entry) => entry.id === input.bodyId)
+      : null;
+    const assembly = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc)
+      : null;
+    const occurrence = typeof input.occurrenceId === 'string'
+      ? assembly?.occurrences.find((entry) => entry.id === input.occurrenceId)
+      : null;
+    const mate = typeof input.mateId === 'string'
+      ? assembly?.mates.find((entry) => entry.id === input.mateId)
+      : null;
+    const feature = typeof input.featureId === 'string'
+      ? doc.features.find((entry) => entry.id === input.featureId)
+      : null;
+    const beforeFeature = typeof input.beforeFeatureId === 'string'
+      ? doc.features.find((entry) => entry.id === input.beforeFeatureId)
+      : null;
+    const section = typeof input.sectionId === 'string'
+      ? assembly?.sectionViews.find((entry) => entry.id === input.sectionId)
+      : null;
+    const explodedView = typeof input.explodedViewId === 'string'
+      ? assembly?.explodedViews.find((entry) => entry.id === input.explodedViewId)
+      : null;
+    const stageGroup = typeof input.groupId === 'string' && assembly
+      ? v5InspectionTools.studioV5AxialStageGroups(doc).find((entry) => entry.id === input.groupId)
+      : null;
+    const measurement = typeof input.measurementId === 'string' && assembly
+      ? v5InspectionTools.studioV5Measurements(doc).find((entry) => entry.id === input.measurementId)
+      : null;
+    const pattern = typeof input.patternId === 'string'
+      ? (part?.bodyPatterns || []).find((entry) => entry.id === input.patternId)
+      : null;
+    const targetBody = typeof input.targetBodyId === 'string'
+      ? part?.bodies.find((entry) => entry.id === input.targetBodyId)
+      : null;
+    const toolBody = typeof input.toolBodyId === 'string'
+      ? part?.bodies.find((entry) => entry.id === input.toolBodyId)
+      : null;
+    const parameter = typeof input.parameterId === 'string'
+      ? (doc.params || []).find((entry) => entry.id === input.parameterId)
+      : typeof input.parameterName === 'string'
+        ? (doc.params || []).find((entry) => entry.name === input.parameterName)
+        : null;
+    const bodyName = body?.name || input.bodyId || 'body';
+    const occurrenceName = occurrence?.name || input.occurrenceId || 'component';
+    const mateName = mate?.name || input.mateId || 'mate';
+    const featureName = feature?.name || input.featureId || 'feature';
+    const sectionName = section?.name || input.sectionId || 'section view';
+    const explodedViewName = explodedView?.name || input.explodedViewId || 'exploded view';
+    const stageGroupName = stageGroup?.name || input.groupId || 'stage group';
+    const measurementName = measurement?.name || input.measurementId || 'measurement';
+    const patternName = pattern?.name || input.patternId || 'body pattern';
+    const targetBodyName = targetBody?.name || input.targetBodyId || 'target body';
+    const toolBodyName = toolBody?.name || input.toolBodyId || 'tool body';
+    const parameterName = parameter?.name || input.parameterName || input.name || 'parameter';
+    if (operation.kind === 'parameter.create') return `Create parameter ${input.name} = ${input.value}`;
+    if (operation.kind === 'project.clear') return 'Clear all editable project structure';
+    if (operation.kind === 'parameter.update' && input.name != null && input.value != null) {
+      return `Rename ${parameterName} to ${input.name} and set it to ${input.value}`;
+    }
+    if (operation.kind === 'parameter.update' && input.name != null) return `Rename ${parameterName} to ${input.name}`;
+    if (operation.kind === 'parameter.update' && input.value != null) return `Set ${parameterName} = ${input.value}`;
+    if (operation.kind === 'parameter.delete') return `Delete parameter ${parameterName}`;
+    if (operation.kind === 'feature.reorder') {
+      return input.beforeFeatureId
+        ? `Move ${featureName} before ${beforeFeature?.name || input.beforeFeatureId}`
+        : `Move ${featureName} to the end of history`;
+    }
+    if (operation.kind === 'feature.rollback') return input.featureId ? `Roll back after ${featureName}` : 'Clear rollback marker';
+    if (operation.kind === 'feature.delete') return `Delete ${featureName} and dependent structure`;
+    if (operation.kind === 'section.activate') return input.sectionId ? `Activate ${sectionName}` : 'Turn off the active section view';
+    if (operation.kind === 'section.delete') return `Delete ${sectionName}`;
+    if (operation.kind === 'exploded.activate') return input.explodedViewId ? `Activate ${explodedViewName}` : 'Turn off the active exploded view';
+    if (operation.kind === 'exploded.delete') return `Delete ${explodedViewName}`;
+    if (operation.kind === 'stage.update' && typeof input.patch?.visible === 'boolean') {
+      return `${input.patch.visible ? 'Show' : 'Hide'} ${stageGroupName}`;
+    }
+    if (operation.kind === 'stage.update' && input.patch?.spacing != null) {
+      return `Set ${stageGroupName} spacing to ${input.patch.spacing} mm`;
+    }
+    if (operation.kind === 'measurement.delete') return `Delete ${measurementName}`;
+    if (
+      operation.kind === 'pattern.update' &&
+      typeof input.patch?.visible === 'boolean' &&
+      Array.isArray(input.patch?.skippedIndices)
+    ) {
+      const indices = input.patch.skippedIndices.join(', ') || 'none';
+      return `${input.patch.visible ? 'Show' : 'Hide'} ${patternName} and set skipped occurrences to ${indices}`;
+    }
+    if (operation.kind === 'pattern.update' && typeof input.patch?.visible === 'boolean') {
+      return `${input.patch.visible ? 'Show' : 'Hide'} ${patternName}`;
+    }
+    if (operation.kind === 'pattern.update' && Array.isArray(input.patch?.skippedIndices)) {
+      return `Set ${patternName} skipped occurrences to ${input.patch.skippedIndices.join(', ') || 'none'}`;
+    }
+    if (operation.kind === 'pattern.update') return `Update ${patternName}`;
+    if (operation.kind === 'pattern.delete') return `Delete ${patternName}`;
+    if (operation.kind === 'pattern.materialize') {
+      return input.dissolve
+        ? `Dissolve ${patternName} into ${input.records?.length || 0} independent exact bodies`
+        : `Make ${patternName} occurrence ${input.records?.[0]?.patternIndex || ''} independent`;
+    }
+    if (operation.kind === 'boolean.subtract') return `Subtract ${toolBodyName} from ${targetBodyName}`;
+    if (operation.kind === 'boolean.intersect') return `Intersect ${toolBodyName} with ${targetBodyName}`;
+    if (operation.kind === 'boolean.union') return `Union ${toolBodyName} with ${targetBodyName}`;
+    if (operation.kind === 'feature.update' && input.patch?.pattern) {
+      const nextPattern = input.patch.pattern;
+      const first = nextPattern.kind === 'circular'
+        ? `centre ${nextPattern.cx}, ${nextPattern.cy}`
+        : `spacing ${nextPattern.dx}, ${nextPattern.dy}`;
+      return `Set ${featureName} pattern to ${nextPattern.n} occurrences · ${first}`;
+    }
+    if (operation.kind === 'body.rename') return `Rename ${bodyName} to ${input.name}`;
+    if (operation.kind === 'body.activate') return `Make ${bodyName} the active body`;
+    if (operation.kind === 'body.setVisibility') return `${input.visible ? 'Show' : 'Hide'} ${bodyName}`;
+    if (operation.kind === 'body.suppress') return `${input.suppressed ? 'Suppress' : 'Restore'} ${bodyName}`;
+    if (operation.kind === 'body.delete') return `Delete ${bodyName} and dependent structure`;
+    if (operation.kind === 'component.update' && typeof input.patch?.visible === 'boolean') {
+      return `${input.patch.visible ? 'Show' : 'Hide'} ${occurrenceName}`;
+    }
+    if (operation.kind === 'component.update' && typeof input.patch?.suppressed === 'boolean') {
+      return `${input.patch.suppressed ? 'Suppress' : 'Restore'} ${occurrenceName}`;
+    }
+    if (operation.kind === 'component.delete') return `Delete ${occurrenceName} and dependent assembly structure`;
+    if (operation.kind === 'mate.update' && typeof input.patch?.suppressed === 'boolean') {
+      return `${input.patch.suppressed ? 'Suppress' : 'Restore'} ${mateName}`;
+    }
+    if (operation.kind === 'mate.delete') return `Delete ${mateName}`;
+    return operation.kind;
+  }
+
+  async function presentV6DirectTransactionPreview(preview, transaction, options = {}) {
+    if (!v5Dialog || !v5Fields) return false;
+    if (v6AgentCommandDraft && v6AgentCommandDraft.commandId !== 'document.transaction') return false;
+    if (v6AgentCommandDraft?.commandId === 'document.transaction') {
+      clearV6AgentCommandState({ cancelPreview: true });
+    }
+    const transactionHash = 'fnv1a32:' + v6StableHash(transaction);
+    const label = String(transaction?.label || 'Agent CAD transaction');
+    const highlightedEntities = v6TransactionHighlightedEntities(transaction);
+    for (const key of ['datumId', 'featureId', 'sketchId', 'patternId', 'occurrenceId', 'mateKind', 'mateId', 'bodyId']) {
+      delete v5Dialog.dataset[key];
+    }
+    v5Dialog.dataset.command = 'document-transaction';
+    $('bw-v5-command-kind').textContent = 'Agent transaction';
+    $('bw-v5-command-title').textContent = label;
+    v5Fields.replaceChildren();
+    const description = document.createElement('p');
+    description.className = 'is-wide';
+    description.textContent = 'Review the exact validated document operations below. The editable project remains unchanged until Apply.';
+    const operations = document.createElement('ol');
+    operations.className = 'is-wide';
+    for (const operation of transaction?.operations || []) {
+      const item = document.createElement('li');
+      item.dataset.operationKind = operation.kind;
+      item.textContent = v6TransactionOperationLabel(operation);
+      operations.appendChild(item);
+    }
+    v5Fields.append(description, operations);
+    if (v5Error) v5Error.textContent = '';
+    v6AgentCommandDraft = {
+      commandId: 'document.transaction',
+      draftId: `direct-preview-${preview.previewId}`,
+      transactionId: transaction.transactionId,
+      baseRevision: preview.baseRevision,
+      state: 'preview',
+      inputValues: {},
+      boundSelections: {},
+      generatedIds: {},
+      diagnostics: [],
+      previewId: preview.previewId,
+    };
+    v6VisiblePreview = {
+      ...deepCopy(preview),
+      visible: true,
+      transactionHash,
+      transaction: deepCopy(transaction),
+      highlightedEntities,
+    };
+    v6DirectParameterPreviewOperations = deepCopy(
+      (transaction?.operations || []).filter((operation) => operation.kind.startsWith('parameter.')),
+    );
+    if (v6DirectParameterPreviewOperations.length) renderParams();
+    if (highlightedEntities.length) {
+      setV6SemanticSelection(highlightedEntities);
+      const renameOperation = transaction?.operations?.find((operation) => operation.kind === 'body.rename');
+      const bodyNameInput = renameOperation?.input?.bodyId === selectedBodyId
+        ? $('bw-context')?.querySelector('[data-body-name]')
+        : null;
+      if (bodyNameInput) {
+        bodyNameInput.value = String(renameOperation.input.name);
+        bodyNameInput.dataset.agentDraft = 'true';
+      }
+    }
+    if (!v5Dialog.open) {
+      if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
+      else v5Dialog.setAttribute('open', '');
+    }
+    renderV6CommandPreview();
+    requestSceneRender();
+    const runtime = getV6InteractionRuntime();
+    if (options.emit !== false) {
+      runtime.hostChanged('preview.ready', {
+        previewId: preview.previewId,
+        baseRevision: preview.baseRevision,
+        transactionHash,
+        documentHashAfter: preview.changeSet?.documentHashAfter,
+        validation: preview.validation,
+        highlightedEntities: deepCopy(highlightedEntities),
+        source: options.source || 'cad_preview',
+      }, { actor: 'agent' });
+    }
+    if (options.settle !== false) {
+      await waitForV6UiSettlement(null, { targetUiRevision: runtime.uiRevision });
+    }
+    return true;
+  }
+
+  function clearV6AgentCommandState({ cancelPreview = true } = {}) {
+    const resetDirectTransactionSurface = v6AgentCommandDraft?.commandId === 'document.transaction';
+    if (cancelPreview) cancelV6PreviewRecord();
+    else v6VisiblePreview = null;
+    v6AgentCommandDraft = null;
+    v6DirectParameterPreviewOperations = [];
+    endTransformPreview(true);
+    if (resetDirectTransactionSurface) {
+      renderContext();
+      renderParams();
+    }
+    renderV6CommandPreview();
+  }
+
+  function closeActiveV6CommandSurface() {
+    if (sketch.isOpen()) sketch.cancel();
+    else if (picker.active()) picker.cancel();
+    else if (shellPick.active()) shellPick.cancel();
+    else if (facePick.active()) facePick.cancel();
+    else closeV5Command();
+  }
+
+  async function commitV6VisiblePreviewFromHuman() {
+    if (!v6AgentCommandDraft) return false;
+    if (!v6VisiblePreview?.visible || !v6AgentCommandDraft.previewId) {
+      const message = 'Run the exact preview before applying this agent-visible command.';
+      if (v5Error) v5Error.textContent = message;
+      say(message);
+      return false;
+    }
+    const committedPreviewId = v6AgentCommandDraft.previewId;
+    const transactionHash = v6VisiblePreview.transactionHash;
+    try {
+      const service = await ensureLiveAgentService();
+      const result = await service.commit(
+        committedPreviewId,
+        v6AgentCommandDraft.baseRevision,
+        activeAgentConnection.permissionContext,
+        { actor: 'agent' },
+      );
+      activeAgentConnection.previews.clear();
+      v6ClosingCommand = true;
+      try {
+        clearV6AgentCommandState({ cancelPreview: false });
+        closeActiveV6CommandSurface();
+      } finally {
+        v6ClosingCommand = false;
+      }
+      const runtime = getV6InteractionRuntime();
+      runtime.hostChanged('commit.applied', {
+        previewId: committedPreviewId,
+        revision: result.revision,
+        transactionHash,
+        changeSet: result.changeSet,
+        historyEntry: result.historyEntry,
+        approvedBy: 'human',
+      }, { actor: 'human' });
+      runtime.emit('history.changed', {
+        revision: result.revision,
+        historyEntry: result.historyEntry,
+      }, { actor: 'human', uiRevision: runtime.uiRevision });
+      const request = draftDecision?.open ? takeQueuedOperation() : null;
+      if (request) runOperation(request.fn);
+      return true;
+    } catch (error) {
+      const message = String(error?.message || error);
+      if (v5Error) v5Error.textContent = message;
+      say(message);
+      return false;
+    }
+  }
+
+  async function commitV6VisiblePreviewFromAgent(context = {}) {
+    if (!v6AgentCommandDraft || !v6VisiblePreview?.visible || !v6AgentCommandDraft.previewId) {
+      throw new v6InteractionTools.CadUiError('PREVIEW_REQUIRED', 'Run the exact visible preview before committing this command.');
+    }
+    if (v6AgentCommandDraft.baseRevision !== commandRevision) {
+      throw new v6InteractionTools.CadUiError('REVISION_CONFLICT', 'The visible preview targets an older project revision.', {
+        expectedRevision: v6AgentCommandDraft.baseRevision,
+        actualRevision: commandRevision,
+      });
+    }
+    const previewId = v6AgentCommandDraft.previewId;
+    if (activeAgentConnection.mode === 'preview-required') {
+      const approved = await requestAgentCommitApproval(previewId);
+      if (!approved) {
+        throw new v6InteractionTools.CadUiError('USER_REJECTED_PREVIEW', 'The user rejected this CAD preview.');
+      }
+    }
+    const service = await ensureLiveAgentService();
+    const transactionHash = v6VisiblePreview.transactionHash;
+    const result = await service.commit(
+      previewId,
+      v6AgentCommandDraft.baseRevision,
+      activeAgentConnection.permissionContext,
+      { actor: 'agent' },
+    );
+    activeAgentConnection.previews.clear();
+    v6ClosingCommand = true;
+    try {
+      clearV6AgentCommandState({ cancelPreview: false });
+      closeActiveV6CommandSurface();
+    } finally {
+      v6ClosingCommand = false;
+    }
+    const request = draftDecision?.open ? takeQueuedOperation() : null;
+    if (request) runOperation(request.fn);
+    emitV6CommandEvent('commit.applied', {
+      previewId,
+      revision: result.revision,
+      transactionHash,
+      changeSet: result.changeSet,
+      historyEntry: result.historyEntry,
+      approvedBy: activeAgentConnection.mode === 'preview-required' ? 'human' : 'agent-policy',
+    }, context);
+    emitV6CommandEvent('history.changed', {
+      revision: result.revision,
+      historyEntry: result.historyEntry,
+    }, context);
+    return {
+      revision: result.revision,
+      projectId: result.projectId,
+      changeSet: deepCopy(result.changeSet),
+      historyEntry: deepCopy(result.historyEntry),
+      transactionHash,
+    };
+  }
+
+  function cancelV6DraftFromHumanSurface() {
+    if (!v6AgentCommandDraft || v6ClosingCommand) return;
+    const draftId = v6AgentCommandDraft.draftId;
+    clearV6AgentCommandState({ cancelPreview: true });
+    if (v6InteractionRuntime && !v6ApplyingSemanticAction) {
+      v6InteractionRuntime.hostChanged('command.draftChanged', {
+        reason: 'cancelled-by-human',
+        draftId,
+        activeCommand: null,
+      }, { actor: 'human' });
+    }
+  }
+
+  function setV6BodyExportSelection(bodyIds, selected) {
+    for (const bodyId of bodyIds) {
+      if (selected) exportBodyIds.add(bodyId);
+      else exportBodyIds.delete(bodyId);
+    }
+    renderBodies();
+    renderBodyPatterns();
+    renderAssemblyTree();
+    return {
+      selected,
+      bodyIds: [...bodyIds].sort(),
+      exportBodyIds: [...exportBodyIds].sort(),
+    };
+  }
+
+  function toggleV6BodyExportSelection(bodyId) {
+    return setV6BodyExportSelection([bodyId], !exportBodyIds.has(bodyId));
+  }
+
+  function toggleV6OccurrenceExportSelection(occurrenceId) {
+    const bodyIds = lastBodyResults
+      .filter((entry) =>
+        entry.occurrenceInstance?.occurrenceId === occurrenceId ||
+        entry.occurrenceInstance?.occurrencePath?.[0] === occurrenceId)
+      .map((entry) => entry.bodyId);
+    if (!bodyIds.length) {
+      throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'That occurrence has no exact bodies available for export.');
+    }
+    return setV6BodyExportSelection(bodyIds, !bodyIds.every((bodyId) => exportBodyIds.has(bodyId)));
+  }
+
+  function isolateV6Body(bodyId) {
+    isolatedBodyId = isolatedBodyId === bodyId ? null : bodyId;
+    renderBodies();
+    renderContext();
+    requestSceneRender();
+    return { isolatedBodyId };
+  }
+
+  function isolateV6Occurrence(occurrenceId) {
+    if (appEl.dataset.isolateOccurrence === occurrenceId) delete appEl.dataset.isolateOccurrence;
+    else appEl.dataset.isolateOccurrence = occurrenceId;
+    syncBodyMeshState();
+    renderAssemblyTree();
+    renderContext();
+    requestSceneRender();
+    return { isolatedOccurrenceId: appEl.dataset.isolateOccurrence || null };
+  }
+
+  async function previewV6PatternMaterialization(entity, operation) {
+    if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'part') {
+      throw new v6InteractionTools.CadUiError('COMMAND_NOT_AVAILABLE', 'Pattern materialization requires an active part document.');
+    }
+    if (v6AgentCommandDraft) {
+      throw new v6InteractionTools.CadUiError('COMMAND_ALREADY_OPEN', 'Finish or cancel the current visible command before materializing a pattern.');
+    }
+    const part = v5RuntimeTools.studioV5RootPart(doc);
+    let pattern;
+    let bodyIds;
+    let dissolve = false;
+    if (operation === 'pattern-instance.independent') {
+      const result = lastBodyResults.find((entry) => entry.bodyId === entity.id);
+      const patternId = result?.patternInstance?.patternId;
+      pattern = (part.bodyPatterns || []).find((entry) => entry.id === patternId);
+      bodyIds = pattern && result && !result.patternInstance?.fused ? [result.bodyId] : [];
+    } else if (operation === 'pattern.dissolve') {
+      pattern = (part.bodyPatterns || []).find((entry) => entry.id === entity.id);
+      dissolve = true;
+      bodyIds = pattern
+        ? lastBodyResults
+            .filter((entry) =>
+              entry.patternInstance?.patternId === pattern.id &&
+              !entry.patternInstance?.fused &&
+              entry.visible !== false)
+            .map((entry) => entry.bodyId)
+        : [];
+    }
+    if (!pattern) throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'That editable body pattern is not present.');
+    if (pattern.outputMode === 'union') {
+      throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Switch this pattern to Linked occurrences before materializing it.');
+    }
+    if (!bodyIds.length) {
+      throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'This pattern has no active linked occurrences to materialize.');
+    }
+    const sourceRevision = documentRevision;
+    const sourceHash = v5RuntimeTools.studioV5CanonicalHash(doc);
+    const freezePrefix = 'materialized-' + newId();
+    const response = await kernelCall('freeze-pattern-v5', documentRevision, { bodyIds, freezePrefix });
+    if (documentRevision !== sourceRevision || v5RuntimeTools.studioV5CanonicalHash(doc) !== sourceHash) {
+      throw new v6InteractionTools.CadUiError('REVISION_CONFLICT', 'The project changed while exact pattern bodies were being materialized.');
+    }
+    if (response.errors?.length || !response.records?.length) {
+      throw new v6InteractionTools.CadUiError('KERNEL_VALIDATION_FAILED', response.errors?.[0]?.message || 'The exact kernel did not return materialized occurrence records.');
+    }
+    const label = dissolve
+      ? 'Dissolve ' + pattern.name
+      : 'Make ' + pattern.name + ' occurrence ' + response.records[0].patternIndex + ' independent';
+    const transaction = {
+      transactionId: 'visible-pattern-materialize-' + newId(),
+      label,
+      expectedRevision: commandRevision,
+      operations: [{
+        kind: 'pattern.materialize',
+        input: {
+          patternId: pattern.id,
+          records: deepCopy(response.records),
+          dissolve,
+        },
+      }],
+      atomic: true,
+      metadata: { actor: 'agent' },
+    };
+    const service = await ensureLiveAgentService();
+    const preview = await service.preview(
+      transaction,
+      activeAgentConnection.permissionContext,
+      { trustedGenerated: true },
+    );
+    activeAgentConnection.previews.set(preview.previewId, {
+      label,
+      changeSet: deepCopy(preview.changeSet),
+    });
+    try {
+      const visible = await presentV6DirectTransactionPreview(preview, transaction, {
+        emit: false,
+        settle: false,
+        source: 'tree.invoke',
+      });
+      if (!visible) throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Studio could not present the exact pattern materialization preview.');
+    } catch (error) {
+      cancelV6PreviewServiceRecord(preview.previewId);
+      throw error;
+    }
+    getV6InteractionRuntime().emit('kernel.completed', {
+      queryKind: 'pattern.materialization',
+      exactGeometry: true,
+      bodyIds,
+      patternId: pattern.id,
+    }, { actor: 'agent', uiRevision: getV6InteractionRuntime().uiRevision });
+    return {
+      operation,
+      preview: {
+        ...deepCopy(preview),
+        visible: true,
+        transactionHash: v6VisiblePreview?.transactionHash || null,
+      },
+      materializedBodyIds: response.records.map((record) => record.body.id),
+      patternId: pattern.id,
+      bodyIds,
+      dissolve,
+    };
+  }
+
+  async function runV6VisibleInspection(inspectionId) {
+    const inspectionMode = inspectionId === 'properties' ? 'mass-health' : inspectionId;
+    const result = await executeV5Inspection(inspectionMode);
+    v6PanelOpen.set('inspector', true);
+    v6PanelOpen.set('diagnostics', false);
+    sideEl?.classList.remove('m-open-history', 'm-open-project');
+    sideEl?.classList.add('m-open-params');
+    syncMtabs?.();
+    syncV6PanelVisibility();
+    renderContext();
+    return {
+      inspectionId,
+      exactGeometry: true,
+      result: deepCopy(result),
+    };
+  }
+
+  function invokeV6SketchShapeAction(action, context) {
+    if (!v6AgentCommandDraft || !sketch.isOpen() || !Array.isArray(v6AgentCommandDraft.inputValues?.sketch)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_NOT_OPEN', 'A normal sketch command must be open before editing one of its shapes.');
+    }
+    const shapes = deepCopy(v6AgentCommandDraft.inputValues.sketch);
+    const shape = shapes[action.shapeIndex];
+    if (!shape) {
+      throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested sketch shape is not present in the active draft.', {
+        shapeIndex: action.shapeIndex,
+        repairOptions: [{ kind: 'refresh-ui-state' }],
+      });
+    }
+    if (action.kind === 'sketch.shape.select') {
+      if (!sketch.setSemanticShapeSelection(action.shapeIndex)) {
+        throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'Studio could not select the requested sketch shape.');
+      }
+      return { shapeIndex: action.shapeIndex, shape: deepCopy(shape) };
+    }
+    if (action.kind === 'sketch.shape.delete') {
+      shapes.splice(action.shapeIndex, 1);
+      setV6CommandInput('sketch', shapes, context);
+      if (shapes.length) sketch.setSemanticShapeSelection(Math.min(action.shapeIndex, shapes.length - 1));
+      return {
+        shapeIndex: action.shapeIndex,
+        deleted: true,
+        selectedShapeIndex: sketch.selectedShapeIndex(),
+        shapeCount: shapes.length,
+      };
+    }
+    const propertyKinds = {
+      w: ['rect'],
+      h: ['rect'],
+      x: ['rect', 'circle'],
+      y: ['rect', 'circle'],
+      d: ['circle'],
+    };
+    if (!propertyKinds[action.property]?.includes(shape.kind)) {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', `Sketch ${shape.kind} shapes do not expose ${action.property}.`);
+    }
+    try {
+      const evaluated = N(action.value);
+      if (['w', 'h', 'd'].includes(action.property) && evaluated < 0.1) throw new Error('dimension is too small');
+    } catch (error) {
+      throw new v6InteractionTools.CadUiError('COMMAND_FIELD_INVALID', 'Sketch shape dimension is not a usable finite value.', {
+        property: action.property,
+        cause: String(error?.message || error),
+      });
+    }
+    if (action.property === 'd') {
+      shape.r = typeof action.value === 'number' ? action.value / 2 : `(${action.value})/2`;
+    } else {
+      shape[action.property] = deepCopy(action.value);
+    }
+    setV6CommandInput('sketch', shapes, context);
+    sketch.setSemanticShapeSelection(action.shapeIndex);
+    return {
+      shapeIndex: action.shapeIndex,
+      property: action.property,
+      value: deepCopy(action.value),
+      shape: deepCopy(shapes[action.shapeIndex]),
+    };
+  }
+
+  async function invokeV6TreeAction(action) {
+    const { entity, operation } = action;
+    if (entity.kind === 'body') {
+      if (operation === 'select' || operation === 'pattern-instance.select') {
+        setV6SemanticSelection([entity]);
+        return { operation, selection: currentV6Selections() };
+      }
+      if (operation === 'isolate') return { operation, ...isolateV6Body(entity.id) };
+      if (operation === 'export' || operation === 'pattern-instance.export') {
+        return { operation, ...toggleV6BodyExportSelection(entity.id) };
+      }
+      if (operation === 'pattern-instance.independent') {
+        return previewV6PatternMaterialization(entity, operation);
+      }
+    }
+    if (entity.kind === 'body-pattern' && operation === 'pattern.dissolve') {
+      return previewV6PatternMaterialization(entity, operation);
+    }
+    if ((entity.kind === 'datum' && operation === 'datum.select') ||
+        (entity.kind === 'sketch' && operation === 'sketch.select')) {
+      setV6SemanticSelection([entity]);
+      return { operation, selection: currentV6Selections() };
+    }
+    if (entity.kind === 'occurrence') {
+      if (operation === 'occurrence.expand') {
+        const key = v6SelectionRefKey(entity);
+        const currentlyExpanded = v6TreeExpansion.get(key) !== false;
+        return { operation, ...setV6TreeExpanded(entity, !currentlyExpanded) };
+      }
+      if (operation === 'occurrence.select' || operation === 'runtime-occurrence.select') {
+        setV6SemanticSelection([entity]);
+        return { operation, selection: currentV6Selections() };
+      }
+      if (operation === 'occurrence.export') {
+        return { operation, ...toggleV6OccurrenceExportSelection(entity.id) };
+      }
+    }
+    if (entity.kind === 'feature' && operation === 'select') {
+      setV6SemanticSelection([entity]);
+      return { operation, selection: currentV6Selections() };
+    }
+    if (entity.kind === 'mate' && operation === 'mate.select') {
+      setV6SemanticSelection([entity]);
+      return { operation, selection: currentV6Selections() };
+    }
+    if (entity.kind === 'measurement' && operation === 'measurement.evaluate') {
+      return { operation, ...(await runV6VisibleInspection('measurements')) };
+    }
+    throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'The requested dynamic tree action has no released adapter.');
+  }
+
+  function invokeV6InspectorAction(operation) {
+    if (operation === 'inspection.clear') {
+      if (!lastInspection) throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'The inspector has no result to close.');
+      lastInspection = null;
+      renderContext();
+      return { operation, inspection: null };
+    }
+    if (operation === 'body.isolate') {
+      if (!selectedBodyId) throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'Select a body before using the inspector isolate action.');
+      return { operation, ...isolateV6Body(selectedBodyId) };
+    }
+    if (operation === 'occurrence.isolate') {
+      if (!selectedOccurrenceId) throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'Select an occurrence before using the inspector isolate action.');
+      return { operation, ...isolateV6Occurrence(selectedOccurrenceId) };
+    }
+    if (operation === 'occurrence.export') {
+      if (!selectedOccurrenceId) throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'Select an occurrence before using the inspector export action.');
+      const bodyIds = lastBodyResults
+        .filter((entry) =>
+          entry.occurrenceInstance?.occurrenceId === selectedOccurrenceId ||
+          entry.occurrenceInstance?.occurrencePath?.[0] === selectedOccurrenceId)
+        .map((entry) => entry.bodyId);
+      if (!bodyIds.length) throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The selected occurrence has no exact bodies available for export.');
+      return { operation, ...setV6BodyExportSelection(bodyIds, true) };
+    }
+    throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'The requested dynamic inspector action has no released adapter.');
+  }
+
+  async function applyV6UiAction(action, context = {}) {
+    v6ApplyingSemanticAction = true;
+    try {
+      if (action.kind === 'document.activate') {
+        return { activeDocument: v6ActiveDocumentRef() };
+      }
+      if (action.kind === 'workspace.activate') {
+        showWorkspace(action.workspaceId, false);
+        return { workspaceId: activeWorkspace };
+      }
+      if (action.kind === 'selection.set') {
+        setV6SemanticSelection([action.entity]);
+        return { selection: currentV6Selections() };
+      }
+      if (action.kind === 'selection.add') {
+        setV6SemanticSelection([...currentV6Selections(), action.entity]);
+        return { selection: currentV6Selections() };
+      }
+      if (action.kind === 'selection.remove') {
+        const removeKey = v6SelectionRefKey(action.entity);
+        const next = currentV6Selections().filter((entry) => v6SelectionRefKey(entry) !== removeKey);
+        if (next.length) setV6SemanticSelection(next);
+        else clearV6Selection();
+        return { selection: currentV6Selections() };
+      }
+      if (action.kind === 'selection.clear') {
+        clearV6Selection();
+        return { selection: [] };
+      }
+      if (action.kind === 'tree.reveal') {
+        v6RevealedEntity = deepCopy(action.entity);
+        appEl.dataset.agentRevealedEntity = action.entity.id;
+        const reveal = revealV6TreeEntity(action.entity);
+        v6ApplyingSemanticAction = false;
+        const label = await reveal;
+        return { revealed: deepCopy(v6RevealedEntity), label };
+      }
+      if (action.kind === 'tree.expand') return setV6TreeExpanded(action.entity, true);
+      if (action.kind === 'tree.collapse') return setV6TreeExpanded(action.entity, false);
+      if (action.kind === 'tree.setSectionExpanded') return setV6TreeSectionExpanded(action.sectionId, action.expanded);
+      if (action.kind === 'inspector.showEntity') {
+        setV6SemanticSelection([action.entity]);
+        v6PanelOpen.set('inspector', true);
+        v6PanelOpen.set('diagnostics', false);
+        sideEl?.classList.remove('m-open-history', 'm-open-project');
+        sideEl?.classList.add('m-open-params');
+        syncMtabs?.();
+        renderContext();
+        syncV6PanelVisibility();
+        return { entity: deepCopy(currentV6Selection()), visible: true };
+      }
+      if (action.kind === 'viewport.standardView') {
+        const next = v6CameraTargetForStandardView(action.viewId);
+        await transitionV6Camera(next, context);
+        activeViewName = action.viewId;
+        syncViewPressed(activeViewName);
+        return { viewId: activeViewName };
+      }
+      if (action.kind === 'viewport.fitAll') {
+        const bounds = new THREE.Box3();
+        partGroup.updateMatrixWorld(true);
+        for (const mesh of bodyMeshes.values()) if (mesh.visible) bounds.expandByObject(mesh);
+        if (bounds.isEmpty()) throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'There is no visible model to fit.');
+        v6FramedBounds = await fitV6Bounds(bounds, context);
+        activeViewName = 'fit';
+        v6FramedEntities = [];
+        return { viewId: activeViewName, framedEntities: [], renderedBounds: deepCopy(v6FramedBounds) };
+      }
+      if (action.kind === 'viewport.fitSelection') {
+        const selection = currentV6Selections();
+        const bounds = v6BoundsForSelection(selection);
+        if (!bounds) throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'The current semantic selection has no rendered bounds.');
+        v6FramedBounds = await fitV6Bounds(bounds, context);
+        const framed = new Map();
+        for (const entry of selection) {
+          const owner = deepCopy(entry.owner || entry);
+          framed.set(owner.kind + ':' + owner.id, owner);
+        }
+        v6FramedEntities = [...framed.values()];
+        activeViewName = 'fit-selection';
+        syncViewPressed(null);
+        return { viewId: activeViewName, framedEntities: deepCopy(v6FramedEntities), renderedBounds: deepCopy(v6FramedBounds) };
+      }
+      if (action.kind === 'viewport.setCamera') {
+        await transitionV6Camera({
+          position: new THREE.Vector3().fromArray(action.camera.position),
+          target: new THREE.Vector3().fromArray(action.camera.target),
+          up: new THREE.Vector3().fromArray(action.camera.up),
+        }, context);
+        activeViewName = null;
+        v6FramedEntities = [];
+        v6FramedBounds = null;
+        syncViewPressed(null);
+        return { camera: deepCopy(v6StudioSnapshot().viewport.camera) };
+      }
+      if (action.kind === 'viewport.setDisplayMode') {
+        v6DisplayModeOverride = action.displayModeId;
+        document.querySelectorAll('[data-display-mode]').forEach((button) => {
+          const active = button.dataset.displayMode === action.displayModeId;
+          button.classList.toggle('on', active);
+          button.setAttribute('aria-pressed', String(active));
+        });
+        syncBodyMeshState();
+        rebuildSceneBatches();
+        return { displayMode: activeV6DisplayMode(), persistent: false };
+      }
+      if (action.kind === 'viewport.setNavigationMode') {
+        setNavMode(action.navigationMode);
+        return { navigationMode: navMode };
+      }
+      if (action.kind === 'viewport.activateSection') {
+        v6ActiveSectionOverride = action.sectionId;
+        syncBodyMeshState();
+        rebuildSectionCaps();
+        renderAssemblyTree();
+        return { activeSectionId: activeV6SectionId(), persistent: false };
+      }
+      if (action.kind === 'viewport.activateExplodedView') {
+        v6ActiveExplodedViewOverride = action.explodedViewId;
+        syncBodyMeshState();
+        rebuildSectionCaps();
+        renderAssemblyTree();
+        return { activeExplodedViewId: activeV6ExplodedViewId(), persistent: false };
+      }
+      if (action.kind === 'viewport.clearInspectionView') {
+        v6ActiveSectionOverride = null;
+        v6ActiveExplodedViewOverride = null;
+        syncBodyMeshState();
+        rebuildSectionCaps();
+        renderAssemblyTree();
+        return { activeSectionId: null, activeExplodedViewId: null, persistent: false };
+      }
+      if (action.kind === 'panel.open') return setV6Panel(action.panelId, true);
+      if (action.kind === 'panel.close') return setV6Panel(action.panelId, false);
+      if (action.kind === 'history.showRevision') {
+        v6HistoryRevision = action.revision;
+        await setV6Panel('history', true);
+        renderHistory();
+        const row = document.querySelector('[data-v6-revision="' + action.revision + '"]');
+        if (!row) {
+          throw new v6InteractionTools.CadUiError('VIEW_NOT_AVAILABLE', 'Revision ' + action.revision + ' is not retained in the visible project history.');
+        }
+        $('bw-v6-revision-history')?.setAttribute('data-visible-revision', String(action.revision));
+        row.classList.add('is-agent-revealed');
+        row.scrollIntoView({ block: 'nearest' });
+        say('Project revision ' + action.revision + (action.revision === commandRevision ? ' is current.' : ' is available in the undo history.'));
+        return { revision: action.revision, current: action.revision === commandRevision };
+      }
+      if (action.kind === 'history.undo' || action.kind === 'history.redo') {
+        const beforeRevision = commandRevision;
+        if (action.kind === 'history.undo') undo();
+        else redo();
+        if (commandRevision === beforeRevision) {
+          throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'Studio could not change project history.');
+        }
+        return {
+          historyAction: action.kind.slice('history.'.length),
+          revision: commandRevision,
+          documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
+        };
+      }
+      if (action.kind === 'control.invoke') {
+        switch (action.controlId) {
+          case 'project.templates':
+          case 'welcome.templates':
+            await openTemplateLibrary();
+            break;
+          case 'project.clear':
+            startOperation(openClearDecision, { nextLabel: 'clear the project', controlId: 'project.clear' });
+            break;
+          case 'body.create':
+            openV6AgentCommand('model.extrude', context, { forceNewBody: true });
+            break;
+          case 'app.help':
+          case 'welcome.help':
+            openHelp();
+            break;
+          case 'dialog.template.close':
+            closeTemplateLibrary();
+            break;
+          case 'dialog.help.close':
+            closeHelp();
+            break;
+          case 'dialog.clear.cancel':
+            closeClearDecision();
+            break;
+          case 'dialog.draft.keep':
+            if (!draftDecision?.open) {
+              throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'There is no unfinished-edit decision to keep.');
+            }
+            keepEditing();
+            break;
+          case 'dialog.draft.discard':
+            if (!discardDraftAndContinue()) {
+              throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'There is no unfinished-edit decision to discard.');
+            }
+            break;
+          case 'dialog.recovery.close':
+            closeRecovery();
+            break;
+          case 'dialog.tour.back':
+            moveTour(-1);
+            break;
+          case 'dialog.tour.next':
+            moveTour(1);
+            break;
+          case 'dialog.tour.skip':
+            finishTour();
+            break;
+          case 'help.tour':
+            closeHelp();
+            startTour(doc.features.length ? 'part' : 'empty');
+            break;
+          case 'help.templates':
+            closeHelp();
+            await openTemplateLibrary();
+            break;
+          case 'notice.legacy-dismiss':
+            $('bw-v1-notice-dismiss')?.click();
+            break;
+          default:
+            throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'Unsupported normal Studio control.');
+        }
+        return { controlId: action.controlId, surfaces: v6SurfaceState() };
+      }
+      if (action.kind === 'control.setValue') {
+        $('bw-template-search').value = String(action.value);
+        renderTemplateLibrary();
+        return { controlId: action.controlId, value: String(action.value), surfaces: v6SurfaceState() };
+      }
+      if (action.kind === 'template.select') {
+        await ensureTemplateLibrary();
+        const template = templateLibrary.find((entry) => entry.id === action.templateId);
+        if (!template) {
+          throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested template is not present in the loaded template library.');
+        }
+        setTemplateSelection(template);
+        return { templateId: selectedTemplate?.id || null, surfaces: v6SurfaceState() };
+      }
+      if (action.kind === 'template.filter') {
+        await ensureTemplateLibrary();
+        if (!['All parts', ...templateCategories].includes(action.category)) {
+          throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested template category is not advertised.');
+        }
+        templateCategory = action.category;
+        renderTemplateLibrary();
+        return { category: templateCategory, surfaces: v6SurfaceState() };
+      }
+      if (action.kind === 'template.use') {
+        await ensureTemplateLibrary();
+        const template = templateLibrary.find((entry) => entry.id === action.templateId);
+        if (!template) {
+          throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'The requested template is not present in the loaded template library.');
+        }
+        setTemplateSelection(template);
+        await openTemplateNow(template, { preserveAgent: true });
+        return {
+          templateId: template.id,
+          projectId,
+          revision: commandRevision,
+          title: doc.title,
+          documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
+          surfaces: v6SurfaceState(),
+        };
+      }
+      if (action.kind === 'project.newBlank') {
+        return startBlankProject({ preserveAgent: true, context });
+      }
+      if (action.kind === 'recovery.open') {
+        await openRecovery();
+        return { surfaces: v6SurfaceState() };
+      }
+      if (action.kind === 'recovery.restore') {
+        const snapshot = recoveryEntries.get(action.snapshotId);
+        if (!snapshot) {
+          throw new v6InteractionTools.CadUiError('SELECTION_AMBIGUOUS', 'That recovery entry is no longer available.');
+        }
+        return restoreRecoveryEntry(snapshot, { preserveAgent: true });
+      }
+      if (action.kind === 'transition.undo') {
+        return undoProjectTransition();
+      }
+      if (action.kind === 'transition.dismiss') {
+        hideTransitionToast(true);
+        return { surfaces: v6SurfaceState() };
+      }
+      if (action.kind === 'application.fullscreen') {
+        const active = await toggleFullscreen();
+        return { active };
+      }
+      if (action.kind === 'application.navigate') {
+        return { target: action.target, navigationPending: true };
+      }
+      if (action.kind === 'inspection.run') {
+        return runV6VisibleInspection(action.inspectionId);
+      }
+      if (action.kind === 'sketch.setTool') {
+        if (!sketch.setSemanticTool(action.toolId)) {
+          throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'The requested sketch tool is not available.');
+        }
+        return { toolId: sketch.activeTool() };
+      }
+      if (['sketch.shape.select', 'sketch.shape.update', 'sketch.shape.delete'].includes(action.kind)) {
+        return invokeV6SketchShapeAction(action, context);
+      }
+      if (action.kind === 'command.advance') {
+        let advanced = false;
+        if (action.controlId === 'model.face.next') advanced = facePick.nextFace();
+        else if (action.controlId === 'model.face.use') advanced = facePick.useSelectedFace();
+        else if (action.controlId === 'model.face.base') advanced = facePick.useBasePlane();
+        else if (action.controlId === 'model.shell.next') advanced = shellPick.nextFace();
+        else if (action.controlId === 'model.shell.toggle') advanced = shellPick.toggleSelectedFace();
+        else if (action.controlId === 'sketch.presspull.start') advanced = sketch.startPressPull();
+        else if (action.controlId === 'sketch.presspull.back') advanced = sketch.backFromPressPull();
+        if (!advanced || !v6AgentCommandDraft) {
+          throw new v6InteractionTools.CadUiError('COMMAND_BLOCKED', 'The requested lifecycle control is not available in the active normal command state.');
+        }
+        cancelV6PreviewRecord();
+        const current = v6AgentCommandDraft;
+        const refreshed = v6InitialVisibleCommandDraft(current.commandId, current);
+        v6AgentCommandDraft = {
+          ...current,
+          ...refreshed,
+          baseRevision: commandRevision,
+          state: 'draft',
+          diagnostics: [],
+          previewId: null,
+        };
+        renderV6CommandPreview();
+        emitV6CommandEvent('command.draftChanged', {
+          reason: 'advanced',
+          controlId: action.controlId,
+          activeCommand: v6ActiveCommandState(),
+        }, context);
+        return { controlId: action.controlId, activeCommand: v6ActiveCommandState() };
+      }
+      if (action.kind === 'tree.invoke') return invokeV6TreeAction(action);
+      if (action.kind === 'inspector.invoke') return invokeV6InspectorAction(action.operation);
+      if (action.kind === 'diagnostics.show') {
+        const diagnostics = renderV6Diagnostics(action.diagnosticId);
+        await setV6Panel('diagnostics', true);
+        return { diagnosticId: action.diagnosticId || null, count: diagnostics.length };
+      }
+      if (action.kind === 'command.open') {
+        return openV6AgentCommand(action.commandId, context);
+      }
+      if (action.kind === 'command.bindSelection') {
+        return bindV6CommandSelection(action.fieldId, action.entities, context);
+      }
+      if (action.kind === 'command.setInput') {
+        return setV6CommandInput(action.fieldId, action.value, context);
+      }
+      if (action.kind === 'command.clearInput') {
+        return clearV6CommandInput(action.fieldId, context);
+      }
+      if (action.kind === 'command.preview') {
+        return await previewV6AgentCommand(context);
+      }
+      if (action.kind === 'command.commit') {
+        return await commitV6VisiblePreviewFromAgent(context);
+      }
+      if (action.kind === 'command.cancel') {
+        if (!v6AgentCommandDraft) {
+          throw new v6InteractionTools.CadUiError('COMMAND_NOT_OPEN', 'There is no visible command draft to cancel.');
+        }
+        const draftId = v6AgentCommandDraft?.draftId || null;
+        v6ClosingCommand = true;
+        try {
+          clearV6AgentCommandState({ cancelPreview: true });
+          closeActiveV6CommandSurface();
+        } finally {
+          v6ClosingCommand = false;
+        }
+        emitV6CommandEvent('command.draftChanged', { reason: 'cancelled', draftId, activeCommand: null }, context);
+        return { draftId, cancelled: true };
+      }
+      if (action.kind === 'preview.present') {
+        return presentV6Preview(action.previewId);
+      }
+      if (action.kind === 'preview.dismiss') {
+        return dismissV6Preview();
+      }
+      if (action.kind === 'presentation.focusAction') {
+        return focusV6Action(action.actionId);
+      }
+      if (action.kind === 'presentation.waitForSettled') {
+        return { correlationId: action.correlationId || context.correlationId, waiting: true };
+      }
+      if (action.kind === 'narration.setMode') {
+        if (action.mode === 'off') hideV6Narration();
+        return { mode: action.mode };
+      }
+      if (action.kind === 'presentation.setMode') {
+        return { mode: action.mode };
+      }
+      throw new v6InteractionTools.CadUiError('UI_CAPABILITY_DISABLED', 'Unsupported Studio UI action.');
+    } finally {
+      v6ApplyingSemanticAction = false;
+    }
+  }
+
+  async function restoreV6UiSnapshot(snapshot, { scopes = [], preserveScopes = [] } = {}) {
+    const restore = new Set(scopes);
+    const preserve = new Set(preserveScopes);
+    v6ApplyingSemanticAction = true;
+    try {
+      if (restore.has('workspace') && snapshot.workspaceId) showWorkspace(snapshot.workspaceId, true);
+      if (restore.has('selection')) {
+        const selection = (snapshot.selection || []).filter(v6EntityExists);
+        if (selection.length) setV6SemanticSelection(selection);
+        else clearV6Selection();
+      }
+      if (restore.has('tree')) {
+        document.querySelectorAll('.is-agent-revealed').forEach((candidate) => candidate.classList.remove('is-agent-revealed'));
+        v6RevealedEntity = snapshot.tree?.revealed ? deepCopy(snapshot.tree.revealed) : null;
+        if (v6RevealedEntity) appEl.dataset.agentRevealedEntity = v6RevealedEntity.id;
+        else delete appEl.dataset.agentRevealedEntity;
+        v6TreeExpansion.clear();
+        const expandedKeys = new Set((snapshot.tree?.expanded || []).map(v6SelectionRefKey));
+        if (v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly') {
+          for (const occurrence of v5RuntimeTools.studioV5RootAssembly(doc).occurrences) {
+            const entity = { kind: 'occurrence', id: occurrence.id };
+            v6TreeExpansion.set(v6SelectionRefKey(entity), expandedKeys.has(v6SelectionRefKey(entity)));
+          }
+        }
+        for (const section of snapshot.tree?.sections || []) {
+          setV6TreeSectionOpen(section.sectionId, Boolean(section.expanded));
+        }
+        exportBodyIds.clear();
+        for (const bodyId of snapshot.tree?.exportBodyIds || []) {
+          if (lastBodyResults.some((entry) => entry.bodyId === bodyId)) exportBodyIds.add(bodyId);
+        }
+        renderBodies();
+        renderBodyPatterns();
+        renderAssemblyTree();
+        if (v6RevealedEntity && !preserve.has('workspace')) await revealV6TreeEntity(v6RevealedEntity);
+      }
+      if (restore.has('panels')) {
+        lastInspection = snapshot.inspection ? deepCopy(snapshot.inspection) : null;
+        for (const panel of snapshot.panels || []) if (v6PanelOpen.has(panel.panelId)) v6PanelOpen.set(panel.panelId, Boolean(panel.open));
+        v6HistoryRevision = snapshot.history?.visibleRevision ?? null;
+        syncV6PanelVisibility();
+        renderHistory();
+      }
+      if (restore.has('surfaces') && snapshot.surfaces) {
+        const surfaces = snapshot.surfaces;
+        if (surfaces.help?.open) openHelp();
+        else closeHelp();
+        if (surfaces.templates?.open) {
+          await openTemplateLibrary();
+          if (surfaces.templates.category && ['All parts', ...templateCategories].includes(surfaces.templates.category)) {
+            templateCategory = surfaces.templates.category;
+          }
+          if ($('bw-template-search')) $('bw-template-search').value = String(surfaces.templates.search || '');
+          renderTemplateLibrary();
+          const selected = templateLibrary.find((entry) => entry.id === surfaces.templates.selectedTemplateId);
+          if (selected) setTemplateSelection(selected);
+        } else {
+          closeTemplateLibrary(true);
+        }
+        if (surfaces.recovery?.open) await openRecovery();
+        else closeRecovery();
+        if (surfaces.clear?.open) openClearDecision();
+        else closeClearDecision();
+        if (surfaces.tour?.open) {
+          startTour(surfaces.tour.kind);
+          tourIndex = Math.max(0, Math.min(tourSteps().length - 1, surfaces.tour.index || 0));
+          renderTourStep();
+        } else {
+          clearTourTarget();
+          tourEl.hidden = true;
+          tourReturnWelcome = false;
+        }
+        if (surfaces.welcome?.open) showWelcome();
+        else hideWelcome();
+        if (Boolean(document.fullscreenElement === appEl) !== Boolean(surfaces.fullscreen?.active)) {
+          await toggleFullscreen();
+        }
+      }
+      if (restore.has('viewport') && snapshot.viewport?.camera) {
+        v6CameraTransitionGeneration++;
+        camera.position.fromArray(snapshot.viewport.camera.position);
+        orbit.target.fromArray(snapshot.viewport.camera.target);
+        camera.up.fromArray(snapshot.viewport.camera.up);
+        camera.updateProjectionMatrix();
+        orbit.update();
+        activeViewName = snapshot.viewport.viewId || null;
+        v6FramedEntities = deepCopy(snapshot.viewport.framedEntities || []);
+        v6FramedBounds = deepCopy(snapshot.viewport.framedBounds || null);
+        v6DisplayModeOverride = snapshot.viewport.displayMode;
+        setNavMode(snapshot.viewport.navigationMode || 'orbit');
+        v6ActiveSectionOverride = snapshot.viewport.activeSectionId ?? null;
+        v6ActiveExplodedViewOverride = snapshot.viewport.activeExplodedViewId ?? null;
+        isolatedBodyId = snapshot.viewport.isolatedBodyId || null;
+        if (snapshot.viewport.isolatedOccurrenceId) appEl.dataset.isolateOccurrence = snapshot.viewport.isolatedOccurrenceId;
+        else delete appEl.dataset.isolateOccurrence;
+        syncViewPressed(activeViewName);
+        syncBodyMeshState();
+        rebuildSectionCaps();
+        renderAssemblyTree();
+        requestSceneRender();
+      }
+      if (restore.has('command')) {
+        const command = snapshot.activeCommand;
+        if (
+          command?.draftId &&
+          (
+            command.commandId?.startsWith('model.') ||
+            command.commandId?.startsWith('assembly.') ||
+            command.commandId?.startsWith('inspection.')
+          )
+        ) {
+          v6ClosingCommand = true;
+          try {
+            clearV6AgentCommandState({ cancelPreview: true });
+            closeActiveV6CommandSurface();
+          } finally {
+            v6ClosingCommand = false;
+          }
+          openV6AgentCommand(command.commandId, {}, {
+            forceNewBody:
+              command.commandId === 'model.extrude' &&
+              !command.editEntity &&
+              command.inputValues?.resultPolicy === 'new-body',
+          });
+          const normalSurfaceOpen = V6_BASIC_MODEL_COMMANDS.has(command.commandId)
+            ? sketch.isOpen() || picker.active() || shellPick.active() || facePick.active()
+            : v5Dialog?.open;
+          if (normalSurfaceOpen) {
+            v6AgentCommandDraft = {
+              commandId: command.commandId,
+              draftId: command.draftId,
+              transactionId: command.transactionId,
+              baseRevision: command.baseRevision,
+              state: command.state,
+              inputValues: deepCopy(command.inputValues || {}),
+              boundSelections: deepCopy(command.boundSelections || {}),
+              generatedIds: deepCopy(command.generatedIds || {}),
+              diagnostics: deepCopy(command.diagnostics || []),
+              previewId: snapshot.preview?.previewId || null,
+              ...(command.editEntity ? { editEntity: deepCopy(command.editEntity) } : {}),
+              ...(command.bootstrapOperations?.length
+                ? { bootstrapOperations: deepCopy(command.bootstrapOperations) }
+                : {}),
+              ...(command.materialContext
+                ? { materialContext: deepCopy(command.materialContext) }
+                : {}),
+            };
+            for (const [fieldId, entities] of Object.entries(v6AgentCommandDraft.boundSelections)) {
+              v6SetVisibleCommandFormSelection(fieldId, entities);
+            }
+            for (const [fieldId, value] of Object.entries(v6AgentCommandDraft.inputValues)) {
+              v6SetVisibleCommandFormInput(fieldId, value);
+            }
+            if (Number.isInteger(command.selectedShapeIndex)) {
+              sketch.setSemanticShapeSelection(command.selectedShapeIndex);
+            }
+          }
+        } else {
+          v6ClosingCommand = true;
+          try {
+            clearV6AgentCommandState({ cancelPreview: true });
+            if (v5Dialog?.open) closeV5Command();
+          } finally {
+            v6ClosingCommand = false;
+          }
+        }
+      }
+      if (restore.has('preview')) {
+        const preview = snapshot.preview;
+        if (preview?.previewId) {
+          if (v6VisiblePreview?.previewId && v6VisiblePreview.previewId !== preview.previewId) {
+            liveAgentService?.cancelPreview(v6VisiblePreview.previewId);
+          }
+          const retained = v6VisiblePreview?.previewId === preview.previewId ? v6VisiblePreview : {};
+          v6VisiblePreview = {
+            ...retained,
+            previewId: preview.previewId,
+            baseRevision: preview.baseRevision,
+            visible: Boolean(preview.visible),
+            highlightedEntities: deepCopy(preview.highlightedEntities || []),
+            validation: deepCopy(preview.validation || { valid: false, exactGeometry: false, diagnostics: [] }),
+            evidence: deepCopy(preview.evidence || retained.evidence || {}),
+            transactionHash: preview.transactionHash,
+            changeSet: {
+              ...(retained.changeSet || {}),
+              documentHashAfter: preview.documentHashAfter,
+            },
+          };
+          if (v6AgentCommandDraft) v6AgentCommandDraft.previewId = preview.previewId;
+          if (preview.visible && v6AgentCommandDraft?.inputValues?.transform) {
+            setV6TransformPreviewMatrix(v6AgentCommandDraft.inputValues.transform);
+          } else {
+            endTransformPreview(true);
+          }
+        } else {
+          cancelV6PreviewRecord();
+          endTransformPreview(true);
+        }
+        renderV6CommandPreview();
+      }
+      if (restore.has('surfaces') && snapshot.surfaces?.draftDecision) {
+        const decision = snapshot.surfaces.draftDecision;
+        if (decision.open && decision.controlId === 'project.clear') {
+          openDraftDecision(openClearDecision, {
+            nextLabel: decision.nextLabel || 'clear the project',
+            controlId: 'project.clear',
+          });
+        } else {
+          queuedOperation = null;
+          closeDecision(draftDecision);
+        }
+      }
+      if (restore.has('presentation')) {
+        document.querySelectorAll('[data-v6-focused-action="true"]').forEach((element) => delete element.dataset.v6FocusedAction);
+        v6FocusedActionId = snapshot.focusedActionId || null;
+        if (v6FocusedActionId) focusV6Action(v6FocusedActionId);
+      }
+    } finally {
+      v6ApplyingSemanticAction = false;
+    }
+  }
+
+  function waitForV6RenderedFrame(timeoutMs) {
+    const before = renderSerial;
+    return new Promise((resolve, reject) => {
+      let complete = false;
+      const done = (serial) => {
+        if (complete || serial <= before) return;
+        complete = true;
+        clearTimeout(timer);
+        clearTimeout(forceTimer);
+        renderSettlementWaiters.delete(done);
+        resolve(serial);
+      };
+      const forceTimer = setTimeout(() => {
+        if (complete || renderSerial > before) return;
+        try {
+          sceneRenderDirty = false;
+          renderScene();
+        } catch (error) {
+          complete = true;
+          clearTimeout(timer);
+          renderSettlementWaiters.delete(done);
+          reject(new v6InteractionTools.CadUiError('RENDER_SETTLEMENT_TIMEOUT', 'Studio could not force a renderer frame for semantic settlement.', {
+            renderSerial,
+            cause: String(error?.message || error),
+          }));
+        }
+      }, 32);
+      const timer = setTimeout(() => {
+        if (complete) return;
+        complete = true;
+        clearTimeout(forceTimer);
+        renderSettlementWaiters.delete(done);
+        reject(new v6InteractionTools.CadUiError('RENDER_SETTLEMENT_TIMEOUT', 'Studio did not produce a renderer frame before the semantic settlement deadline.', {
+          renderSerial,
+          timeoutMs,
+        }));
+      }, timeoutMs);
+      renderSettlementWaiters.add(done);
+      requestSceneRender();
+    });
+  }
+
+  async function waitForV6UiSettlement(_action, { targetUiRevision, timeoutMs = 10_000 } = {}) {
+    const started = performance.now();
+    const deadline = started + timeoutMs;
+    while (latestRequestedRevision > latestAppliedRevision) {
+      if (performance.now() >= deadline) {
+        throw new v6InteractionTools.CadUiError('RENDER_SETTLEMENT_TIMEOUT', 'The CAD kernel did not reach the requested renderer revision before settlement.', {
+          latestRequestedRevision,
+          latestAppliedRevision,
+          timeoutMs,
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+    const remaining = Math.max(1, Math.ceil(deadline - performance.now()));
+    const settledRenderSerial = await waitForV6RenderedFrame(remaining);
+    lastRenderedUiRevision = targetUiRevision;
+    v6ObservedHostState = v6ComparableHostState(v6StudioSnapshot());
+    return {
+      renderSerial: settledRenderSerial,
+      renderedDocumentRevision: lastRenderedDocumentRevision,
+      renderedKernelRevision: lastRenderedKernelRevision,
+      renderedUiRevision: lastRenderedUiRevision,
+      renderState: 'idle',
+      elapsedMs: Math.round((performance.now() - started) * 100) / 100,
+    };
+  }
+
+  function getV6InteractionRuntime() {
+    if (!v6InteractionRuntime) {
+      v6InteractionRuntime = new v6InteractionTools.CadStudioInteractionRuntime({
+        projectId: () => projectId,
+        documentRevision: () => commandRevision,
+        studioVersion: '6.0.0-i4',
+        adapter: {
+          snapshot: v6StudioSnapshot,
+          validateAction: validateV6UiAction,
+          applyAction: applyV6UiAction,
+          restoreSnapshot: restoreV6UiSnapshot,
+          waitForSettled: waitForV6UiSettlement,
+          interrupt: () => { v6CameraTransitionGeneration++; },
+          showNarration: showV6Narration,
+          completeNarration: completeV6Narration,
+        },
+      });
+      v6ObservedHostState = v6ComparableHostState(v6StudioSnapshot());
+      v6InteractionRuntime.emit('session.connected', {
+        clientLabel: activeAgentConnection?.clientLabel || 'Local CAD agent',
+        mode: activeAgentConnection?.mode || 'preview-required',
+        recovered: Boolean(activeAgentConnection?.recovered),
+      }, { actor: 'agent' });
+      if (activeAgentConnection?.recovered) {
+        v6InteractionRuntime.emit('document.recovered', {
+          projectId,
+          revision: commandRevision,
+          documentHash: v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+        }, { actor: 'agent' });
+      }
+    }
+    return v6InteractionRuntime;
+  }
+
+  for (const eventName of ['click', 'change', 'input', 'keydown']) {
+    appEl?.addEventListener(eventName, captureV6HumanState);
+  }
+  appEl?.addEventListener('toggle', captureV6HumanTreeToggle, true);
 
   async function handleLoopbackTool(tool, rawArgs, requestId) {
     if (!activeAgentConnection) throw new agentTools.CadAgentError('SESSION_NOT_FOUND', 'The live Studio session is not connected.');
+    if (activeAgentConnection.paused) throw new agentTools.CadAgentError('SESSION_PAUSED', 'The user paused this agent session.');
     const args = deepCopy(rawArgs || {});
     delete args.sessionId;
     if (tool === 'cad_artifact') return liveAgentArtifact(args);
+    if (tool === 'cad_ui' || tool === 'cad_events') {
+      const runtime = getV6InteractionRuntime();
+      const granted = activeAgentConnection.permissionContext.granted;
+      if (!granted.includes('ui.read')) throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "ui.read" is required.');
+      if (tool === 'cad_events') {
+        if (!granted.includes('ui.wait-events')) throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "ui.wait-events" is required.');
+        return runtime.events(args);
+      }
+      if (args.action === 'capabilities') return runtime.capabilities({
+        detail: args.detail,
+        controlIds: args.controlIds,
+        commandIds: args.commandIds,
+        actionIds: args.actionIds,
+      });
+      if (args.action === 'snapshot') return runtime.snapshot();
+      if (args.action === 'narrate') {
+        if (!granted.includes('ui.present-narration')) {
+          throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "ui.present-narration" is required.');
+        }
+        const expectedUiRevision = Number(args.expectedUiRevision);
+        if (!Number.isInteger(expectedUiRevision) || expectedUiRevision !== runtime.uiRevision) {
+          throw new agentTools.CadAgentError('UI_REVISION_CONFLICT', 'Narration targets a stale Studio UI revision.', {
+            expectedUiRevision: args.expectedUiRevision,
+            actualUiRevision: runtime.uiRevision,
+          });
+        }
+        const allowed = new Set(runtime.manifest.trustedNarrationTemplates.map((entry) => entry.id));
+        if (!allowed.has(args.templateId)) {
+          throw new agentTools.CadAgentError('UI_CAPABILITY_DISABLED', 'Only advertised Studio-owned presentation templates may be requested.');
+        }
+        return runtime.presentTrustedNarration({
+          templateId: args.templateId,
+          values: args.values,
+          correlationId: args.correlationId,
+        });
+      }
+      if (args.action === 'apply') {
+        v6SemanticBatchBasePreviewId = v6VisiblePreview?.previewId || null;
+        v6DeferredPreviewCancellations.clear();
+        try {
+          const result = await runtime.apply(args, { permissions: granted });
+          for (const previewId of v6DeferredPreviewCancellations) {
+            if (previewId !== v6VisiblePreview?.previewId) cancelV6PreviewServiceRecord(previewId);
+          }
+          return result;
+        } catch (error) {
+          v6DeferredPreviewCancellations.clear();
+          throw error;
+        } finally {
+          v6SemanticBatchBasePreviewId = null;
+          v6DeferredPreviewCancellations.clear();
+        }
+      }
+      throw new agentTools.CadAgentError('INVALID_ACTION', 'Unknown cad_ui action.');
+    }
+    if (tool === 'cad_query' && args.query?.kind === 'geometry.topology') {
+      if (!activeAgentConnection.permissionContext.granted.includes('project.read')) {
+        throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "project.read" is required.');
+      }
+      const query = args.query;
+      const topologyKind = query.topologyKind;
+      const bodyId = query.bodyId;
+      const candidates = v6PublicTopologyInventory().filter((entry) =>
+        (!topologyKind || entry.topologySignature.kind === topologyKind) &&
+        (!bodyId || entry.owner.id === bodyId));
+      const offset = Math.max(0, Number.isInteger(query.offset) ? query.offset : 0);
+      const limit = Math.max(1, Math.min(1000, Number.isInteger(query.limit) ? query.limit : 250));
+      return {
+        revision: commandRevision,
+        result: {
+          exactGeometry: true,
+          offset,
+          limit,
+          total: candidates.length,
+          items: candidates.slice(offset, offset + limit),
+        },
+      };
+    }
+    if (tool === 'cad_query' && ['geometry.health', 'assembly.clearance', 'assembly.interference'].includes(args.query?.kind)) {
+      if (!activeAgentConnection.permissionContext.granted.includes('project.read')) {
+        throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "project.read" is required.');
+      }
+      if ((args.previewId == null) !== (args.expectedRevision == null)) {
+        throw new agentTools.CadAgentError('INVALID_QUERY_SCOPE', 'Preview-scoped queries require both previewId and expectedRevision.');
+      }
+      if (args.presentation != null && !['visible', 'silent'].includes(args.presentation)) {
+        throw new agentTools.CadAgentError('INVALID_QUERY_PRESENTATION', 'Query presentation must be visible or silent.');
+      }
+      const canPresentNarration =
+        activeAgentConnection.permissionContext.granted.includes('ui.present-narration');
+      if (args.presentation === 'visible' && !canPresentNarration) {
+        throw new agentTools.CadAgentError('PERMISSION_DENIED', 'Permission "ui.present-narration" is required for visible query presentation.');
+      }
+      const query = args.query;
+      const preview = args.previewId == null
+        ? null
+        : liveAgentService.previewSnapshot(args.previewId, args.expectedRevision);
+      const queryDocument = preview?.project || doc;
+      if (query.entities && query.bodyIds) {
+        throw new agentTools.CadAgentError('INVALID_QUERY_SCOPE', 'Choose either stable entities or bodyIds for an exact inspection.');
+      }
+      const scope = resolveArtifactBodyScope({
+        ...(Array.isArray(query.entities) ? { entities: query.entities } : {}),
+        ...(Array.isArray(query.bodyIds) ? { entities: query.bodyIds.map((id) => ({ kind: 'body', id })) } : {}),
+        ...(!query.entities && !query.bodyIds ? { scope: query.scope || 'visible-model' } : {}),
+      }, {
+        document: queryDocument,
+        ...(preview ? { bodyResults: preview.evidence.bodyResults } : {}),
+      });
+      if (query.kind === 'assembly.clearance' && scope.bodyIds.length !== 2) {
+        throw new agentTools.CadAgentError('SELECTION_AMBIGUOUS', 'Exact clearance requires exactly two resolved bodies.');
+      }
+      const mode = query.kind === 'geometry.health'
+        ? 'mass-health'
+        : query.kind === 'assembly.clearance'
+          ? 'clearance'
+          : 'interference';
+      const response = await kernelCall('inspect-v5', preview?.baseRevision ?? documentRevision, {
+        document: queryDocument,
+        mode,
+        bodyIds: scope.bodyIds,
+        ...(mode === 'clearance' ? { pairBodyIds: scope.bodyIds } : {}),
+      });
+      if (!response.inspection || response.errors?.length) {
+        throw new agentTools.CadAgentError('KERNEL_INSPECTION_FAILED', response.errors?.[0]?.message || 'The exact inspection did not produce a result.');
+      }
+      const result = {
+        ...deepCopy(response.inspection),
+        exactGeometry: true,
+        scope,
+        documentHash: preview?.documentHash || v5RuntimeTools.studioV5CanonicalHash(doc),
+        ...(preview ? {
+          previewId: preview.previewId,
+          baseRevision: preview.baseRevision,
+          previewScoped: true,
+        } : {}),
+      };
+      getV6InteractionRuntime().emit('kernel.completed', {
+        queryKind: query.kind,
+        exactGeometry: true,
+        bodyIds: scope.bodyIds,
+        ...(preview ? { previewId: preview.previewId, previewScoped: true } : {}),
+      }, { actor: 'agent', uiRevision: getV6InteractionRuntime().uiRevision });
+      const templateId = query.kind === 'geometry.health'
+        ? 'geometry-health'
+        : query.kind === 'assembly.clearance'
+          ? 'assembly-clearance'
+          : query.kind === 'assembly.interference' && scope.bodyIds.length === 2 && response.inspection.pairs.length === 0
+            ? 'assembly-interference-clear'
+          : 'assembly-interference';
+      if (args.presentation !== 'silent' && canPresentNarration) {
+        await getV6InteractionRuntime().presentTrustedNarration({
+          templateId,
+          ...(templateId === 'assembly-clearance'
+            ? { values: { minimumClearanceMm: response.inspection.pairs[0]?.minimumClearanceMm } }
+            : templateId === 'assembly-interference-clear'
+              ? {}
+              : { values: { bodyCount: scope.bodyIds.length } }),
+          correlationId: `query-${query.kind}-${preview?.previewId || commandRevision}`,
+        });
+      }
+      return {
+        revision: preview?.baseRevision ?? commandRevision,
+        ...(preview ? { previewId: preview.previewId } : {}),
+        result,
+      };
+    }
     let payload;
     if (tool === 'cad_inspect') payload = { kind: 'inspect', query: args.query || {} };
     else if (tool === 'cad_query') payload = { kind: 'query', query: args.query || {} };
@@ -1186,6 +5832,20 @@
     else if (tool === 'cad_commit') payload = { kind: 'commit', previewId: args.previewId };
     else if (tool === 'cad_history') payload = { kind: 'history', ...args };
     else throw new agentTools.CadAgentError('TOOL_NOT_FOUND', 'Unsupported live Studio tool "' + tool + '".');
+    if (tool === 'cad_commit' && v6AgentCommandDraft?.baseRevision !== undefined && v6AgentCommandDraft.baseRevision !== commandRevision) {
+      await getV6InteractionRuntime().presentTrustedNarration({
+        templateId: 'revision-conflict',
+        correlationId: `revision-conflict-${commandRevision}`,
+      });
+      throw new agentTools.CadAgentError('REVISION_CONFLICT', 'The visible command targets an older project revision.', {
+        expectedRevision: v6AgentCommandDraft.baseRevision,
+        actualRevision: commandRevision,
+        repairOptions: [{ kind: 'inspect-changes-since' }, { kind: 'refresh-command-draft' }],
+      });
+    }
+    if (tool === 'cad_commit' && v6AgentCommandDraft && v6AgentCommandDraft.previewId !== args.previewId) {
+      throw new agentTools.CadAgentError('PREVIEW_NOT_CURRENT', 'The requested preview is not the exact preview currently attached to the visible command draft.');
+    }
     const envelope = agentTools.createCadAgentRequest({
       requestId,
       sessionId: activeAgentConnection.sessionId,
@@ -1198,6 +5858,72 @@
     if (response.status !== 'ok') {
       const diagnostic = response.diagnostics?.[0] || {};
       throw new agentTools.CadAgentError(diagnostic.code || 'CAD_TOOL_FAILED', diagnostic.message || 'The live Studio request failed.', diagnostic);
+    }
+    if (tool === 'cad_preview') {
+      const clearDecisionWasOpen =
+        Boolean(clearDecision?.open) &&
+        args.transaction?.operations?.some((operation) => operation.kind === 'project.clear');
+      if (clearDecisionWasOpen) closeDecision(clearDecision);
+      try {
+        const visible = await presentV6DirectTransactionPreview(response.result, args.transaction);
+        response.result.visible = visible;
+        if (visible) response.result.transactionHash = v6VisiblePreview?.transactionHash || null;
+      } catch (error) {
+        cancelV6PreviewServiceRecord(response.result.previewId);
+        if (clearDecisionWasOpen) openClearDecision();
+        throw error;
+      }
+    }
+    if (tool === 'cad_history' && ['undo', 'redo'].includes(args.action)) {
+      const runtime = getV6InteractionRuntime();
+      runtime.hostChanged('history.changed', {
+        historyAction: args.action,
+        revision: response.result.revision,
+        documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
+      }, { actor: 'agent' });
+      await Promise.all([
+        latestStorageWrite,
+        waitForV6UiSettlement(null, {
+          targetUiRevision: runtime.uiRevision,
+        }),
+      ]);
+      runtime.emit('history.changed', {
+        historyAction: args.action,
+        revision: response.result.revision,
+        documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
+      }, { actor: 'agent', uiRevision: runtime.uiRevision });
+    }
+    if (tool === 'cad_commit') {
+      const result = response.result;
+      const visibleMatch = v6VisiblePreview?.previewId === args.previewId;
+      const transactionHash = visibleMatch ? v6VisiblePreview.transactionHash : null;
+      if (visibleMatch) {
+        v6ClosingCommand = true;
+        try {
+          clearV6AgentCommandState({ cancelPreview: false });
+          closeActiveV6CommandSurface();
+        } finally {
+          v6ClosingCommand = false;
+        }
+      }
+      const runtime = getV6InteractionRuntime();
+      runtime.hostChanged('commit.applied', {
+        previewId: args.previewId,
+        revision: result.revision,
+        ...(transactionHash ? { transactionHash } : {}),
+        changeSet: result.changeSet,
+        historyEntry: result.historyEntry,
+        approvedBy: 'agent-host',
+      }, { actor: 'agent' });
+      runtime.emit('history.changed', {
+        revision: result.revision,
+        historyEntry: result.historyEntry,
+      }, { actor: 'agent', uiRevision: runtime.uiRevision });
+      await runtime.presentTrustedNarration({
+        templateId: 'commit-applied',
+        values: { revision: result.revision },
+        correlationId: `commit-${result.historyEntry?.transactionId || result.revision}`,
+      });
     }
     return tool === 'cad_inspect' || tool === 'cad_query'
       ? { revision: response.revision, result: response.result }
@@ -1216,6 +5942,8 @@
     const expectedOrigin = activeAgentConnection?.bridgeOrigin || pendingPairingOrigin;
     if (!expectedWindow || event.source !== expectedWindow || event.origin !== expectedOrigin) return;
     const message = event.data.message;
+    clearTimeout(localAgentBridgeTimer);
+    localAgentBridgeTimer = null;
     if (message.type === 'bridge.close') {
       pendingPairingWindow = null;
       pendingPairingOrigin = null;
@@ -1234,6 +5962,9 @@
           clientLabel: message.clientLabel,
           permissionContext: message.permissionContext,
           mode: message.mode,
+          skillVersion: message.skillVersion,
+          expiresAt: message.expiresAt,
+          resume: message.resume === true,
           bridgeWindow: event.source,
           bridgeOrigin: event.origin,
         });
@@ -1243,6 +5974,7 @@
           type: 'pairing.approved',
           projectId: connection.projectId,
           revision: connection.revision,
+          uiRevision: connection.uiRevision,
           permissionContext: connection.permissionContext,
           mode: connection.mode,
           capabilities: connection.capabilities,
@@ -1252,10 +5984,26 @@
       }
       return;
     }
+    if (message.type === 'tool.cancel' && typeof message.id === 'string') {
+      v6InteractionRuntime?.interrupt?.('SESSION_PAUSED', String(message.reason || 'The user interrupted this request.'));
+      return;
+    }
     if (message.type === 'tool.request' && typeof message.id === 'string' && typeof message.tool === 'string') {
       try {
         const result = await handleLoopbackTool(message.tool, message.args, message.id);
         postToPairingWindow({ type: 'tool.response', id: message.id, ok: true, result });
+        const navigation = message.tool === 'cad_ui' &&
+          message.args?.action === 'apply' &&
+          Array.isArray(message.args?.actions) &&
+          message.args.actions.length === 1 &&
+          message.args.actions[0]?.kind === 'application.navigate' &&
+          message.args.actions[0]?.target === 'cad-home';
+        if (navigation) {
+          // Deliver the structured settlement before unloading Studio. The
+          // agent never has to infer success from a severed bridge, while the
+          // visible page still follows the same /cad link as the human Exit.
+          setTimeout(() => window.location.assign('/cad'), 120);
+        }
       } catch (reason) {
         postToPairingWindow({
           type: 'tool.response',
@@ -1269,9 +6017,26 @@
 
   $('bw-help-agent')?.addEventListener('click', openLoopbackPairDialog);
 
+  function consumeAgentLaunchFragment() {
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    const nonce = fragment.get('bomwiki-cad-pair');
+    const port = Number(fragment.get('bomwiki-cad-port'));
+    const recovery = fragment.get('bomwiki-cad-recovery') === '1';
+    if (!nonce) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    if (port !== LOCAL_AGENT_BRIDGE_PORT || !/^[A-Za-z0-9-]{20,200}$/.test(nonce)) {
+      say('The local CAD agent launch request is invalid or uses an unsupported bridge.', true);
+      return;
+    }
+    queueMicrotask(() => openLoopbackPairDialog({ nonce, recovery }));
+  }
+
+  consumeAgentLaunchFragment();
+
   function synchronizeAgentAfterHostChange(label, actor = 'human', transactionId = null) {
     if (!liveAgentService || agentCommitInProgress || !v5RuntimeTools.isStudioV5Project(doc)) return;
     liveAgentService.synchronize(doc, commandRevision, { label, actor, ...(transactionId ? { transactionId } : {}) });
+    activeAgentConnection?.previews.clear();
     updateAgentActivity(actor === 'human' ? 'Project changed by you' : label, actor);
   }
 
@@ -1293,8 +6058,30 @@
     redoStack.length = 0;
     trimHistoryStacks();
     commandRevision++;
+    if (v6AgentCommandDraft && !agentCommitInProgress) {
+      cancelV6PreviewRecord();
+      v6AgentCommandDraft.state = 'blocked';
+      v6AgentCommandDraft.diagnostics = [{
+        code: 'REVISION_CONFLICT',
+        severity: 'error',
+        message: 'The project changed while this visible command was open. Refresh the command on the current revision.',
+      }];
+      endTransformPreview(true);
+      renderV6CommandPreview();
+      v6InteractionRuntime?.hostChanged('command.draftChanged', {
+        reason: 'document-changed',
+        activeCommand: v6ActiveCommandState(),
+      }, { actor: metadata.actor || 'human' });
+    }
     afterDocumentChange(label);
     synchronizeAgentAfterHostChange(label, metadata.actor || 'human', metadata.transactionId || null);
+    v6InteractionRuntime?.emit('document.changed', {
+      revision: commandRevision,
+      label,
+      actor: metadata.actor || 'human',
+      ...(metadata.transactionId ? { transactionId: metadata.transactionId } : {}),
+      documentHash: v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+    }, { actor: metadata.actor || 'human', uiRevision: v6InteractionRuntime.uiRevision });
   }
 
   function commitHumanOperations(label, operations) {
@@ -1317,7 +6104,7 @@
   function featureOperationForDraft(draft, wasNew) {
     if (!wasNew) {
       const patch = {};
-      for (const key of ['name', 'h', 'through', 'r', 't', 'edges', 'faces', 'sketch', 'pattern', 'resultPolicy', 'inputRefs']) {
+      for (const key of ['name', 'h', 'through', 'r', 't', 'edges', 'faces', 'sketch', 'pattern', 'resultPolicy', 'inputRefs', 'onFace']) {
         if (draft[key] !== undefined) patch[key] = deepCopy(draft[key]);
       }
       if (draft.pattern === undefined) patch.pattern = null;
@@ -1336,6 +6123,7 @@
     if (draft.t !== undefined) input.thickness = draft.t;
     if (draft.edges) input.edges = deepCopy(draft.edges);
     if (draft.faces) input.faces = deepCopy(draft.faces);
+    if (draft.onFace) input.onFace = deepCopy(draft.onFace);
     if (draft.resultPolicy?.bodyName) input.bodyName = draft.resultPolicy.bodyName;
     return { kind: 'feature.' + draft.type, input };
   }
@@ -1419,28 +6207,42 @@
     afterDocumentChange();
   }
 
-  function undo() {
+  function undo(metadata = {}) {
+    const actor = metadata.actor || 'human';
     if ($('bw-v5-command')?.open) return say('Apply or cancel the active command first.');
     if (mode.kind !== 'idle' && mode.kind !== 'rebuilding') return say('Finish or cancel the current action first.');
     if (!undoStack.length) return say('Nothing to undo.');
     const entry = undoStack.pop();
     redoStack.push({ label: entry.label, snap: JSON.stringify(doc) });
     trimHistoryStacks();
-    replaceDocument(entry.snap);
     commandRevision++;
-    synchronizeAgentAfterHostChange('Undo ' + entry.label, 'human');
+    replaceDocument(entry.snap);
+    synchronizeAgentAfterHostChange('Undo ' + entry.label, actor);
+    v6InteractionRuntime?.emit('document.changed', {
+      revision: commandRevision,
+      label: 'Undo ' + entry.label,
+      actor,
+      documentHash: v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+    }, { actor, uiRevision: v6InteractionRuntime.uiRevision });
     say('Undid: ' + entry.label);
   }
-  function redo() {
+  function redo(metadata = {}) {
+    const actor = metadata.actor || 'human';
     if ($('bw-v5-command')?.open) return say('Apply or cancel the active command first.');
     if (mode.kind !== 'idle' && mode.kind !== 'rebuilding') return say('Finish or cancel the current action first.');
     if (!redoStack.length) return say('Nothing to redo.');
     const entry = redoStack.pop();
     undoStack.push({ label: entry.label, snap: JSON.stringify(doc) });
     trimHistoryStacks();
-    replaceDocument(entry.snap);
     commandRevision++;
-    synchronizeAgentAfterHostChange('Redo ' + entry.label, 'human');
+    replaceDocument(entry.snap);
+    synchronizeAgentAfterHostChange('Redo ' + entry.label, actor);
+    v6InteractionRuntime?.emit('document.changed', {
+      revision: commandRevision,
+      label: 'Redo ' + entry.label,
+      actor,
+      documentHash: v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+    }, { actor, uiRevision: v6InteractionRuntime.uiRevision });
     say('Redid: ' + entry.label);
   }
 
@@ -1473,7 +6275,7 @@
     manage: ['Manage', 'Project files, recovery, and history'],
     output: ['Output', 'Export manufacturing and project files'],
   };
-  function showWorkspace(name, forced) {
+  function showWorkspace(name, forced, actor = 'system') {
     if (!WORKSPACE_META[name]) return false;
     if (name === 'sketch' && mode.kind !== 'sketching' && !forced) return false;
     activeWorkspace = name;
@@ -1490,10 +6292,11 @@
     if ($('bw-workspace-name')) $('bw-workspace-name').textContent = meta[0];
     if ($('bw-workspace-hint')) $('bw-workspace-hint').textContent = meta[1];
     requestAnimationFrame(() => resize());
+    if (actor === 'human') noteV6HostUiChange('ui.changed', { workspace: { activeId: name } });
     return true;
   }
   document.querySelectorAll('[data-workspace]').forEach((b) =>
-    b.addEventListener('click', () => showWorkspace(b.dataset.workspace, false)),
+    b.addEventListener('click', () => showWorkspace(b.dataset.workspace, false, 'human')),
   );
   // Ribbon tabs may surface the same real command in more than one context.
   // Proxies keep one canonical control per command, avoiding duplicate IDs and
@@ -1772,6 +6575,17 @@
       const cad = sceneMatrixToCad(preview.object.matrix.toArray());
       const matrixInput = v5Fields.querySelector('[name="matrix"]');
       if (matrixInput) matrixInput.value = cad.map((value) => Math.abs(value) < 1e-12 ? 0 : Math.round(value * 1e9) / 1e9).join(', ');
+      if (v6AgentCommandDraft && !v6ApplyingSemanticAction) {
+        cancelV6PreviewRecord();
+        v6AgentCommandDraft.inputValues.transform = cad.map((value) => Math.abs(value) < 1e-12 ? 0 : Math.round(value * 1e9) / 1e9);
+        v6AgentCommandDraft.state = 'draft';
+        v6AgentCommandDraft.diagnostics = [];
+        v6InteractionRuntime?.hostChanged('command.draftChanged', {
+          reason: 'human-gizmo',
+          fieldId: 'transform',
+          activeCommand: v6ActiveCommandState(),
+        }, { actor: 'human' });
+      }
       return;
     }
     if (preview.command === 'move' || preview.command === 'copy') {
@@ -1802,6 +6616,51 @@
     transformControls.setTranslationSnap(selectedMode === 'translate' ? snap : null);
     transformControls.setRotationSnap(selectedMode === 'rotate' ? snap * Math.PI / 180 : null);
   });
+
+  const captureV6HumanCommandInput = (event) => {
+    const fieldId = event.target?.name || event.target?.dataset?.dim || event.target?.id || '';
+    if (
+      !v6AgentCommandDraft ||
+      (
+        !v6AgentCommandDraft.commandId.startsWith('model.') &&
+        !v6AgentCommandDraft.commandId.startsWith('assembly.') &&
+        !v6AgentCommandDraft.commandId.startsWith('inspection.')
+      ) ||
+      v6ApplyingSemanticAction ||
+      !fieldId
+    ) return;
+    cancelV6PreviewRecord();
+    const current = v6AgentCommandDraft;
+    try {
+      const parsed = v6InitialVisibleCommandDraft(current.commandId, current);
+      v6AgentCommandDraft = {
+        ...parsed,
+        draftId: current.draftId,
+        transactionId: current.transactionId,
+        generatedIds: current.generatedIds,
+        baseRevision: commandRevision,
+        previewId: null,
+      };
+      v5Error.textContent = v6AgentCommandDraft.diagnostics[0]?.message || '';
+    } catch (error) {
+      v6AgentCommandDraft.state = 'blocked';
+      v6AgentCommandDraft.diagnostics = [{
+        code: error?.code || 'COMMAND_FIELD_INVALID',
+        severity: 'error',
+        message: String(error?.message || error),
+        fieldId,
+      }];
+      v5Error.textContent = String(error?.message || error);
+    }
+    renderV6CommandPreview();
+    v6InteractionRuntime?.hostChanged('command.draftChanged', {
+      reason: 'human-input',
+      fieldId,
+      activeCommand: v6ActiveCommandState(),
+    }, { actor: 'human' });
+  };
+  v5Fields?.addEventListener('input', captureV6HumanCommandInput);
+  v5Fields?.addEventListener('change', captureV6HumanCommandInput);
 
   function v5PartCandidate() {
     return v5RuntimeTools.isStudioV5Project(doc)
@@ -2244,9 +7103,22 @@
     if (!v5Dialog || !v5Fields || !v5RuntimeTools.isStudioV5Project(doc)) return;
     const candidate = v5RuntimeTools.decorateStudioV5Project(v5RuntimeTools.canonicalStudioV5Project(doc));
     const isCreate = command === 'create';
-    if (isCreate && candidate.rootDocument?.kind !== 'part') return say('Create Assembly starts from the active part.');
-    if (!isCreate && candidate.rootDocument?.kind !== 'assembly') return say('Open or create an assembly before using this command.');
-    const assembly = !isCreate ? v5RuntimeTools.studioV5RootAssembly(candidate) : null;
+    const isExitContext = command === 'exit-context';
+    if (isCreate && (candidate.rootDocument?.kind !== 'part' || candidate.metadata?.editContext)) return say('Create Assembly starts from a standalone active part.');
+    if (
+      !isCreate &&
+      !isExitContext &&
+      candidate.rootDocument?.kind !== 'assembly'
+    ) return say('Open or create an assembly before using this command.');
+    if (
+      isExitContext &&
+      !candidate.assemblyDefinitions.some((entry) => entry.id === candidate.metadata?.editContext?.assemblyId)
+    ) return say('No assembly component is currently being edited in context.');
+    const assembly = isCreate
+      ? null
+      : candidate.rootDocument?.kind === 'assembly'
+        ? v5RuntimeTools.studioV5RootAssembly(candidate)
+        : candidate.assemblyDefinitions.find((entry) => entry.id === candidate.metadata.editContext.assemblyId);
     const editedMate = mateId ? assembly?.mates.find((entry) => entry.id === mateId) : null;
     const selectedOccurrence = assembly?.occurrences.find((entry) => entry.id === selectedOccurrenceId);
     const definitions = assemblyDefinitionOptions(candidate);
@@ -2267,6 +7139,8 @@
       : command === 'replace' ? 'Replace component definition'
       : command === 'variant' ? 'Edit component variant parameters'
       : command === 'transform' ? 'Move or rotate component occurrence'
+      : command === 'edit-context' ? 'Edit component in assembly context'
+      : command === 'exit-context' ? 'Return to assembly'
       : command === 'pattern' ? 'Create component pattern'
       : ((editedMate ? 'Edit ' : '') + mateKind[0].toUpperCase() + mateKind.slice(1) + ' mate');
     v5Error.textContent = '';
@@ -2304,6 +7178,12 @@
       }
       v5Fields.innerHTML = '<label>Handle mode<select name="gizmoMode"><option value="translate">Translate</option><option value="rotate">Rotate</option></select></label>' +
         field('Snap', 'gizmoSnap', 1) + textareaField('Rigid 4×4 transform', 'matrix', selectedOccurrence.baseTransform.join(', '));
+    } else if (command === 'edit-context') {
+      if (!selectedOccurrence || selectedOccurrence.definition.kind !== 'part') return say('Select a direct part component to edit in context.');
+      v5Fields.innerHTML = '<p class="is-wide">Open <strong>' + attr(selectedOccurrence.name) + '</strong> for in-context part editing. The assembly remains the owning document.</p>';
+    } else if (command === 'exit-context') {
+      if (!candidate.metadata?.editContext) return say('No assembly component is currently being edited in context.');
+      v5Fields.innerHTML = '<p class="is-wide">Return from the active component edit context to the owning assembly.</p>';
     } else if (command === 'pattern') {
       if (!selectedOccurrence) return say('Select a direct component occurrence to pattern.');
       v5Fields.innerHTML = field('Pattern name', 'name', selectedOccurrence.name + ' pattern', { wide: true }) +
@@ -2333,9 +7213,11 @@
     v5Dialog.__candidate = candidate;
     const usesGizmo = command === 'transform';
     v5Dialog.classList.toggle('with-gizmo', usesGizmo);
-    if (usesGizmo && typeof v5Dialog.show === 'function') v5Dialog.show();
-    else if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
-    else v5Dialog.setAttribute('open', '');
+    if (!v5Dialog.open) {
+      if (usesGizmo && typeof v5Dialog.show === 'function') v5Dialog.show();
+      else if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
+      else v5Dialog.setAttribute('open', '');
+    }
     if (usesGizmo && !beginAssemblyTransformPreview(selectedOccurrence)) {
       v5Fields.insertAdjacentHTML('beforeend', '<p class="is-wide">The exact component geometry is still rebuilding; reopen Move / rotate when it is visible.</p>');
     }
@@ -2368,6 +7250,8 @@
       if (matrix.length !== 16 || matrix.some((value) => !Number.isFinite(value))) throw new Error('Component transform must contain 16 finite numbers.');
       return v5RuntimeTools.updateStudioV5ComponentOccurrence(candidate, occurrenceId, { baseTransform: matrix });
     }
+    if (command === 'edit-context') return v5RuntimeTools.enterStudioV5AssemblyContext(candidate, occurrenceId);
+    if (command === 'exit-context') return v5RuntimeTools.exitStudioV5AssemblyContext(candidate);
     if (command === 'pattern') {
       const kind = form.elements.namedItem('patternKind').value;
       return v5RuntimeTools.createStudioV5OccurrencePattern(candidate, {
@@ -2393,6 +7277,12 @@
 
   function inspectionResultsForSelection() {
     if (exportBodyIds.size) return lastBodyResults.filter((entry) => exportBodyIds.has(entry.bodyId));
+    if (v6SemanticSelection.length) {
+      try {
+        const scope = resolveArtifactBodyScope({ entities: currentV6Selections().map((entry) => entry.owner || entry) });
+        if (scope.bodyIds.length) return lastBodyResults.filter((entry) => scope.bodyIds.includes(entry.bodyId));
+      } catch {}
+    }
     if (selectedOccurrenceId) {
       const assembly = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly' ? v5RuntimeTools.studioV5RootAssembly(doc) : null;
       const direct = assembly?.occurrences.some((entry) => entry.id === selectedOccurrenceId);
@@ -2467,8 +7357,10 @@
         '<p class="is-wide">Density drives exact mass properties. Generic values remain explicitly editable placeholders.</p>';
     }
     v5Dialog.__candidate = candidate;
-    if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
-    else v5Dialog.setAttribute('open', '');
+    if (!v5Dialog.open) {
+      if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
+      else v5Dialog.setAttribute('open', '');
+    }
   }
 
   function applyInspectionForm(candidate, command, occurrenceId, form) {
@@ -2515,6 +7407,17 @@
   }
 
   function closeV5Command() {
+    const cancelledDraftId = v6AgentCommandDraft?.draftId || null;
+    if (v6AgentCommandDraft && !v6ClosingCommand) {
+      clearV6AgentCommandState({ cancelPreview: true });
+      if (v6InteractionRuntime && !v6ApplyingSemanticAction) {
+        v6InteractionRuntime.hostChanged('command.draftChanged', {
+          reason: 'cancelled-by-human',
+          draftId: cancelledDraftId,
+          activeCommand: null,
+        }, { actor: 'human' });
+      }
+    }
     endTransformPreview();
     v5Dialog?.classList.remove('with-gizmo');
     if (typeof v5Dialog?.close === 'function' && v5Dialog.open) v5Dialog.close();
@@ -2574,9 +7477,11 @@
     v5Dialog.__candidate = candidate;
     const usesGizmo = ['move', 'copy', 'rotate'].includes(command);
     v5Dialog.classList.toggle('with-gizmo', usesGizmo);
-    if (usesGizmo && typeof v5Dialog.show === 'function') v5Dialog.show();
-    else if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
-    else v5Dialog.setAttribute('open', '');
+    if (!v5Dialog.open) {
+      if (usesGizmo && typeof v5Dialog.show === 'function') v5Dialog.show();
+      else if (typeof v5Dialog.showModal === 'function') v5Dialog.showModal();
+      else v5Dialog.setAttribute('open', '');
+    }
     if (usesGizmo && !beginTransformPreview(command, feature)) {
       v5Fields.insertAdjacentHTML('beforeend', '<p class="is-wide">The exact numeric controls remain available while this body is rebuilding.</p>');
     }
@@ -2587,6 +7492,10 @@
   $('bw-v5-command-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    if (v6AgentCommandDraft) {
+      await commitV6VisiblePreviewFromHuman();
+      return;
+    }
     const command = v5Dialog.dataset.command;
     const datumId = v5Dialog.dataset.datumId || null;
     const featureId = v5Dialog.dataset.featureId || null;
@@ -2684,38 +7593,42 @@
   document.querySelectorAll('[data-assembly-command]').forEach((button) => button.addEventListener('click', () => {
     const command = button.dataset.assemblyCommand;
     try {
-      if (command === 'edit-context') {
-        if (!selectedOccurrenceId) return say('Select a direct part component to edit in context.');
-        return commit('Edit component in assembly context', () => v5RuntimeTools.enterStudioV5AssemblyContext(doc, selectedOccurrenceId));
-      }
-      if (command === 'exit-context') return commit('Return to assembly', () => v5RuntimeTools.exitStudioV5AssemblyContext(doc));
       openAssemblyCommand(command);
     } catch (error) { say(String(error?.message || error)); }
   }));
   document.querySelectorAll('[data-assembly-mate]').forEach((button) => button.addEventListener('click', () => openAssemblyCommand('mate', button.dataset.assemblyMate)));
 
-  async function runV5Inspection(inspectionMode) {
-    if (!v5RuntimeTools.isStudioV5Project(doc)) return say('Engineering inspection requires a schema-5 project.');
+  async function executeV5Inspection(inspectionMode) {
+    if (!v5RuntimeTools.isStudioV5Project(doc)) throw new Error('Engineering inspection requires a schema-5 project.');
     const selected = inspectionMode === 'measurements' ? [] : inspectionResultsForSelection().map((entry) => entry.bodyId);
-    if (inspectionMode === 'clearance' && selected.length !== 2) return say('Select exactly two bodies or one two-body subassembly for clearance.');
+    if (inspectionMode === 'clearance' && selected.length !== 2) throw new Error('Select exactly two bodies or one two-body subassembly for clearance.');
     const sourceRevision = documentRevision;
     const sourceHash = v5RuntimeTools.studioV5CanonicalHash(doc);
+    const options = {
+      mode: inspectionMode,
+      ...((inspectionMode === 'interference' && selected.length === 0) || inspectionMode === 'measurements' ? {} : { bodyIds: selected }),
+      ...(inspectionMode === 'clearance' ? { pairBodyIds: selected } : {}),
+    };
+    const response = await kernelCall('inspect-v5', documentRevision, options);
+    if (sourceRevision !== documentRevision || sourceHash !== v5RuntimeTools.studioV5CanonicalHash(doc)) {
+      throw new Error('Inspection became stale after the project changed. Run it again.');
+    }
+    if (!response.inspection) throw new Error(response.errors?.[0]?.message || 'No inspection result was produced.');
+    lastInspection = { ...response.inspection, errors: response.errors || [] };
+    renderContext();
+    if (response.errors?.length) throw new Error(response.errors[0].message);
+    return lastInspection;
+  }
+
+  async function runV5Inspection(inspectionMode) {
     try {
-      const options = {
-        mode: inspectionMode,
-        ...((inspectionMode === 'interference' && selected.length === 0) || inspectionMode === 'measurements' ? {} : { bodyIds: selected }),
-        ...(inspectionMode === 'clearance' ? { pairBodyIds: selected } : {}),
-      };
-      const response = await kernelCall('inspect-v5', documentRevision, options);
-      if (sourceRevision !== documentRevision || sourceHash !== v5RuntimeTools.studioV5CanonicalHash(doc)) return say('Inspection became stale after the project changed. Run it again.');
-      if (!response.inspection) return say('Inspection failed: ' + (response.errors?.[0]?.message || 'No inspection result was produced.'));
-      lastInspection = { ...response.inspection, errors: response.errors || [] };
-      renderContext();
-      if (response.errors?.length) return say('Inspection needs review: ' + response.errors[0].message);
-      const count = lastInspection.bodyCount;
-      const interferenceCount = lastInspection.pairs.filter((pair) => pair.interferenceVolumeMm3 > 1e-8).length;
-      say(inspectionMode === 'interference' ? interferenceCount + ' interfering pair' + (interferenceCount === 1 ? '' : 's') + ' found.' : inspectionMode === 'clearance' ? 'Exact minimum clearance calculated.' : inspectionMode === 'measurements' ? lastInspection.measurementResults.length + ' saved measurement' + (lastInspection.measurementResults.length === 1 ? '' : 's') + ' evaluated.' : 'Mass and health updated for ' + count + ' bod' + (count === 1 ? 'y.' : 'ies.'));
-    } catch (error) { say('Inspection failed: ' + String(error?.message || error)); }
+      const result = await executeV5Inspection(inspectionMode);
+      const count = result.bodyCount;
+      const interferenceCount = result.pairs.filter((pair) => pair.interferenceVolumeMm3 > 1e-8).length;
+      say(inspectionMode === 'interference' ? interferenceCount + ' interfering pair' + (interferenceCount === 1 ? '' : 's') + ' found.' : inspectionMode === 'clearance' ? 'Exact minimum clearance calculated.' : inspectionMode === 'measurements' ? result.measurementResults.length + ' saved measurement' + (result.measurementResults.length === 1 ? '' : 's') + ' evaluated.' : 'Mass and health updated for ' + count + ' bod' + (count === 1 ? 'y.' : 'ies.'));
+    } catch (error) {
+      say('Inspection failed: ' + String(error?.message || error));
+    }
   }
 
   document.querySelectorAll('[data-inspection-command]').forEach((button) => button.addEventListener('click', () => {
@@ -2726,6 +7639,7 @@
   document.querySelectorAll('[data-display-mode]').forEach((button) => button.addEventListener('click', () => {
     if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') return say('Assembly display modes require an assembly document.');
     const displayMode = button.dataset.displayMode;
+    v6DisplayModeOverride = undefined;
     commit('Set ' + displayMode + ' display', () => v5InspectionTools.setStudioV5DisplayMode(doc, displayMode));
   }));
 
@@ -3224,10 +8138,49 @@
     return v5AssemblyTools.studioV5MultiplyMatrices(sceneToCad, v5AssemblyTools.studioV5MultiplyMatrices(matrix, cadToScene));
   }
 
+  function activeV6DisplayMode() {
+    if (v6DisplayModeOverride !== undefined) return v6DisplayModeOverride;
+    return v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc).metadata?.displayMode || 'shaded-edges'
+      : 'shaded-edges';
+  }
+
+  function activeV6SectionId() {
+    if (v6ActiveSectionOverride !== undefined) return v6ActiveSectionOverride;
+    return v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc).metadata?.activeSectionViewId || null
+      : null;
+  }
+
+  function activeV6ExplodedViewId() {
+    if (v6ActiveExplodedViewOverride !== undefined) return v6ActiveExplodedViewOverride;
+    return v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc).metadata?.activeExplodedViewId || null
+      : null;
+  }
+
+  function activeV6ExplodedTransforms() {
+    if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') return new Map();
+    if (v6ActiveExplodedViewOverride === undefined) return v5InspectionTools.studioV5ActiveExplodedTransforms(doc);
+    const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
+    const active = assembly.explodedViews.find((entry) => entry.id === v6ActiveExplodedViewOverride);
+    const transforms = new Map();
+    if (!active) return transforms;
+    for (const step of active.steps) {
+      for (const occurrenceId of step.occurrenceIds) {
+        transforms.set(occurrenceId, v5AssemblyTools.studioV5MultiplyMatrices(
+          step.deltaTransform,
+          transforms.get(occurrenceId) || v5AssemblyTools.studioV5IdentityMatrix(),
+        ));
+      }
+    }
+    return transforms;
+  }
+
   function activeSectionPlanes(result) {
     if (!v5RuntimeTools.isStudioV5Project(doc) || doc.rootDocument?.kind !== 'assembly') return { planes: [], intersection: false };
     const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
-    const section = assembly.sectionViews.find((entry) => entry.id === assembly.metadata?.activeSectionViewId);
+    const section = assembly.sectionViews.find((entry) => entry.id === activeV6SectionId());
     if (!section) return { planes: [], intersection: false };
     const scope = section.definition.scopeOccurrenceIds || [];
     if (scope.length && !scope.some((occurrenceId) => result?.occurrenceInstance?.occurrencePath?.includes(occurrenceId))) return { planes: [], intersection: false };
@@ -3277,7 +8230,7 @@
       return;
     }
     const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
-    const section = assembly.sectionViews.find((entry) => entry.id === assembly.metadata?.activeSectionViewId);
+    const section = assembly.sectionViews.find((entry) => entry.id === activeV6SectionId());
     if (!section?.definition?.cap) {
       clearSectionCaps();
       return;
@@ -3356,8 +8309,117 @@
     return appearances.get(appearanceId) || null;
   }
 
+  function v6SelectedBodyIds() {
+    const ids = new Set();
+    for (const ref of currentV6Selections()) {
+      if (ref.owner?.kind === 'body') ids.add(ref.owner.id);
+      if (ref.kind === 'body') ids.add(ref.id);
+      if (ref.kind === 'occurrence') {
+        for (const result of lastBodyResults.filter((entry) => entry.occurrenceInstance?.occurrencePath?.includes(ref.id))) ids.add(result.bodyId);
+      }
+      if (ref.kind === 'feature') {
+        const feature = doc.features.find((entry) => entry.id === ref.id);
+        if (feature?.createdBodyId) ids.add(feature.createdBodyId);
+        for (const id of feature?.resultPolicy?.targetBodyIds || []) ids.add(id);
+      }
+    }
+    return ids;
+  }
+
+  function syncV6TreeSelectionClasses() {
+    const selections = currentV6Selections();
+    const entityKeys = new Set(selections.map((entry) => entry.owner || entry).map((entry) => entry.kind + ':' + entry.id));
+    for (const row of document.querySelectorAll('[data-body-id], [data-occurrence-id], [data-runtime-occurrence-id], #bw-history [data-sel]')) {
+      const kind = row.dataset.bodyId
+        ? 'body'
+        : row.dataset.occurrenceId || row.dataset.runtimeOccurrenceId
+          ? 'occurrence'
+          : 'feature';
+      const id = row.dataset.bodyId || row.dataset.occurrenceId || row.dataset.runtimeOccurrenceId || row.dataset.sel;
+      const selected = entityKeys.has(kind + ':' + id);
+      row.classList.toggle('is-agent-selected', selected && selections.length > 1);
+      if (selected && selections.length > 1) row.setAttribute('aria-selected', 'true');
+    }
+  }
+
+  function clearV6SelectionOverlays() {
+    for (const object of v6SelectionOverlayObjects) {
+      object.parent?.remove(object);
+      object.geometry?.dispose?.();
+      object.material?.dispose?.();
+    }
+    v6SelectionOverlayObjects = [];
+  }
+
+  function v6SelectionClippingPlanes(bodyId) {
+    const result = lastBodyResults.find((entry) => entry.bodyId === bodyId);
+    return result ? activeSectionPlanes(result).planes : [];
+  }
+
+  function updateV6SelectionVisuals() {
+    clearV6SelectionOverlays();
+    const topology = v6TopologyInventory();
+    for (const ref of currentV6Selections().filter((entry) => entry.owner)) {
+      const match = topology.find((entry) =>
+        entry.owner.id === ref.owner.id &&
+        entry.stableId === ref.stableId &&
+        v6CanonicalKey(entry.topologySignature) === v6CanonicalKey(ref.topologySignature));
+      if (!match) continue;
+      if (match.topologySignature.kind === 'face') {
+        const range = faceRanges.find((entry) => entry.bodyId === match.owner.id && entry.faceId === match._faceId);
+        const overlay = buildFaceHighlight(range, 0x2ea8ff, 0.62);
+        if (overlay && range?.mesh) {
+          overlay.material.clippingPlanes = v6SelectionClippingPlanes(match.owner.id);
+          overlay.matrix.copy(range.mesh.matrix);
+          overlay.matrixAutoUpdate = false;
+          overlay.userData.v6SelectionKind = 'face';
+          v6SelectionOverlayObjects.push(overlay);
+        }
+      } else if (match.topologySignature.kind === 'edge' && match._line && match._entry) {
+        const source = match._line.geometry?.getAttribute?.('position');
+        if (!source) continue;
+        const positions = [];
+        for (let index = match._entry.start; index < match._entry.start + match._entry.count; index++) {
+          positions.push(source.getX(index), source.getY(index), source.getZ(index));
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        const material = new THREE.LineBasicMaterial({
+          color: 0x2ea8ff,
+          linewidth: 2,
+          clippingPlanes: v6SelectionClippingPlanes(match.owner.id),
+        });
+        const overlay = new THREE.LineSegments(geometry, material);
+        overlay.matrix.copy(match._line.matrix);
+        overlay.matrixAutoUpdate = false;
+        overlay.renderOrder = 5;
+        overlay.userData.v6SelectionKind = 'edge';
+        partGroup.add(overlay);
+        v6SelectionOverlayObjects.push(overlay);
+      } else if (match.topologySignature.kind === 'vertex' && match._point) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(match._point, 3));
+        const material = new THREE.PointsMaterial({
+          color: 0x2ea8ff,
+          size: 9,
+          sizeAttenuation: false,
+          clippingPlanes: v6SelectionClippingPlanes(match.owner.id),
+        });
+        const overlay = new THREE.Points(geometry, material);
+        const owner = bodyMeshes.get(match.owner.id);
+        if (owner) overlay.matrix.copy(owner.matrix);
+        overlay.matrixAutoUpdate = false;
+        overlay.renderOrder = 6;
+        overlay.userData.v6SelectionKind = 'vertex';
+        partGroup.add(overlay);
+        v6SelectionOverlayObjects.push(overlay);
+      }
+    }
+    requestSceneRender();
+  }
+
   function syncInspectionDisplay(bodyId, mesh, result) {
-    const explodedByOccurrence = v5InspectionTools.studioV5ActiveExplodedTransforms(doc);
+    const explodedByOccurrence = activeV6ExplodedTransforms();
     let exploded = v5AssemblyTools.studioV5IdentityMatrix();
     let hasExplodedDelta = false;
     for (const occurrenceId of result?.occurrenceInstance?.occurrencePath || []) {
@@ -3375,9 +8437,7 @@
     mesh.material.clipIntersection = section.intersection;
     mesh.material.clipShadows = section.cap === true;
     const appearance = bodyAppearance(result);
-    const displayMode = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
-      ? v5RuntimeTools.studioV5RootAssembly(doc).metadata?.displayMode || 'shaded-edges'
-      : 'shaded-edges';
+    const displayMode = activeV6DisplayMode();
     mesh.material.wireframe = displayMode === 'wireframe';
     if (appearance) {
       mesh.material.metalness = Math.max(0, Math.min(1, Number(appearance.metallic ?? 0.16)));
@@ -3407,6 +8467,7 @@
     const isAssembly = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly';
     const part = v5RuntimeTools.isStudioV5Project(doc) && !isAssembly ? v5RuntimeTools.studioV5RootPart(doc) : null;
     const linesByBody = new Map(edgeLines.map((line) => [line.userData.bodyId, line]));
+    const semanticBodyIds = v6SelectedBodyIds();
     for (const [bodyId, mesh] of bodyMeshes) {
       const result = lastBodyResults.find((entry) => entry.bodyId === bodyId);
       const instance = result?.patternInstance;
@@ -3422,7 +8483,7 @@
           (!isolatedBodyId || isolatedBodyId === bodyId || (instance && isolatedBodyId === source.id)));
       mesh.visible = shown;
       const appearance = syncInspectionDisplay(bodyId, mesh, result);
-      const selected = bodyId === selectedBodyId || occurrenceSelected;
+      const selected = bodyId === selectedBodyId || occurrenceSelected || semanticBodyIds.has(bodyId);
       mesh.material.color.set(selected ? 0x67b7f0 : bodyBuildErrors.has(bodyId) ? 0xc47168 : appearance?.baseColor || 0xa7b8c9);
       mesh.material.emissive?.setHex(selected ? 0x102f46 : 0x000000);
       const line = linesByBody.get(bodyId);
@@ -3465,12 +8526,16 @@
       }
     }
     meshBounds = Number.isFinite(aggregate[0][0]) ? aggregate : null;
+    updateV6SelectionVisuals();
+    syncV6TreeSelectionClasses();
     rebuildSectionCaps();
     rebuildSceneBatches();
     requestSceneRender();
   }
 
   function setBodyMeshData(bodies) {
+    clearV6SelectionOverlays();
+    v6TopologyCache = null;
     const draftPreviews = partGroup.children.filter((child) => child.userData?.pressPullPreview);
     clearSceneBatches();
     clearSectionCaps();
@@ -3504,7 +8569,8 @@
       }
       bodyTemplateCache.set(sourceKey, {
         geometry, faceGroups: mesh.faceGroups || [], planarFaces: mesh.planarFaces || [],
-        edgeGeometry: edges.geometry, edgeEntries: edges.entries,
+        topologyFaces: mesh.topologyFaces || [], edgeGeometry: edges.geometry, edgeEntries: edges.entries,
+        topologyVertices: mesh.topologyVertices || [],
       });
     }
     const usedSourceKeys = new Set(bodies.map((bodyResult) => bodyResult.renderSourceKey || bodyResult.sourceKey || bodyResult.sourceBodyId || bodyResult.bodyId));
@@ -3521,6 +8587,8 @@
       shaded.geometry = template.geometry;
       shaded.userData.bodyId = bodyResult.bodyId;
       shaded.userData.bounds = bodyResult.geometry?.bounds || bodyResult.mesh?.bounds || null;
+      shaded.userData.topologyFaces = template.topologyFaces || [];
+      shaded.userData.topologyVertices = template.topologyVertices || [];
       shaded.userData.solvedMatrix = Array.isArray(bodyResult.renderTransform) && bodyResult.renderTransform.length === 16 ? [...bodyResult.renderTransform] : v5AssemblyTools.studioV5IdentityMatrix();
       if (Array.isArray(bodyResult.renderTransform) && bodyResult.renderTransform.length === 16) {
         shaded.matrix.fromArray(bodyResult.renderTransform);
@@ -3604,11 +8672,13 @@
       const select = document.createElement('button');
       select.type = 'button';
       select.dataset.datumAction = 'select';
+      select.dataset.v6ControlId = 'tree.entity.datum.select';
       select.innerHTML = '<span>' + datum.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</span><small>' + datum.kind + (datum.suppressed ? ' · suppressed' : '') + (datumError ? ' · repair required' : '') + '</small>';
       if (datumError) select.title = String(datumError?.message || datumError);
       const edit = document.createElement('button');
       edit.type = 'button';
       edit.dataset.datumAction = 'edit';
+      edit.dataset.v6ControlId = 'tree.entity.datum.edit';
       edit.textContent = datumError ? 'Repair' : '⋯';
       edit.title = (datumError ? 'Repair ' : 'Edit ') + datum.name;
       row.append(select, edit);
@@ -3634,9 +8704,11 @@
       setTreeItemSemantics(row, { selected: sketch.id === selectedSketchId, suppressed: sketch.suppressed, label: sketch.name });
       const select = document.createElement('button');
       select.type = 'button'; select.dataset.sketchAction = 'select';
+      select.dataset.v6ControlId = 'tree.entity.sketch.select';
       select.innerHTML = '<span>' + sketch.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</span><small>' + sketch.extensions.studioRole + ' · ' + (sketch.entities[0]?.kind || 'curve') + '</small>';
       const edit = document.createElement('button');
       edit.type = 'button'; edit.dataset.sketchAction = 'edit'; edit.textContent = '⋯'; edit.title = 'Edit ' + sketch.name;
+      edit.dataset.v6ControlId = 'tree.entity.sketch.edit';
       row.append(select, edit); tree.appendChild(row);
     }
   }
@@ -3728,15 +8800,24 @@
       ? doc.partDefinitions.find((entry) => entry.id === reference.partId)?.name
       : doc.assemblyDefinitions.find((entry) => entry.id === reference.assemblyId)?.name;
     for (const occurrence of assembly.occurrences) {
+      const occurrenceEntity = { kind: 'occurrence', id: occurrence.id };
+      const occurrenceExpanded = v6TreeExpansion.get(v6SelectionRefKey(occurrenceEntity)) !== false;
       const row = document.createElement('div');
-      row.className = 'assembly-row' + (occurrence.id === selectedOccurrenceId ? ' is-selected' : '') + (occurrence.suppressed ? ' is-suppressed' : '');
+      row.className = 'assembly-row' + (occurrence.id === selectedOccurrenceId ? ' is-selected' : '') +
+        (occurrence.suppressed ? ' is-suppressed' : '') +
+        (v6RevealedEntity?.kind === 'occurrence' && v6RevealedEntity.id === occurrence.id ? ' is-agent-revealed' : '');
       row.dataset.occurrenceId = occurrence.id;
       const occurrenceResults = lastBodyResults.filter((entry) => entry.occurrenceInstance?.occurrencePath?.[0] === occurrence.id);
       const occurrenceLeafCount = new Set(occurrenceResults.map((entry) => entry.occurrenceInstance?.occurrenceId).filter(Boolean)).size;
       setTreeItemSemantics(row, {
-        selected: occurrence.id === selectedOccurrenceId, expanded: true, hidden: occurrence.visible === false,
+        selected: occurrence.id === selectedOccurrenceId, expanded: occurrenceExpanded, hidden: occurrence.visible === false,
         suppressed: occurrence.suppressed, failed: !definitionName(occurrence.definition), count: Math.max(1, occurrenceLeafCount), label: occurrence.name,
       });
+      const expand = document.createElement('button');
+      expand.type = 'button'; expand.dataset.occurrenceAction = 'expand';
+      expand.textContent = occurrenceExpanded ? '▾' : '▸';
+      expand.title = (occurrenceExpanded ? 'Collapse ' : 'Expand ') + occurrence.name;
+      expand.setAttribute('aria-label', expand.title);
       const select = document.createElement('button');
       select.type = 'button'; select.dataset.occurrenceAction = 'select';
       const dof = lastEvaluationTrace?.degreesOfFreedom?.[occurrence.id];
@@ -3746,7 +8827,7 @@
       visibility.type = 'button'; visibility.dataset.occurrenceAction = 'visibility'; visibility.textContent = occurrence.visible ? '●' : '○'; visibility.title = occurrence.visible ? 'Hide component' : 'Show component';
       const suppress = document.createElement('button');
       suppress.type = 'button'; suppress.dataset.occurrenceAction = 'suppress'; suppress.textContent = occurrence.suppressed ? 'R' : 'S'; suppress.title = occurrence.suppressed ? 'Restore component' : 'Suppress component';
-      row.append(select, visibility, suppress); tree.appendChild(row);
+      row.append(expand, select, visibility, suppress); tree.appendChild(row);
       const leaves = new Map();
       for (const result of lastBodyResults.filter((entry) => entry.occurrenceInstance?.occurrencePath?.[0] === occurrence.id)) {
         const runtimeOccurrenceId = result.occurrenceInstance.occurrenceId;
@@ -3755,8 +8836,11 @@
       }
       for (const [runtimeOccurrenceId, results] of leaves) {
         const child = document.createElement('div');
-        child.className = 'assembly-leaf-row' + (runtimeOccurrenceId === selectedOccurrenceId ? ' is-selected' : '');
+        child.className = 'assembly-leaf-row' + (runtimeOccurrenceId === selectedOccurrenceId ? ' is-selected' : '') +
+          (v6RevealedEntity?.kind === 'occurrence' && v6RevealedEntity.id === runtimeOccurrenceId ? ' is-agent-revealed' : '');
         child.dataset.runtimeOccurrenceId = runtimeOccurrenceId;
+        child.dataset.v6TreeParent = v6SelectionRefKey(occurrenceEntity);
+        child.hidden = !occurrenceExpanded;
         setTreeItemSemantics(child, { level: 2, selected: runtimeOccurrenceId === selectedOccurrenceId, hidden: results.every((entry) => entry.visible === false), label: results[0].bodyName });
         const button = document.createElement('button');
         button.type = 'button'; button.dataset.runtimeOccurrenceAction = 'select'; button.textContent = results[0].bodyName.split(' / ').slice(0, -1).join(' / ') || results[0].bodyName;
@@ -3779,7 +8863,8 @@
       }
       for (const [occurrenceId, results] of generated) {
         const child = document.createElement('div');
-        child.className = 'assembly-leaf-row' + (occurrenceId === selectedOccurrenceId ? ' is-selected' : '');
+        child.className = 'assembly-leaf-row' + (occurrenceId === selectedOccurrenceId ? ' is-selected' : '') +
+          (v6RevealedEntity?.kind === 'occurrence' && v6RevealedEntity.id === occurrenceId ? ' is-agent-revealed' : '');
         child.dataset.runtimeOccurrenceId = occurrenceId;
         setTreeItemSemantics(child, { level: 2, selected: occurrenceId === selectedOccurrenceId, hidden: results.every((entry) => entry.visible === false), label: results[0].bodyName });
         const button = document.createElement('button'); button.type = 'button'; button.dataset.runtimeOccurrenceAction = 'select';
@@ -3819,8 +8904,8 @@
       const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.inspectionAction = 'delete'; remove.textContent = '×'; remove.title = 'Delete saved ' + kindLabel; remove.setAttribute('aria-label', remove.title + ' ' + record.name);
       row.append(toggle, remove); inspectionTree.appendChild(row);
     };
-    for (const section of assembly.sectionViews) addViewRow(section, section.kind + ' section', assembly.metadata?.activeSectionViewId === section.id, 'section');
-    for (const exploded of assembly.explodedViews) addViewRow(exploded, 'exploded view', assembly.metadata?.activeExplodedViewId === exploded.id, 'explode');
+    for (const section of assembly.sectionViews) addViewRow(section, section.kind + ' section', activeV6SectionId() === section.id, 'section');
+    for (const exploded of assembly.explodedViews) addViewRow(exploded, 'exploded view', activeV6ExplodedViewId() === exploded.id, 'explode');
     for (const group of stageGroups) {
       const row = document.createElement('div'); row.className = 'inspection-row stage-group-row'; row.dataset.inspectionKind = 'stage'; row.dataset.inspectionId = group.id;
       setTreeItemSemantics(row, { expanded: true, hidden: !group.visible, count: group.occurrenceIds.length, label: group.name });
@@ -3888,7 +8973,8 @@
         (body.id === selectedBodyId ? ' is-selected' : '') +
         (body.id === activeBodyId ? ' is-active' : '') +
         (body.suppressed ? ' is-suppressed' : '') +
-        (bodyBuildErrors.has(body.id) ? ' is-failed' : '');
+        (bodyBuildErrors.has(body.id) ? ' is-failed' : '') +
+        (v6RevealedEntity?.kind === 'body' && v6RevealedEntity.id === body.id ? ' is-agent-revealed' : '');
       item.dataset.bodyId = body.id;
       setTreeItemSemantics(item, {
         selected: body.id === selectedBodyId, hidden: body.visible === false, suppressed: body.suppressed,
@@ -3944,6 +9030,7 @@
   }
 
   function selectBody(bodyId) {
+    if (!v6ApplyingSemanticAction) v6SemanticSelection = [];
     pulseInteractiveResolution();
     selectedBodyId = bodyId;
     const result = lastBodyResults.find((entry) => entry.bodyId === bodyId);
@@ -3960,9 +9047,11 @@
       const occurrencePath = result.occurrenceInstance?.occurrencePath?.join(' / ');
       say('Selected ' + (result.occurrenceInstance ? 'component body' : 'body') + ': ' + result.bodyName + (occurrencePath ? ' · occurrence path ' + occurrencePath : '') + '.');
     }
+    noteV6HostUiChange('selection.changed', { selection: currentV6Selection() });
   }
 
   function selectOccurrence(occurrenceId) {
+    if (!v6ApplyingSemanticAction) v6SemanticSelection = [];
     pulseInteractiveResolution();
     selectedOccurrenceId = occurrenceId;
     selectedMateId = null;
@@ -3981,6 +9070,25 @@
     renderContext();
     syncBodyMeshState();
     if (result) say('Selected component occurrence: ' + (result.occurrenceInstance?.occurrencePath?.join(' / ') || occurrenceId) + ' · exact body.');
+    noteV6HostUiChange('selection.changed', { selection: currentV6Selection() });
+  }
+
+  function selectMate(mateId) {
+    if (!v6ApplyingSemanticAction) v6SemanticSelection = [];
+    pulseInteractiveResolution();
+    const mate = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'assembly'
+      ? v5RuntimeTools.studioV5RootAssembly(doc).mates.find((entry) => entry.id === mateId)
+      : null;
+    if (!mate) return;
+    selectedMateId = mate.id;
+    selectedOccurrenceId = null;
+    selectedBodyId = null;
+    selectedFeatureId = null;
+    renderHistory();
+    renderAssemblyTree();
+    renderContext();
+    say('Selected ' + mate.kind + ' mate: ' + mate.name + '.');
+    noteV6HostUiChange('selection.changed', { selection: currentV6Selection() });
   }
 
   $('bw-bodies')?.addEventListener('change', (event) => {
@@ -4139,6 +9247,14 @@
     const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
     const occurrence = assembly.occurrences.find((entry) => entry.id === row.dataset.occurrenceId);
     if (!occurrence) return;
+    if (action === 'expand') {
+      const entity = { kind: 'occurrence', id: occurrence.id };
+      const key = v6SelectionRefKey(entity);
+      v6TreeExpansion.set(key, v6TreeExpansion.get(key) === false);
+      renderAssemblyTree();
+      noteV6HostUiChange('ui.changed', { scopes: ['tree'] });
+      return;
+    }
     if (action === 'select') return selectOccurrence(occurrence.id);
     if (action === 'visibility') return commit((occurrence.visible ? 'Hide ' : 'Show ') + occurrence.name, () => v5RuntimeTools.updateStudioV5ComponentOccurrence(doc, occurrence.id, { visible: !occurrence.visible }));
     if (action === 'suppress') return commit((occurrence.suppressed ? 'Restore ' : 'Suppress ') + occurrence.name, () => v5RuntimeTools.updateStudioV5ComponentOccurrence(doc, occurrence.id, { suppressed: !occurrence.suppressed }));
@@ -4151,9 +9267,7 @@
     if (!row || !action) return;
     const mate = v5RuntimeTools.studioV5RootAssembly(doc).mates.find((entry) => entry.id === row.dataset.mateId);
     if (!mate) return;
-    if (action === 'select') {
-      selectedMateId = mate.id; selectedOccurrenceId = null; selectedBodyId = null; renderHistory(); renderContext(); say('Selected ' + mate.kind + ' mate: ' + mate.name + '.'); return;
-    }
+    if (action === 'select') return selectMate(mate.id);
     if (action === 'suppress') return commit((mate.suppressed ? 'Restore ' : 'Suppress ') + mate.name, () => v5RuntimeTools.updateStudioV5AssemblyMate(doc, mate.id, { suppressed: !mate.suppressed }));
     if (action === 'delete') return commit('Delete ' + mate.name, () => v5RuntimeTools.deleteStudioV5AssemblyMate(doc, mate.id));
   });
@@ -4166,12 +9280,14 @@
     const assembly = v5RuntimeTools.studioV5RootAssembly(doc);
     const id = row.dataset.inspectionId;
     if (row.dataset.inspectionKind === 'section') {
-      const active = assembly.metadata?.activeSectionViewId === id;
+      const active = activeV6SectionId() === id;
+      v6ActiveSectionOverride = undefined;
       if (action === 'toggle') return commit((active ? 'Turn off ' : 'Activate ') + 'section view', () => v5InspectionTools.activateStudioV5SectionView(doc, active ? null : id));
       if (action === 'delete') return commit('Delete section view', () => v5InspectionTools.deleteStudioV5SectionView(doc, id));
     }
     if (row.dataset.inspectionKind === 'explode') {
-      const active = assembly.metadata?.activeExplodedViewId === id;
+      const active = activeV6ExplodedViewId() === id;
+      v6ActiveExplodedViewOverride = undefined;
       if (action === 'toggle') return commit((active ? 'Turn off ' : 'Activate ') + 'exploded view', () => v5InspectionTools.activateStudioV5ExplodedView(doc, active ? null : id));
       if (action === 'delete') return commit('Delete exploded view', () => v5InspectionTools.deleteStudioV5ExplodedView(doc, id));
     }
@@ -4188,9 +9304,37 @@
   });
 
   // --- history panel -------------------------------------------------------
+  function renderV6RevisionHistory() {
+    const list = $('bw-v6-revision-history');
+    if (!list) return;
+    list.replaceChildren();
+    const retained = undoStack.slice(-Math.min(undoStack.length, 20));
+    const firstRevision = Math.max(0, commandRevision - retained.length);
+    const rows = retained.map((entry, index) => ({
+      revision: firstRevision + index,
+      label: entry.label || 'Previous document state',
+      current: false,
+    }));
+    rows.push({ revision: commandRevision, label: 'Current document state', current: true });
+    for (const entry of rows) {
+      const item = document.createElement('li');
+      item.className = 'v6-revision-item' +
+        (entry.revision === v6HistoryRevision ? ' is-agent-revealed' : '');
+      item.dataset.v6Revision = String(entry.revision);
+      item.setAttribute('aria-label', 'Project revision ' + entry.revision + ': ' + entry.label);
+      if (entry.current) item.setAttribute('aria-current', 'true');
+      item.innerHTML =
+        '<span class="hi-glyph" aria-hidden="true">R' + entry.revision + '</span>' +
+        '<span class="hi-n">Project revision ' + entry.revision + '</span>' +
+        '<small>' + escapeHtml(entry.label) + (entry.current ? ' · current' : '') + '</small>';
+      list.appendChild(item);
+    }
+  }
+
   function renderHistory() {
     const list = $('bw-history');
     list.innerHTML = '';
+    renderV6RevisionHistory();
     renderBodies();
     renderDatums();
     renderAdvancedSketches();
@@ -4208,7 +9352,9 @@
     const rollbackIndex = rollbackFeatureId ? doc.features.findIndex((feature) => feature.id === rollbackFeatureId) : -1;
     doc.features.forEach((f, i) => {
       const li = document.createElement('li');
-      li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '') + (f.id === selectedFeatureId ? ' sel' : '') + (f.id === rollbackFeatureId ? ' rollback' : '') + (rollbackIndex >= 0 && i > rollbackIndex ? ' rolled-back' : '');
+      li.className = 'hist-item' + (buildErrors.has(f.id) ? ' err' : '') + (f.id === selectedFeatureId ? ' sel' : '') +
+        (f.id === rollbackFeatureId ? ' rollback' : '') + (rollbackIndex >= 0 && i > rollbackIndex ? ' rolled-back' : '') +
+        (v6RevealedEntity?.kind === 'feature' && v6RevealedEntity.id === f.id ? ' is-agent-revealed' : '');
       li.dataset.sel = f.id;
       li.dataset.feature = f.type;
       li.draggable = Boolean(historyPart);
@@ -4342,7 +9488,7 @@
     wrap.innerHTML = (doc.params || [])
       .map(
         (p, i) =>
-          '<div class="param-row">' +
+          '<div class="param-row" data-parameter-id="' + escAttr(p.id || p.name) + '">' +
           '<input type="text" data-pname="' + i + '" value="' + escAttr(p.name) + '" spellcheck="false" />' +
           '<span>=</span>' +
           '<input type="text" inputmode="decimal" data-pval="' + i + '" value="' + escAttr(p.value) + '" />' +
@@ -4350,6 +9496,60 @@
           '</div>',
       )
       .join('');
+    for (const operation of v6DirectParameterPreviewOperations) {
+      const input = operation.input || {};
+      if (operation.kind === 'parameter.create') {
+        const row = document.createElement('div');
+        row.className = 'param-row is-agent-revealed';
+        row.dataset.parameterId = String(input.id || 'new-parameter');
+        row.dataset.agentDraft = 'create';
+        row.setAttribute('aria-label', `Preview new parameter ${input.name} = ${input.value}`);
+        const name = document.createElement('input');
+        name.type = 'text';
+        name.value = String(input.name ?? '');
+        name.readOnly = true;
+        name.dataset.agentDraft = 'true';
+        name.dataset.previewParameterName = 'true';
+        name.spellcheck = false;
+        const equals = document.createElement('span');
+        equals.textContent = '=';
+        const value = document.createElement('input');
+        value.type = 'text';
+        value.inputMode = 'decimal';
+        value.value = String(input.value ?? '');
+        value.readOnly = true;
+        value.dataset.agentDraft = 'true';
+        value.dataset.previewParameterValue = 'true';
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.disabled = true;
+        remove.title = 'Pending parameter creation';
+        remove.textContent = '×';
+        row.append(name, equals, value, remove);
+        wrap.appendChild(row);
+        continue;
+      }
+      const parameter = typeof input.parameterId === 'string'
+        ? (doc.params || []).find((entry) => entry.id === input.parameterId)
+        : (doc.params || []).find((entry) => entry.name === input.parameterName);
+      if (!parameter) continue;
+      const row = wrap.querySelector(`[data-parameter-id="${CSS.escape(parameter.id || parameter.name)}"]`);
+      if (!row) continue;
+      row.classList.add('is-agent-revealed');
+      row.dataset.agentDraft = operation.kind === 'parameter.delete' ? 'delete' : 'update';
+      if (operation.kind === 'parameter.delete') {
+        row.setAttribute('aria-label', `Preview deletion of parameter ${parameter.name}`);
+        row.querySelectorAll('input,button').forEach((control) => control.dataset.agentDeletePreview = 'true');
+        continue;
+      }
+      const name = row.querySelector('[data-pname]');
+      const value = row.querySelector('[data-pval]');
+      if (input.name != null && name) name.value = String(input.name);
+      if (input.value != null && value) value.value = String(input.value);
+      row.querySelectorAll('input').forEach((control) => control.dataset.agentDraft = 'true');
+      row.setAttribute('aria-label',
+        `Preview parameter ${input.name ?? parameter.name} = ${input.value ?? parameter.value}`);
+    }
     wrap.querySelectorAll('[data-pname]').forEach((inp) =>
       inp.addEventListener('change', () => {
         const name = inp.value.trim();
@@ -4418,8 +9618,10 @@
       title: doc.title,
       document: deepCopy(doc),
       history: encodeHistory(),
+      commandRevision,
     };
-    latestStorageWrite = journalReady.then((journal) => {
+    const previousStorageWrite = latestStorageWrite;
+    latestStorageWrite = previousStorageWrite.catch(() => {}).then(() => journalReady).then((journal) => {
       if (!journal) throw new Error('IndexedDB is unavailable.');
       const snapshot = recoveryLabel
         ? { snapshotId: crypto.randomUUID?.() || newId() + '-' + Date.now(), label: recoveryLabel }
@@ -4442,6 +9644,7 @@
           const restored = hydrateProjectRecord(active, (candidate) => prepareStoredDocument(candidate, prepareStudioDocument));
           projectId = restored.projectId;
           doc = restored.document;
+          commandRevision = restored.commandRevision;
           undoStack.splice(0, undoStack.length, ...restored.undoStack);
           redoStack.splice(0, redoStack.length, ...restored.redoStack);
           trimHistoryStacks();
@@ -4456,6 +9659,7 @@
       if (d && (d.schemaVersion === 5 || Array.isArray(d.features))) doc = normalizeDoc(prepareStoredDocument(d, prepareStudioDocument));
       else doc = normalizeDoc(doc);
     } catch {}
+    if (v5RuntimeTools.isStudioV5Project(doc)) projectId = doc.projectId;
     // Import the compatibility localStorage document into the durable journal.
     save();
   }
@@ -4468,54 +9672,97 @@
     URL.revokeObjectURL(a.href);
   });
   $('bw-open-btn')?.addEventListener('click', () => $('bw-open-file').click());
+  async function prepareImportedProject(bytes, format, filename) {
+    if (!(bytes instanceof Uint8Array) || !bytes.byteLength) throw new Error('The selected artifact is empty.');
+    if (format === 'step') {
+      const importProjectId = projectId;
+      const importRevision = documentRevision;
+      const response = await importStepWithKernelRecovery(
+        new Blob([bytes], { type: 'model/step' }),
+        filename,
+        importRevision,
+      );
+      if (projectId !== importProjectId || documentRevision !== importRevision) {
+        throw new agentTools.CadAgentError('REVISION_CONFLICT', 'STEP import was discarded because the project changed while the file was loading.');
+      }
+      return {
+        document: v5RuntimeTools.decorateStudioV5Project(v5RuntimeTools.canonicalStudioV5Project(response.project)),
+        manifest: response.manifest,
+      };
+    }
+    return {
+      document: v5RuntimeTools.parseOrMigrateStudioV5RuntimeProject(new TextDecoder().decode(bytes)),
+      manifest: null,
+    };
+  }
+
+  function importedProjectMessage(importManifest) {
+    return importManifest
+      ? 'STEP imported as ' + importManifest.bodyCount + ' exact bod' + (importManifest.bodyCount === 1 ? 'y definition' : 'y definitions') +
+        (importManifest.importMode === 'bomwiki-solved-hierarchy'
+          ? ' with solved assembly hierarchy.'
+          : importManifest.importMode === 'external-product-hierarchy'
+            ? ' with recovered external product hierarchy.'
+            : ' with a flat solid fallback; external product hierarchy was not available.')
+      : 'Project opened.';
+  }
+
+  async function activateImportedProject(imported, filename, { preserveAgent = false } = {}) {
+    await save('Before opening ' + filename);
+    projectId = imported.document.projectId || makeProjectId();
+    doc = normalizeDoc(imported.document);
+    undoStack.length = 0;
+    redoStack.length = 0;
+    resetAgentForProjectChange('Opened another project', { preserveConnection: preserveAgent });
+    setFlag(SEEDED);
+    setFlag(WELCOME);
+    hideWelcome();
+    afterDocumentChange('Opened ' + filename);
+    const message = importedProjectMessage(imported.manifest);
+    say(message);
+    let settledUiRevision = null;
+    if (preserveAgent) {
+      const runtime = getV6InteractionRuntime();
+      runtime.hostChanged('document.changed', {
+        revision: commandRevision,
+        label: 'Opened ' + filename,
+        actor: 'agent',
+        projectTransition: true,
+        documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
+      }, { actor: 'agent' });
+      await Promise.all([
+        latestStorageWrite,
+        waitForV6UiSettlement(null, { targetUiRevision: runtime.uiRevision }),
+      ]);
+      settledUiRevision = runtime.uiRevision;
+    }
+    return {
+      projectId,
+      revision: commandRevision,
+      title: doc.title,
+      documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
+      importManifest: deepCopy(imported.manifest),
+      message,
+      ...(settledUiRevision === null ? {} : { uiRevision: settledUiRevision }),
+    };
+  }
+
   $('bw-open-file').addEventListener('change', async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = ''; // allow re-opening the same file later
-    let d;
-    let importManifest = null;
-    const isStep = /\.(step|stp)$/i.test(file.name);
-    if (isStep) {
-      const importProjectId = projectId;
-      const importRevision = documentRevision;
-      try {
-        const response = await importStepWithKernelRecovery(file, file.name, importRevision);
-        if (projectId !== importProjectId || documentRevision !== importRevision) {
-          return say('STEP import was discarded because the project changed while the file was loading.');
-        }
-        d = v5RuntimeTools.decorateStudioV5Project(v5RuntimeTools.canonicalStudioV5Project(response.project));
-        importManifest = response.manifest;
-      } catch (error) {
-        return say('Could not import STEP: ' + String(error?.message || error));
-      }
-    } else {
-      try {
-        d = v5RuntimeTools.parseOrMigrateStudioV5RuntimeProject(await file.text());
-      } catch (error) {
-        return say('Could not open project: ' + String(error?.message || error));
-      }
+    let imported;
+    const format = /\.(step|stp)$/i.test(file.name) ? 'step' : 'project';
+    try {
+      imported = await prepareImportedProject(new Uint8Array(await file.arrayBuffer()), format, file.name);
+    } catch (error) {
+      return say((format === 'step' ? 'Could not import STEP: ' : 'Could not open project: ') + String(error?.message || error));
     }
     // Replacing the document while an editor is open must go through the
     // coordinator: prompt for a dirty draft, cancel editors, then switch
     // projects atomically without merging their command journals.
-    startOperation(() => {
-      projectId = d.projectId || makeProjectId();
-      doc = normalizeDoc(d);
-      undoStack.length = 0;
-      redoStack.length = 0;
-      afterDocumentChange();
-      resetAgentForProjectChange('Opened another project');
-      setFlag(SEEDED);
-      setFlag(WELCOME);
-      hideWelcome();
-      say(importManifest
-        ? 'STEP imported as ' + importManifest.bodyCount + ' exact bod' + (importManifest.bodyCount === 1 ? 'y definition' : 'y definitions') +
-          (importManifest.importMode === 'bomwiki-solved-hierarchy'
-            ? ' with solved assembly hierarchy.'
-            : importManifest.importMode === 'external-product-hierarchy'
-              ? ' with recovered external product hierarchy.'
-              : ' with a flat solid fallback; external product hierarchy was not available.')
-        : 'Project opened.');
+    startOperation(() => activateImportedProject(imported, file.name), {
+      nextLabel: 'open “' + file.name + '”',
     });
   });
 
@@ -4564,6 +9811,10 @@
     const canvas = $('bw-sketch-canvas');
     const ctx = canvas.getContext('2d');
     const pressPull = $('bw-presspull');
+    wrap.addEventListener('input', captureV6HumanCommandInput);
+    wrap.addEventListener('change', captureV6HumanCommandInput);
+    pressPull.addEventListener('input', captureV6HumanCommandInput);
+    pressPull.addEventListener('change', captureV6HumanCommandInput);
     let feature = null; // DRAFT copy being edited; the document is untouched until Apply
     let isNew = false;
     let tool = 'rect';
@@ -4709,7 +9960,135 @@
       return /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
     }
 
+    function snapshot() {
+      if (!feature) return null;
+      const next = deepCopy(feature);
+      next.h = readDim(pressPull.hidden ? 'bw-sk-op-h' : 'bw-presspull-h', 'Height');
+      next.through = $('bw-sk-through').checked;
+      const patternKind = $('bw-sk-pat').value;
+      if (feature.type === 'revolve' || patternKind === 'none') {
+        delete next.pattern;
+      } else {
+        const n = Number($('bw-sk-pat-n').value);
+        const a = readDim('bw-sk-pat-a', patternKind === 'circular' ? 'Centre X' : 'ΔX');
+        const b = readDim('bw-sk-pat-b', patternKind === 'circular' ? 'Centre Y' : 'ΔY');
+        next.pattern = patternKind === 'circular'
+          ? { kind: 'circular', n, cx: a, cy: b }
+          : { kind: 'linear', n, dx: a, dy: b };
+      }
+      if (!$('bw-sk-result-row').hidden) {
+        const kind = $('bw-sk-result').value;
+        next.resultPolicy = kind === 'new-body'
+          ? { kind, bodyName: $('bw-sk-body-name').value.trim() }
+          : {
+              kind,
+              targetBodyIds: [$('bw-sk-target').value],
+              ...(kind === 'subtract' || kind === 'intersect' ? { keepTools: false } : {}),
+            };
+      }
+      return next;
+    }
+
+    function setSemanticInput(fieldId, value) {
+      if (!feature) return false;
+      if (fieldId === 'sketch') {
+        if (!Array.isArray(value)) return false;
+        feature.sketch.shapes = deepCopy(value);
+        selShape = feature.sketch.shapes.at(-1) || null;
+        draw2d();
+        syncShapePanel();
+        return true;
+      }
+      if (fieldId === 'height') {
+        $('bw-sk-op-h').value = String(value);
+        if (!pressPull.hidden) {
+          $('bw-presspull-h').value = String(value);
+          const numeric = Number(value);
+          if (Number.isFinite(numeric) && numeric >= 0.5 && numeric <= 10000) renderPressPullPreview(numeric);
+        }
+        feature.h = deepCopy(value);
+        return true;
+      }
+      if (fieldId === 'through') {
+        $('bw-sk-through').checked = Boolean(value);
+        feature.through = Boolean(value);
+        return true;
+      }
+      if (fieldId === 'patternKind') {
+        $('bw-sk-pat').value = String(value);
+        if ($('bw-sk-pat').value !== String(value)) return false;
+        syncPatternFields();
+        return true;
+      }
+      if (fieldId === 'patternCount') {
+        $('bw-sk-pat-n').value = String(value);
+        return true;
+      }
+      if (fieldId === 'patternA') {
+        $('bw-sk-pat-a').value = String(value);
+        return true;
+      }
+      if (fieldId === 'patternB') {
+        $('bw-sk-pat-b').value = String(value);
+        return true;
+      }
+      if (fieldId === 'resultPolicy') {
+        $('bw-sk-result').value = String(value);
+        if ($('bw-sk-result').value !== String(value)) return false;
+        syncResultFields();
+        return true;
+      }
+      if (fieldId === 'bodyName') {
+        $('bw-sk-body-name').value = String(value ?? '');
+        return true;
+      }
+      return false;
+    }
+
+    function setSemanticSelection(fieldId, entities) {
+      if (!feature) return false;
+      if (fieldId === 'targetBody') {
+        const bodyId = entities[0]?.id || '';
+        $('bw-sk-target').value = bodyId;
+        return Boolean(bodyId) && $('bw-sk-target').value === bodyId;
+      }
+      if (fieldId !== 'supportFace') return false;
+      if (!entities.length) {
+        delete feature.onFace;
+        feature.inputRefs = (feature.inputRefs || []).filter((entry) => entry.semanticPath?.role !== 'support-face');
+        refOutline = [];
+        draw2d();
+        return true;
+      }
+      const ref = entities[0];
+      const match = v6TopologyInventory().find((entry) =>
+        entry.owner.id === ref.owner?.id &&
+        entry.stableId === ref.stableId &&
+        v6CanonicalKey(entry.topologySignature) === v6CanonicalKey(ref.topologySignature));
+      const range = match && faceRanges.find((entry) => entry.bodyId === match.owner.id && entry.faceId === match._faceId);
+      const face = faceForRange(range);
+      if (!face) return false;
+      feature.onFace = faceSig(face);
+      feature.inputRefs = [
+        ...(feature.inputRefs || []).filter((entry) => entry.semanticPath?.role !== 'support-face'),
+        {
+          ownerKind: 'body',
+          ownerId: ref.owner.id,
+          semanticPath: { role: 'support-face' },
+          signature: deepCopy(ref.topologySignature),
+        },
+      ];
+      refOutline = deepCopy(face.outline || []);
+      draw2d();
+      return true;
+    }
+
     function close(applyIt) {
+      if (applyIt && v6AgentCommandDraft) {
+        void commitV6VisiblePreviewFromHuman();
+        return;
+      }
+      if (!applyIt) cancelV6DraftFromHumanSurface();
       if (!pressPull.hidden) leavePressPull(false);
       if (applyIt) {
         try {
@@ -5156,6 +10535,7 @@
       pending = null;
       draw2d();
       syncShapePanel();
+      captureV6HumanCommandInput({ target: { name: 'sketch' } });
     });
 
     function finishLineProfile() {
@@ -5177,6 +10557,7 @@
       draw2d();
       syncShapePanel();
       say('Closed profile recognised — the region is ready to Press / Pull.');
+      captureV6HumanCommandInput({ target: { name: 'sketch' } });
       return true;
     }
 
@@ -5254,6 +10635,7 @@
       selShape = s;
       syncShapePanel();
       draw2d();
+      captureV6HumanCommandInput({ target: { name: 'sketch' } });
     }
     function hitShape(s, x, y) {
       if (s.kind === 'rect') return Math.abs(x - NS(s.x, 0)) <= NS(s.w, 1) / 2 && Math.abs(y - NS(s.y, 0)) <= NS(s.h, 1) / 2;
@@ -5280,12 +10662,19 @@
       // Dimension fields accept parameter expressions ("wall*2"), so they
       // are text inputs showing the raw stored value.
       const escAttr = (v) => String(v).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+      const dimensionControlIds = {
+        w: 'sketch.shape.dimension.w',
+        h: 'sketch.shape.dimension.h',
+        x: 'sketch.shape.dimension.x',
+        y: 'sketch.shape.dimension.y',
+        d: 'sketch.shape.dimension.d',
+      };
       const num = (label, key, val) =>
-        '<label>' + label + ' <input type="text" inputmode="decimal" data-dim="' + key + '" value="' + escAttr(val) + '" /></label>';
+        '<label>' + label + ' <input type="text" inputmode="decimal" data-dim="' + key + '" data-v6-control-id="' + dimensionControlIds[key] + '" value="' + escAttr(val) + '" /></label>';
       const dia = typeof s.r === 'number' ? s.r * 2 : '(' + s.r + ')*2';
-      if (s.kind === 'rect') p.innerHTML = num('W', 'w', s.w) + num('H', 'h', s.h) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape">Delete shape</button>';
-      else if (s.kind === 'circle') p.innerHTML = num('Ø', 'd', dia) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape">Delete shape</button>';
-      else p.innerHTML = '<span class="sk-note">Closed region · ' + s.pts.length + ' edges</span><button id="bw-sk-delshape">Delete shape</button>';
+      if (s.kind === 'rect') p.innerHTML = num('W', 'w', s.w) + num('H', 'h', s.h) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape" data-v6-control-id="sketch.shape.delete">Delete shape</button>';
+      else if (s.kind === 'circle') p.innerHTML = num('Ø', 'd', dia) + num('X', 'x', s.x) + num('Y', 'y', s.y) + '<button id="bw-sk-delshape" data-v6-control-id="sketch.shape.delete">Delete shape</button>';
+      else p.innerHTML = '<span class="sk-note">Closed region · ' + s.pts.length + ' edges</span><button id="bw-sk-delshape" data-v6-control-id="sketch.shape.delete">Delete shape</button>';
       if (canPressPull()) p.insertAdjacentHTML('beforeend', '<button type="button" class="sk-pull" id="bw-sk-presspull">Press / Pull ↕</button>');
       p.querySelectorAll('[data-dim]').forEach((inp) =>
         inp.addEventListener('change', () => {
@@ -5303,6 +10692,7 @@
           if (k === 'd') s.r = typeof value === 'number' ? value / 2 : '(' + value + ')/2';
           else s[k] = value;
           draw2d();
+          captureV6HumanCommandInput({ target: { name: 'sketch' } });
         }),
       );
       $('bw-sk-delshape')?.addEventListener('click', () => {
@@ -5310,6 +10700,7 @@
         selShape = null;
         syncShapePanel();
         draw2d();
+        captureV6HumanCommandInput({ target: { name: 'sketch' } });
       });
       $('bw-sk-presspull')?.addEventListener('click', startPressPull);
     }
@@ -5318,6 +10709,23 @@
       open,
       resize,
       isOpen: () => Boolean(feature),
+      activeTool: () => tool,
+      setSemanticTool: (toolId) => {
+        if (!feature || !['line', 'rect', 'circle', 'poly', 'select', 'pan'].includes(toolId)) return false;
+        setTool(toolId);
+        return true;
+      },
+      selectedShapeIndex: () => feature && selShape ? feature.sketch.shapes.indexOf(selShape) : -1,
+      setSemanticShapeSelection: (shapeIndex) => {
+        if (!feature || !Number.isInteger(shapeIndex) || shapeIndex < 0 || shapeIndex >= feature.sketch.shapes.length) return false;
+        selShape = feature.sketch.shapes[shapeIndex];
+        syncShapePanel();
+        draw2d();
+        return true;
+      },
+      snapshot,
+      setSemanticInput,
+      setSemanticSelection,
       cancel: () => {
         if (feature) close(false);
       },
@@ -5330,7 +10738,16 @@
       },
       finishPending: () => finishLineProfile(),
       applyPressPull,
-      backFromPressPull: () => leavePressPull(true),
+      startPressPull: () => {
+        if (!canPressPull()) return false;
+        startPressPull();
+        return true;
+      },
+      backFromPressPull: () => {
+        if (pressPull.hidden || !feature) return false;
+        leavePressPull(true);
+        return true;
+      },
       previewTriangles: () => {
         const mesh = previewGroup?.children?.find((child) => child.isMesh);
         const g = mesh?.geometry;
@@ -5343,6 +10760,8 @@
   // --- edge picker (fillet / chamfer) --------------------------------------
   const picker = (() => {
     const bar = $('bw-pick');
+    bar.addEventListener('input', captureV6HumanCommandInput);
+    bar.addEventListener('change', captureV6HumanCommandInput);
     let feature = null;
     let isNew = false;
     let touched = false;
@@ -5378,6 +10797,11 @@
       Math.abs(a.l - b.l) < 0.05 && Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2]) < 0.05;
 
     function close(applyIt) {
+      if (applyIt && v6AgentCommandDraft) {
+        void commitV6VisiblePreviewFromHuman();
+        return;
+      }
+      if (!applyIt) cancelV6DraftFromHumanSurface();
       if (applyIt && feature) {
         const raw = $('bw-pick-r').value.trim();
         try {
@@ -5421,6 +10845,68 @@
       const n = edgeLines.reduce((total, line) => total + (line.userData.pickedSignatures?.size || 0), 0);
       $('bw-pick-count').textContent = n + ' picked';
       if (feature) setMode({ kind: 'picking-edges', feat: feature.type, count: n });
+      captureV6HumanCommandInput({ target: { name: 'edges' } });
+    }
+
+    function semanticSelections() {
+      const selected = [];
+      for (const entry of v6TopologyInventory()) {
+        if (entry.topologySignature?.kind !== 'edge' || !entry._line || !entry._entry) continue;
+        if (entry._line.userData.pickedSignatures?.has(edgeSignatureKey(entry._entry.sig))) {
+          selected.push(deepCopy({
+            owner: entry.owner,
+            stableId: entry.stableId,
+            topologySignature: entry.topologySignature,
+            expectedGeometry: entry.expectedGeometry,
+          }));
+        }
+      }
+      return selected;
+    }
+
+    function snapshot() {
+      if (!feature) return null;
+      const next = deepCopy(feature);
+      const raw = $('bw-pick-r').value.trim();
+      next.r = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+      const selections = semanticSelections();
+      if (selections.length) {
+        next.edges = selections.map((entry) => {
+          const signature = deepCopy(entry.topologySignature);
+          delete signature.kind;
+          return signature;
+        });
+      }
+      return next;
+    }
+
+    function setSemanticInput(fieldId, value) {
+      if (!feature || fieldId !== 'radius') return false;
+      $('bw-pick-r').value = String(value);
+      feature.r = deepCopy(value);
+      return true;
+    }
+
+    function setSemanticSelection(fieldId, entities) {
+      if (!feature || fieldId !== 'edges') return false;
+      const matches = [];
+      for (const ref of entities) {
+        const match = v6TopologyInventory().find((entry) =>
+          entry.topologySignature?.kind === 'edge' &&
+          entry.owner.id === ref.owner?.id &&
+          entry.stableId === ref.stableId &&
+          v6CanonicalKey(entry.topologySignature) === v6CanonicalKey(ref.topologySignature));
+        if (!match?._line || !match?._entry) return false;
+        matches.push(match);
+      }
+      for (const line of edgeLines) setEdgePickedSignatures(line);
+      for (const line of edgeLines) {
+        const signatures = matches.filter((entry) => entry._line === line).map((entry) => entry._entry.sig);
+        if (signatures.length) setEdgePickedSignatures(line, signatures);
+      }
+      touched = true;
+      syncCount();
+      return true;
     }
 
     // Click-to-toggle edges (with a drag guard so orbiting doesn't pick).
@@ -5454,6 +10940,10 @@
       open,
       cancel: () => feature && close(false),
       active: () => Boolean(feature),
+      snapshot,
+      semanticSelections,
+      setSemanticInput,
+      setSemanticSelection,
       isDirty: () => Boolean(feature) && (touched || $('bw-pick-r').value !== openedR),
     };
   })();
@@ -5487,6 +10977,7 @@
       helperVisible: transformHelper.visible,
       occurrenceId: transformPreview?.occurrenceId || null,
     }),
+    agentPreviewIds: () => [...(activeAgentConnection?.previews?.keys() || [])],
     gizmoTranslateForTest: (translation) => {
       if (!transformPreview?.object || !['move', 'copy', 'assembly-transform'].includes(transformPreview.command)) return false;
       transformPreview.object.position.copy(transformPreview.position).add(new THREE.Vector3(...translation));
@@ -5505,6 +10996,22 @@
     frame: () => {
       orbit.update();
       renderScene();
+    },
+    frameDigestForTest: () => {
+      orbit.update();
+      renderScene();
+      const gl = renderer.getContext();
+      gl.finish();
+      const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let hash = 0x811c9dc5;
+      let nonzero = 0;
+      for (const value of pixels) {
+        if (value) nonzero++;
+        hash ^= value;
+        hash = Math.imul(hash, 0x01000193);
+      }
+      return { hash: (hash >>> 0).toString(16).padStart(8, '0'), nonzero };
     },
     captureFrameForTest: () => {
       const previousPixelRatio = currentPixelRatio;
@@ -5789,6 +11296,8 @@
   // --- shell picker (hollow a part, pick the opening faces) ----------------
   const shellPick = (() => {
     const bar = $('bw-shell');
+    bar.addEventListener('input', captureV6HumanCommandInput);
+    bar.addEventListener('change', captureV6HumanCommandInput);
     let feature = null;
     let isNew = false;
     let cycleIdx = -1;
@@ -5799,10 +11308,12 @@
     let deferredCommit = null;
     const picked = new Map(); // faceId -> {sig, mesh}
 
-    const planarRanges = () => faceRanges.filter((range) => (!range.mesh || range.mesh === solidMesh) && faceForRange(range));
+    const targetBodyId = () => feature?.resultPolicy?.targetBodyIds?.[0] || selectedBodyId || null;
+    const planarRanges = () => faceRanges.filter((range) =>
+      (!targetBodyId() || range.bodyId === targetBodyId()) && faceForRange(range));
 
     function open(f) {
-      if (!solidMesh || !faceByHash.size) return say('Build something first — Shell hollows an existing part.');
+      if (!bodyMeshes.size || !faceByHash.size) return say('Build something first — Shell hollows an existing part.');
       openerEl = document.activeElement;
       currentOpType = 'shell';
       touched = false;
@@ -5821,12 +11332,17 @@
       for (const r of planarRanges()) {
         const face = faceForRange(r);
         if (f.faces?.some((sig) => faceMatches(sig, face))) {
-          picked.set(r.faceId, { sig: faceSig(face), mesh: buildFaceHighlight(r, 0x2e8b57, 0.55) });
+          picked.set(r.bodyId + ':' + r.faceId, { sig: faceSig(face), mesh: buildFaceHighlight(r, 0x2e8b57, 0.55) });
         }
       }
       syncCount();
     }
     function close(applyIt) {
+      if (applyIt && v6AgentCommandDraft) {
+        void commitV6VisiblePreviewFromHuman();
+        return;
+      }
+      if (!applyIt) cancelV6DraftFromHumanSurface();
       if (applyIt && feature) {
         const raw = $('bw-shell-t').value.trim();
         try {
@@ -5869,31 +11385,119 @@
     function syncCount() {
       $('bw-shell-count').textContent = picked.size + ' opening' + (picked.size === 1 ? '' : 's');
       if (feature) setMode({ kind: 'picking-faces', count: picked.size });
+      captureV6HumanCommandInput({ target: { name: 'faces' } });
+    }
+
+    function semanticSelections() {
+      const ownerBodyId = targetBodyId();
+      const selections = [];
+      for (const item of picked.values()) {
+        const match = v6TopologyInventory().find((entry) =>
+          entry.owner.id === ownerBodyId &&
+          entry.topologySignature?.kind === 'face' &&
+          faceMatches(item.sig, entry.topologySignature));
+        if (match) {
+          selections.push(deepCopy({
+            owner: match.owner,
+            stableId: match.stableId,
+            topologySignature: match.topologySignature,
+            expectedGeometry: match.expectedGeometry,
+          }));
+        }
+      }
+      return selections;
+    }
+
+    function snapshot() {
+      if (!feature) return null;
+      const next = deepCopy(feature);
+      const raw = $('bw-shell-t').value.trim();
+      next.t = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+      const selections = semanticSelections();
+      if (selections.length) {
+        next.faces = selections.map((entry) => {
+          const signature = deepCopy(entry.topologySignature);
+          delete signature.kind;
+          return signature;
+        });
+      }
+      return next;
+    }
+
+    function setSemanticInput(fieldId, value) {
+      if (!feature || fieldId !== 'thickness') return false;
+      $('bw-shell-t').value = String(value);
+      feature.t = deepCopy(value);
+      return true;
+    }
+
+    function setSemanticSelection(fieldId, entities) {
+      if (!feature) return false;
+      if (fieldId === 'body') {
+        const bodyId = entities[0]?.id || '';
+        if (!bodyId || !bodyMeshes.has(bodyId)) return false;
+        feature.resultPolicy = { kind: 'add', targetBodyIds: [bodyId] };
+        for (const item of picked.values()) dropHighlight(item.mesh);
+        picked.clear();
+        syncCount();
+        return true;
+      }
+      if (fieldId !== 'faces') return false;
+      const matches = [];
+      for (const ref of entities) {
+        const match = v6TopologyInventory().find((entry) =>
+          entry.topologySignature?.kind === 'face' &&
+          entry.owner.id === ref.owner?.id &&
+          entry.stableId === ref.stableId &&
+          v6CanonicalKey(entry.topologySignature) === v6CanonicalKey(ref.topologySignature));
+        const range = match && faceRanges.find((entry) =>
+          entry.bodyId === match.owner.id && entry.faceId === match._faceId);
+        if (!range || !faceForRange(range)) return false;
+        matches.push(range);
+      }
+      for (const item of picked.values()) dropHighlight(item.mesh);
+      picked.clear();
+      for (const range of matches) {
+        const face = faceForRange(range);
+        picked.set(range.bodyId + ':' + range.faceId, {
+          sig: faceSig(face),
+          mesh: buildFaceHighlight(range, 0x2e8b57, 0.55),
+        });
+      }
+      touched = true;
+      syncCount();
+      return true;
     }
 
     function toggleRange(range) {
       touched = true;
-      const had = picked.get(range.faceId);
+      const key = range.bodyId + ':' + range.faceId;
+      const had = picked.get(key);
       if (had) {
         dropHighlight(had.mesh);
-        picked.delete(range.faceId);
+        picked.delete(key);
       } else {
         const face = faceForRange(range);
-        picked.set(range.faceId, { sig: faceSig(face), mesh: buildFaceHighlight(range, 0x2e8b57, 0.55) });
+        picked.set(key, { sig: faceSig(face), mesh: buildFaceHighlight(range, 0x2e8b57, 0.55) });
       }
       syncCount();
     }
-    $('bw-shell-next').addEventListener('click', () => {
+    function nextFace() {
       const list = planarRanges();
-      if (!list.length) return;
+      if (!list.length) return false;
       cycleIdx = (cycleIdx + 1) % list.length;
       dropHighlight(cycleMesh);
       cycleMesh = buildFaceHighlight(list[cycleIdx], 0xe67e22, 0.45);
-    });
-    $('bw-shell-toggle').addEventListener('click', () => {
+      return true;
+    }
+    $('bw-shell-next').addEventListener('click', nextFace);
+    function toggleSelectedFace() {
       const list = planarRanges();
-      if (cycleIdx >= 0 && list[cycleIdx]) toggleRange(list[cycleIdx]);
-    });
+      if (cycleIdx < 0 || !list[cycleIdx]) return false;
+      toggleRange(list[cycleIdx]);
+      return true;
+    }
+    $('bw-shell-toggle').addEventListener('click', toggleSelectedFace);
 
     const ray = new THREE.Raycaster();
     let down = null;
@@ -5902,7 +11506,8 @@
     });
     renderer.domElement.addEventListener('pointerup', (e) => {
       if (!feature || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
-      if (!solidMesh) return;
+      const targetMesh = bodyMeshes.get(targetBodyId()) || solidMesh;
+      if (!targetMesh) return;
       const rect = renderer.domElement.getBoundingClientRect();
       ray.setFromCamera(
         new THREE.Vector2(
@@ -5911,7 +11516,7 @@
         ),
         camera,
       );
-      const hit = ray.intersectObject(solidMesh, false)[0];
+      const hit = ray.intersectObject(targetMesh, false)[0];
       if (!hit) return;
       const range = rangeForHit(hit);
       if (!faceForRange(range)) return say('That surface is curved — pick a flat face.');
@@ -5922,6 +11527,12 @@
       open,
       cancel: () => feature && close(false),
       active: () => Boolean(feature),
+      snapshot,
+      semanticSelections,
+      setSemanticInput,
+      setSemanticSelection,
+      nextFace,
+      toggleSelectedFace,
       isDirty: () => Boolean(feature) && (touched || $('bw-shell-t').value !== openedT),
     };
   })();
@@ -5960,11 +11571,13 @@
       if (opener) opener.focus();
       return null;
     }
-    $('bw-face-base').addEventListener('click', () => {
+    function useBasePlane() {
       const f = draft;
       const opener = close(true);
       sketch.open(f, { opener });
-    });
+      return true;
+    }
+    $('bw-face-base').addEventListener('click', useBasePlane);
     $('bw-face-cancel').addEventListener('click', () => close(false));
 
     // Step-through selection: precision clicks are hard on phones, and flat
@@ -5979,23 +11592,38 @@
       clearHighlight();
       highlight = buildFaceHighlight(range, 0xe67e22, 0.5);
     }
-    $('bw-face-next').addEventListener('click', () => {
+    function nextFace() {
       const list = planarRanges();
-      if (!list.length) return say('No flat faces to sketch on yet.');
+      if (!list.length) {
+        say('No flat faces to sketch on yet.');
+        return false;
+      }
       cycleIdx = (cycleIdx + 1) % list.length;
       showHighlight(list[cycleIdx]);
       $('bw-face-use').hidden = false;
-    });
-    $('bw-face-use').addEventListener('click', () => {
+      return true;
+    }
+    $('bw-face-next').addEventListener('click', nextFace);
+    function useSelectedFace() {
       const list = planarRanges();
       const face = cycleIdx >= 0 && list[cycleIdx] && faceForRange(list[cycleIdx]);
-      if (!face) return;
-      chooseFace(face);
-    });
+      if (!face) return false;
+      chooseFace(face, list[cycleIdx]);
+      return true;
+    }
+    $('bw-face-use').addEventListener('click', useSelectedFace);
 
-    function chooseFace(face) {
+    function chooseFace(face, range = null) {
       const f = draft;
       f.onFace = faceSig(face);
+      if (range?.bodyId) {
+        f.inputRefs = [{
+          ownerKind: 'body',
+          ownerId: range.bodyId,
+          semanticPath: { role: 'support-face' },
+          signature: { kind: 'face', ...deepCopy(faceSig(face)) },
+        }];
+      }
       const outline = deepCopy(face.outline || []);
       const opener = close(true);
       sketch.open(f, { refOutline: outline, opener });
@@ -6022,10 +11650,18 @@
       const range = rangeForHit(hit);
       const face = faceForRange(range);
       if (!face) return say('That surface is curved — pick a flat face.');
-      chooseFace(face);
+      chooseFace(face, range);
     });
 
-    return { open, cancel: () => close(false), active: () => Boolean(draft) };
+    return {
+      open,
+      cancel: () => close(false),
+      active: () => Boolean(draft),
+      snapshot: () => draft ? deepCopy(draft) : null,
+      nextFace,
+      useSelectedFace,
+      useBasePlane,
+    };
   })();
 
 
@@ -6079,6 +11715,8 @@
       orbit.target.copy(c);
       camera.position.copy(c.clone().add(dir.multiplyScalar(r * 1.4)));
       orbit.update();
+      activeViewName = 'fit';
+      noteV6HostUiChange('ui.changed', { viewport: { viewId: activeViewName } });
       return;
     }
     const d = VIEW_DIRS[name];
@@ -6087,10 +11725,16 @@
     camera.position.copy(c.clone().add(v));
     orbit.target.copy(c);
     orbit.update();
+    activeViewName = name;
     syncViewPressed(name);
+    noteV6HostUiChange('ui.changed', { viewport: { viewId: activeViewName } });
   }
   // Hand-orbiting leaves the preset views; drop their pressed state.
-  orbit.addEventListener('start', () => syncViewPressed(null));
+  orbit.addEventListener('start', () => {
+    activeViewName = null;
+    syncViewPressed(null);
+  });
+  orbit.addEventListener('end', () => noteV6HostUiChange('ui.changed', { viewport: { viewId: null } }));
   document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
   document.querySelectorAll('[data-cube-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.cubeView)));
   $('bw-tree-base')?.addEventListener('click', () => {
@@ -6229,16 +11873,18 @@
     requestAnimationFrame(() => $('bw-draft-keep')?.focus());
   }
   $('bw-draft-keep')?.addEventListener('click', keepEditing);
-  $('bw-draft-discard')?.addEventListener('click', () => {
+  function discardDraftAndContinue() {
     const request = takeQueuedOperation();
-    if (!request) return;
+    if (!request) return false;
     cancelAllEditors();
     runOperation(request.fn);
     // Closing a modal restores its prior focus after this click handler. Move
     // focus back to the newly opened command on the next frame so its Escape
     // and Enter keys are owned by that command, not a now-hidden draft field.
     requestAnimationFrame(focusActiveWorkspace);
-  });
+    return true;
+  }
+  $('bw-draft-discard')?.addEventListener('click', discardDraftAndContinue);
   $('bw-draft-apply')?.addEventListener('click', () => {
     const request = takeQueuedOperation();
     if (!request) return;
@@ -6271,17 +11917,7 @@
   $('bw-clear-cancel')?.addEventListener('click', closeClearDecision);
   $('bw-clear-confirm')?.addEventListener('click', () => {
     closeDecision(clearDecision);
-    commit('Clear part', () => {
-      if (!v5RuntimeTools.isStudioV5Project(doc)) return { ...doc, features: [], params: [] };
-      const candidate = v5RuntimeTools.canonicalStudioV5Project(doc);
-      const part = v5RuntimeTools.studioV5RootPart(candidate);
-      candidate.parameters = [];
-      part.features = [];
-      part.featureOrder = [];
-      part.bodies = [];
-      part.metadata = { ...(part.metadata || {}), activeBodyId: null };
-      return v5RuntimeTools.prepareStudioV5RuntimeProject(candidate);
-    });
+    commitHumanOperations('Clear part', [{ kind: 'project.clear', input: {} }]);
     requestAnimationFrame(focusActiveWorkspace);
   });
   clearDecision?.addEventListener('cancel', (event) => {
@@ -6320,12 +11956,20 @@
     requestAnimationFrame(() => transitionToast.classList.add('is-visible'));
     transitionTimer = setTimeout(hideTransitionToast, 5200);
   }
-  $('bw-transition-close')?.addEventListener('click', hideTransitionToast);
-  $('bw-transition-undo')?.addEventListener('click', () => {
+  async function undoProjectTransition() {
     const undo = transitionUndo;
-    hideTransitionToast();
-    if (undo) runOperation(undo);
-  });
+    if (!undo) throw new Error('There is no project transition available to undo.');
+    hideTransitionToast(true);
+    await undo();
+    return {
+      projectId,
+      revision: commandRevision,
+      title: doc.title,
+      documentHash: v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5CanonicalHash(doc) : null,
+    };
+  }
+  $('bw-transition-close')?.addEventListener('click', hideTransitionToast);
+  $('bw-transition-undo')?.addEventListener('click', () => runOperation(undoProjectTransition));
 
   function startOperation(fn, opts) {
     if (isWorking(mode.kind)) {
@@ -6470,23 +12114,29 @@
       document: deepCopy(doc),
       undoStack: deepCopy(undoStack),
       redoStack: deepCopy(redoStack),
+      commandRevision,
       title: doc.title,
     };
   }
-  async function restoreTemplateTransition(previous, openedTitle) {
+  async function restoreTemplateTransition(previous, openedTitle, { preserveAgent = false } = {}) {
     await save('Before restoring ' + previous.title);
     projectId = previous.projectId;
     doc = normalizeDoc(deepCopy(previous.document));
     undoStack.splice(0, undoStack.length, ...deepCopy(previous.undoStack));
     redoStack.splice(0, redoStack.length, ...deepCopy(previous.redoStack));
+    commandRevision = previous.commandRevision;
     selectedFeatureId = null;
+    resetAgentForProjectChange('Restored previous project', {
+      preserveConnection: preserveAgent,
+      keepRevision: true,
+    });
     afterDocumentChange('Restored previous part');
-    resetAgentForProjectChange('Restored previous project');
+    if (preserveAgent) emitAgentProjectTransition('Restored previous project');
     focusActiveWorkspace();
     requestAnimationFrame(focusActiveWorkspace);
     showTransitionToast('Previous part restored', '“' + openedTitle + '” remains available in Recover.');
   }
-  async function openTemplateNow(template) {
+  async function openTemplateNow(template, { preserveAgent = false } = {}) {
     const previous = doc.features.length || doc.params.length ? projectTransitionSnapshot() : null;
     const journal = previous ? await journalReady : null;
     let previousSavedToRecovery = false;
@@ -6496,14 +12146,18 @@
     }
     const { prepareStudioDocument } = await documentToolsReady;
     projectId = makeProjectId();
-    doc = normalizeDoc(prepareStudioDocument(structuredClone(template.document)));
+    const prepared = prepareStudioDocument(structuredClone(template.document));
+    doc = normalizeDoc(preserveAgent
+      ? v5RuntimeTools.migrateStudioDocumentToV5(prepared, { projectId })
+      : prepared);
     undoStack.length = 0;
     redoStack.length = 0;
     selectedFeatureId = null;
     finishWelcome();
     closeTemplateLibrary(true);
+    resetAgentForProjectChange('Opened a template', { preserveConnection: preserveAgent });
     afterDocumentChange('Started from ' + template.name);
-    resetAgentForProjectChange('Opened a template');
+    if (preserveAgent) emitAgentProjectTransition('Opened template ' + template.name);
     showTransitionToast(
       'Opened “' + template.name + '”',
       previous
@@ -6511,7 +12165,7 @@
           ? 'Your previous part was saved to Recover.'
           : 'Local recovery is unavailable — use Undo now.'
         : 'Ready to edit.',
-      previous ? () => restoreTemplateTransition(previous, template.name) : null,
+      previous ? () => restoreTemplateTransition(previous, template.name, { preserveAgent }) : null,
     );
     // The project title and dialog state update synchronously. Restore focus
     // in that same transition so keyboard navigation cannot observe a loaded
@@ -6610,19 +12264,20 @@
     if (tourReturnWelcome && !doc.features.length && !hasFlag(WELCOME)) showWelcome();
     tourReturnWelcome = false;
   }
-  $('bw-tour-next')?.addEventListener('click', () => {
-    if (tourIndex >= tourSteps().length - 1) finishTour();
-    else {
-      tourIndex++;
-      renderTourStep();
-    }
-  });
-  $('bw-tour-back')?.addEventListener('click', () => {
-    if (tourIndex > 0) {
+  function moveTour(direction) {
+    if (direction > 0) {
+      if (tourIndex >= tourSteps().length - 1) finishTour();
+      else {
+        tourIndex++;
+        renderTourStep();
+      }
+    } else if (tourIndex > 0) {
       tourIndex--;
       renderTourStep();
     }
-  });
+  }
+  $('bw-tour-next')?.addEventListener('click', () => moveTour(1));
+  $('bw-tour-back')?.addEventListener('click', () => moveTour(-1));
   $('bw-tour-skip')?.addEventListener('click', finishTour);
   function openEditorFor(f) {
     if (f.type === 'fillet' || f.type === 'chamfer') picker.open(f);
@@ -6650,6 +12305,16 @@
       if (selectedFeatureId) selectFeature(null);
       sideEl.classList.add(cls);
     }
+    const open = !wasOpen;
+    if (cls === 'm-open-params') v6PanelOpen.set('inspector', open);
+    if (cls === 'm-open-history') {
+      v6PanelOpen.set('model-tree', open);
+      v6PanelOpen.set('history', open);
+    }
+    if (cls === 'm-open-project') {
+      v6PanelOpen.set('project', open);
+      v6ProjectSheetRequested = open;
+    }
     syncMtabs();
   }
   $('bw-mtab-params')?.addEventListener('click', () => toggleSheet('m-open-params'));
@@ -6665,6 +12330,7 @@
   // --- selection + context properties panel ---------------------------------
   let selectedFeatureId = null;
   function selectFeature(id) {
+    if (!v6ApplyingSemanticAction) v6SemanticSelection = [];
     selectedFeatureId = id;
     if (id) selectedBodyId = null;
     if (id) {
@@ -6676,6 +12342,7 @@
     renderContext();
     const feature = doc.features.find((entry) => entry.id === id);
     if (feature) say('Selected feature: ' + (feature.name || OP_LABEL[feature.type] || feature.type) + ' · ' + feature.type + '.');
+    noteV6HostUiChange('selection.changed', { selection: currentV6Selection() });
   }
 
   async function attemptBodyBoolean(operation, targetBodyId, toolBodyId) {
@@ -7253,28 +12920,78 @@
   });
 
   // --- feature buttons -----------------------------------------------------
+  function openBasicFeatureCommand(type, { semantic = false, selections = [], forceNewBody = false } = {}) {
+    loadKernel();
+    const activeBody = v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5ActiveBody(doc) : null;
+    const semanticBodyId = selections.find((entry) => entry.kind === 'body')?.id
+      || selections.find((entry) => entry.owner?.kind === 'body')?.owner.id
+      || null;
+    const targetBodyId = forceNewBody ? null : semanticBodyId || activeBody?.id || null;
+    const nextBodyIndex = v5RuntimeTools.isStudioV5Project(doc) && doc.rootDocument?.kind === 'part'
+      ? v5RuntimeTools.studioV5RootPart(doc).bodies.length + 1
+      : 1;
+    const resultPolicy = targetBodyId
+      ? type === 'cut'
+        ? { kind: 'subtract', targetBodyIds: [targetBodyId], keepTools: false }
+        : { kind: 'add', targetBodyIds: [targetBodyId] }
+      : { kind: 'new-body', bodyName: 'Body ' + nextBodyIndex };
+    if (type === 'fillet' || type === 'chamfer') {
+      picker.open({ id: newId(), type, r: 2, edges: [], resultPolicy });
+      if (semantic) {
+        const edges = selections.filter((entry) => entry.owner && entry.topologySignature?.kind === 'edge');
+        if (edges.length) picker.setSemanticSelection('edges', edges);
+      }
+      return;
+    }
+    if (type === 'shell') {
+      shellPick.open({ id: newId(), type, t: 2, faces: [], resultPolicy });
+      if (semantic) {
+        const faces = selections.filter((entry) => entry.owner && entry.topologySignature?.kind === 'face');
+        if (faces.length) {
+          shellPick.setSemanticSelection('body', [{ kind: 'body', id: faces[0].owner.id }]);
+          shellPick.setSemanticSelection('faces', faces);
+        }
+      }
+      return;
+    }
+    const draft = {
+      id: newId(),
+      type,
+      sketch: { shapes: [], z: 0 },
+      h: 20,
+      through: type === 'cut',
+      resultPolicy,
+    };
+    const support = semantic && (type === 'extrude' || type === 'cut')
+      ? selections.find((entry) => entry.owner && entry.topologySignature?.kind === 'face')
+      : null;
+    if (support) {
+      const match = v6TopologyInventory().find((entry) =>
+        entry.owner.id === support.owner.id &&
+        entry.stableId === support.stableId &&
+        v6CanonicalKey(entry.topologySignature) === v6CanonicalKey(support.topologySignature));
+      const range = match && faceRanges.find((entry) => entry.bodyId === match.owner.id && entry.faceId === match._faceId);
+      const face = faceForRange(range);
+      if (face) {
+        draft.onFace = faceSig(face);
+        draft.inputRefs = [{
+          ownerKind: 'body',
+          ownerId: support.owner.id,
+          semanticPath: { role: 'support-face' },
+          signature: deepCopy(support.topologySignature),
+        }];
+        sketch.open(draft, { refOutline: deepCopy(face.outline || []) });
+        return;
+      }
+    }
+    if (!forceNewBody && (type === 'extrude' || type === 'cut') && solidMesh && faceByHash.size) facePick.open(draft);
+    else sketch.open(draft);
+  }
+
   document.querySelectorAll('[data-feat]').forEach((b) =>
     b.addEventListener('click', () => {
       startOperation(() => {
-        loadKernel(); // start the download while the user sketches
-        const t = b.dataset.feat;
-        const activeBody = v5RuntimeTools.isStudioV5Project(doc) ? v5RuntimeTools.studioV5ActiveBody(doc) : null;
-        const resultPolicy = activeBody
-          ? t === 'cut'
-            ? { kind: 'subtract', targetBodyIds: [activeBody.id], keepTools: false }
-            : { kind: 'add', targetBodyIds: [activeBody.id] }
-          : null;
-        if (t === 'fillet' || t === 'chamfer') {
-          picker.open({ id: newId(), type: t, r: 2, edges: [], ...(resultPolicy ? { resultPolicy } : {}) });
-        } else if (t === 'shell') {
-          shellPick.open({ id: newId(), type: t, t: 2, faces: [], ...(resultPolicy ? { resultPolicy } : {}) });
-        } else {
-          const draft = { id: newId(), type: t, sketch: { shapes: [], z: 0 }, h: 20, through: t === 'cut', ...(resultPolicy ? { resultPolicy } : {}) };
-          // With a part on screen, extrude and cut can target any flat face;
-          // the base plane stays one click away.
-          if ((t === 'extrude' || t === 'cut') && solidMesh && faceByHash.size) facePick.open(draft);
-          else sketch.open(draft);
-        }
+        openBasicFeatureCommand(b.dataset.feat);
       });
     }),
   );
@@ -7315,21 +13032,34 @@
     setFlag(SEEDED);
     hideWelcome();
   }
-  $('bw-welcome-start')?.addEventListener('click', () => {
+  function startBlankProject({ preserveAgent = false, context = null } = {}) {
     // Starting blank is a deliberate project choice. Persist that choice so
     // reload never replaces the user's empty canvas with the example part.
     projectId = makeProjectId();
-    doc = normalizeDoc({ title: 'Untitled part', units: 'mm', params: [], features: [] });
+    const blank = { title: 'Untitled part', units: 'mm', params: [], features: [] };
+    doc = normalizeDoc(preserveAgent
+      ? v5RuntimeTools.migrateStudioDocumentToV5(blank, { projectId })
+      : blank);
     undoStack.length = 0;
     redoStack.length = 0;
-    resetAgentForProjectChange('Started a blank project');
+    resetAgentForProjectChange('Started a blank project', { preserveConnection: preserveAgent });
     finishWelcome();
-    save();
-    renderParams();
-    renderHistory();
-    rebuild();
+    afterDocumentChange('Started a blank project');
+    if (preserveAgent) {
+      emitAgentProjectTransition('Started a blank project');
+      return {
+        projectId,
+        revision: commandRevision,
+        documentHash: v5RuntimeTools.studioV5CanonicalHash(doc),
+        ...openV6AgentCommand('model.extrude', context, { forceNewBody: true }),
+      };
+    }
     document.querySelector('[data-feat="extrude"]')?.click();
     if (!hasFlag(TOUR_SEEN)) setTimeout(() => startTour('sketch'), 150);
+    return { projectId, revision: commandRevision };
+  }
+  $('bw-welcome-start')?.addEventListener('click', () => {
+    startBlankProject();
   });
   $('bw-welcome-open')?.addEventListener('click', () => $('bw-open-file')?.click());
 
@@ -7350,7 +13080,7 @@
       b.id = 'bw-v1-notice';
       b.innerHTML =
         'A scene from the old prototype studio was found. It is incompatible with the parametric studio and has been left untouched. ' +
-        '<button type="button">Got it</button>';
+        '<button type="button" id="bw-v1-notice-dismiss">Got it</button>';
       b.querySelector('button').addEventListener('click', () => {
         try {
           localStorage.setItem('bw-studio-v1-notice', '1');

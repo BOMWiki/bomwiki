@@ -614,14 +614,14 @@ async function browserChecks(browser: Browser, url: string): Promise<void> {
     nestedExport.manifest.placements.every((entry: any) => entry.occurrencePath[0] === ASSEMBLY_IDS.fanModule),
     { nestedInspector, errors: nestedExport.errors, manifest: nestedExport.manifest });
   await page.evaluate((occurrenceId) => (window as any).__bwStudio.selectOccurrenceForTest(occurrenceId), ASSEMBLY_IDS.compressor);
-  const beforeContext = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
   await page.click('[data-assembly-command="edit-context"]');
-  await waitForStudio(page, beforeContext);
+  await page.waitForSelector('#bw-v5-command[open][data-command="assembly-edit-context"]');
+  await submitVisibleCommand(page);
   const entered = await page.evaluate(() => ({ kind: (window as any).__bwStudio.rootKind(), json: JSON.parse((window as any).__bwStudio.docJson()) }));
   await page.click('[data-workspace="assembly"]');
-  const beforeReturn = await page.evaluate(() => (window as any).__bwStudio.appliedRevision());
   await page.click('[data-assembly-command="exit-context"]');
-  await waitForStudio(page, beforeReturn);
+  await page.waitForSelector('#bw-v5-command[open][data-command="assembly-exit-context"]');
+  await submitVisibleCommand(page);
   check('browser edit-in-context stores the occurrence breadcrumb and returns to the solved containing assembly',
     entered.kind === 'part' && entered.json.metadata.editContext.occurrencePath[0] === ASSEMBLY_IDS.compressor &&
     await page.evaluate(() => (window as any).__bwStudio.rootKind()) === 'assembly' && await page.evaluate(() => (window as any).__bwStudio.evaluationTrace().solverState) === 'fully-constrained');
