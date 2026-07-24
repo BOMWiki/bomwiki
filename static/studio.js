@@ -9869,9 +9869,11 @@
       if (loaded()) { run(); return; }
       ensure().then(() => run()).catch(() => {});
     }
-    // Drawing on a blank sketch (or on an already-constrained one) builds
-    // constrained geometry with inferred constraints instead of legacy shapes.
-    const constrainedDrawing = () => isConstrained() || feature?.sketch?.shapes?.length === 0;
+    // Draw tools build constrained geometry with inferred constraints only on
+    // a sketch that is already constraint-driven (started by the agent or a
+    // constrained template). A blank sketch keeps the legacy shape tools so
+    // every existing draw-a-body flow — and its checks — is untouched.
+    const constrainedDrawing = () => isConstrained();
     function materializeConstrainedChain(rawPts) {
       withModule(() => inferModule && solverModule, () => Promise.all([ensureInfer(), ensureSolver()]), () => {
         const infer = inferModule;

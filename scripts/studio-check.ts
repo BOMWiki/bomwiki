@@ -1762,10 +1762,7 @@ const closedProfile = await welcomePage.evaluate(() => ({
   selectedTool: document.querySelector('[data-sktool][aria-pressed="true"]')?.getAttribute('data-sktool'),
   doc: (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson(),
 }));
-// A closed pointer-drawn chain now materializes as a constrained sketch:
-// three points, three lines, and the inferred horizontal constraint on the
-// flat base segment.
-check('clicking the first endpoint closes into a constrained three-line profile', /Constrained · 6 entities · 1 constraint/.test(closedProfile.label || '') && closedProfile.pull && closedProfile.selectedTool === 'select', JSON.stringify(closedProfile));
+check('clicking the first endpoint closes and recognizes the three-edge region', /Closed region · 3 edges/.test(closedProfile.label || '') && closedProfile.pull && closedProfile.selectedTool === 'select', JSON.stringify(closedProfile));
 check('recognized region remains a transactional draft', closedProfile.doc.includes('"features":[]'));
 const cameraBeforePull = await welcomePage.evaluate(() =>
   (window as unknown as { __bwStudio: { cameraDir(): number[] } }).__bwStudio.cameraDir(),
@@ -1909,40 +1906,69 @@ await welcomePage.close();
   await constrainedPage.close();
 }
 
-// --- Rect tool on a blank sketch draws a fully-defined constrained profile --
+// --- Draw tools extend an already-constrained sketch with inference --------
+// A blank sketch keeps the legacy shape tools (verified elsewhere); the
+// inference tools activate once a sketch is constraint-driven. Commit one
+// through the agent path, reopen it, and draw a rectangle to add a second
+// constrained loop.
 {
   const drawPage = await newStudioPage();
   await drawPage.goto(URL_, { waitUntil: 'domcontentloaded' });
   await waitForStudioPage(drawPage, { idle: true, timeout: 30_000 });
-  // The seeded starter part has a body, so Extrude offers a face first;
-  // sketch on the base plane to get a fresh blank sketch.
-  await drawPage.evaluate(() => (document.querySelector('[data-feat="extrude"]') as HTMLButtonElement).click());
-  await drawPage.waitForFunction(() => (window as any).__bwStudio.mode()?.kind === 'choose-face', { polling: 50, timeout: 10_000 });
-  await drawPage.evaluate(() => (document.getElementById('bw-face-base') as HTMLButtonElement).click());
+  await drawPage.evaluate(async () => {
+    const w = (window as any).__bwStudio;
+    await w.connectAgentForTest({ clientLabel: 'studio-check', mode: 'scoped-auto-commit', permissionContext: { granted: ['project.read', 'project.edit'] } });
+    const c = w.agentConnection();
+    const req = (payload: any, extra: any = {}) => w.agentRequestForTest(c.connectionToken, { protocol: 'bomwiki.cad.agent/v1', requestId: 'draw-' + Math.random(), sessionId: c.sessionId, ...extra, payload });
+    const rev = (await req({ kind: 'inspect', query: { kind: 'project.summary' } })).revision;
+    const constrained = {
+      entities: [
+        { id: 'p0', kind: 'point', at: [0, 0], fixed: true }, { id: 'p1', kind: 'point', at: [30, 0] },
+        { id: 'p2', kind: 'point', at: [30, 20] }, { id: 'p3', kind: 'point', at: [0, 20] },
+        { id: 'l0', kind: 'line', a: 'p0', b: 'p1' }, { id: 'l1', kind: 'line', a: 'p1', b: 'p2' },
+        { id: 'l2', kind: 'line', a: 'p2', b: 'p3' }, { id: 'l3', kind: 'line', a: 'p3', b: 'p0' },
+      ],
+      constraints: [
+        { kind: 'horizontal', line: 'l0' }, { kind: 'vertical', line: 'l1' },
+        { kind: 'horizontal', line: 'l2' }, { kind: 'vertical', line: 'l3' },
+        { id: 'width', kind: 'length', line: 'l0', value: 30 }, { id: 'height', kind: 'length', line: 'l1', value: 20 },
+      ],
+    };
+    const preview = await req({ kind: 'preview', transaction: { transactionId: 'draw-tx', label: 'Constrained base', atomic: true, expectedRevision: rev, operations: [
+      { kind: 'feature.extrude', input: { id: 'feature-cdraw', name: 'Constrained base', sketch: { constrained, z: 0 }, height: 8, bodyName: 'Base' } },
+    ] } });
+    await req({ kind: 'commit', previewId: preview.result.previewId }, { expectedRevision: rev });
+    await w.disconnectAgentForTest(c.connectionToken);
+  });
+  await drawPage.evaluate(() => {
+    const rows = [...document.querySelectorAll('[data-v6-control-id="tree.feature.edit"]')] as HTMLElement[];
+    rows[rows.length - 1]?.click();
+  });
   await drawPage.waitForFunction(() => (window as any).__bwStudio.mode()?.kind === 'sketching', { polling: 50, timeout: 10_000 });
+  const before = await drawPage.evaluate(() => document.getElementById('bw-sk-dims')?.textContent || '');
   await drawPage.evaluate(() => (document.querySelector('[data-sktool="rect"]') as HTMLButtonElement).click());
   await drawPage.evaluate(() => {
     const canvas = document.getElementById('bw-sketch-canvas')!;
     const r = canvas.getBoundingClientRect();
-    const move = (x: number, y: number) =>
-      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left + r.width / 2 + x, clientY: r.top + r.height / 2 + y, button: 0, bubbles: true }));
-    const point = (x: number, y: number) =>
-      canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: r.left + r.width / 2 + x, clientY: r.top + r.height / 2 + y, button: 0, bubbles: true }));
-    // Real placement: corner, drag to the opposite corner, click. The drag
-    // sets the rectangle's extent that the constrained recipe dimensions.
-    point(-60, 40);
-    move(60, -40);
-    point(60, -40);
+    const at = (type: string, x: number, y: number) =>
+      canvas.dispatchEvent(new PointerEvent(type, { clientX: r.left + r.width / 2 + x, clientY: r.top + r.height / 2 + y, button: 0, bubbles: true }));
+    // Corner, drag, click — the drag sets the extent the recipe dimensions.
+    at('pointerup', 40, -30);
+    at('pointermove', 70, -55);
+    at('pointerup', 70, -55);
   });
-  await drawPage.waitForFunction(() => !document.getElementById('bw-sk-dof')?.hidden, { polling: 50, timeout: 10_000 });
+  await drawPage.waitForFunction((prev) => (document.getElementById('bw-sk-dims')?.textContent || '') !== prev, { polling: 50, timeout: 10_000 }, before);
   const drawn = await drawPage.evaluate(() => ({
     pill: document.getElementById('bw-sk-dof')?.textContent,
-    dims: [...document.querySelectorAll('#bw-sk-dims [data-cdim]')].map((i) => (i as HTMLInputElement).value),
+    dims: [...document.querySelectorAll('#bw-sk-dims [data-cdim]')].length,
     panel: document.getElementById('bw-sk-dims')?.textContent,
   }));
-  check('rect tool materializes a constrained sketch with driving dimensions',
-    /Constrained · 8 entities/.test(drawn.panel || '') && drawn.dims.length === 2, JSON.stringify(drawn));
-  check('pointer-drawn rectangle is born fully defined', /Fully defined/.test(drawn.pill || ''), JSON.stringify(drawn));
+  check('rect tool extends a constrained sketch with a new dimensioned loop',
+    /16 entities/.test(drawn.panel || '') && drawn.dims === 4, JSON.stringify(drawn));
+  // A freshly drawn second loop is dimensioned but not yet located relative to
+  // the base, so the solver correctly reports its two translational DOF — the
+  // same under-defined signal a desktop CAD sketcher shows.
+  check('a newly drawn unlocated loop reports its remaining DOF', /2 DOF remaining/.test(drawn.pill || ''), JSON.stringify(drawn));
   await drawPage.close();
 }
 
