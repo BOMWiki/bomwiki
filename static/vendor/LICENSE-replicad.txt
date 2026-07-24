@@ -1,7 +1,0 @@
-replicad 0.23.1 and replicad-opencascadejs 0.23.0 — MIT License,
-Copyright (c) Steve Genoud (https://replicad.xyz).
-Vendored files: replicad.module.js (<- dist/replicad.js, unmodified),
-replicad-oc.module.js (<- src/replicad_single.js, unmodified),
-replicad_single.wasm (<- src/replicad_single.wasm, unmodified —
-OpenCascade Technology compiled to WebAssembly; OCCT is LGPL-2.1 with
-the OCCT exception, see https://dev.opencascade.org/resources/licensing).

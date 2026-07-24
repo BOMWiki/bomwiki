@@ -32,8 +32,45 @@ fi
 mkdir "$WORK/tree"
 git archive HEAD engine | tar -x --strip-components=1 -C "$WORK/tree"
 
+# CAD Studio is proprietary (owner decision, 2026-07-24): the modeling app,
+# its kernel bindings, solver, agent tooling, checks, fixtures, specs, and
+# vendored kernel never sync to the public repo. If you add a studio/CAD
+# file under a NEW path, extend this list in the same PR — the mirror is
+# public the moment CI pushes it.
+STUDIO_EXCLUDES=(
+  --exclude 'static/studio*'
+  --exclude 'static/vendor'
+  --exclude 'scripts/*studio*'
+  --exclude 'scripts/bomcad.ts'
+  --exclude 'fixtures/cad-v5'
+  --exclude 'CAD_*'
+  --exclude 'skills/bomwiki-cad'
+  --exclude 'src/*studio*'
+  --exclude 'src/render/models.ts'
+)
+
 git clone --quiet --depth 1 "$URL" "$WORK/public"
-rsync -a --delete --exclude '.git' "$WORK/tree/" "$WORK/public/"
+rsync -a --delete --exclude '.git' "${STUDIO_EXCLUDES[@]}" "$WORK/tree/" "$WORK/public/"
+
+# rsync's --delete leaves excluded paths ALONE on the receiver, so studio
+# files already present in the public clone survive the sync. Remove them
+# explicitly (portable across rsync implementations; rm -f tolerates
+# unmatched globs).
+(
+  cd "$WORK/public"
+  rm -rf static/studio* static/vendor scripts/*studio* scripts/bomcad.ts \
+    fixtures/cad-v5 CAD_* skills/bomwiki-cad src/*studio* src/render/models.ts
+)
+
+# Fail closed: if anything studio-named survived the filter (a studio file
+# under a path the exclusion list does not cover yet), refuse to publish.
+if find "$WORK/public" -path "$WORK/public/.git" -prune -o \
+    \( -iname '*studio*' -o -iname '*bomcad*' -o -iname 'CAD_*' \) -print | grep -q .; then
+  echo "sync-public: a studio/CAD file survived the exclusion filter; extend STUDIO_EXCLUDES before syncing" >&2
+  find "$WORK/public" -path "$WORK/public/.git" -prune -o \
+    \( -iname '*studio*' -o -iname '*bomcad*' -o -iname 'CAD_*' \) -print >&2
+  exit 1
+fi
 
 cd "$WORK/public"
 git add -A

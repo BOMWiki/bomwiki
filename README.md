@@ -11,6 +11,11 @@ template functions, plain CSS, Postgres, and three runtime dependencies
 (`pg`, `marked`, `sanitize-html`). Anyone who knows the web platform can
 patch it.
 
+This public mirror covers the wiki engine. The CAD Studio (the in-browser
+parametric modeler at bomwiki.com/cad/studio) is proprietary and not
+included here; its sources are stripped by the sync, so this repo is a
+reading mirror of the engine rather than a complete runnable checkout.
+
 ## Features
 
 - Node-level wiki: every part, assembly, and product is a page with history,
