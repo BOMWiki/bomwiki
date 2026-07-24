@@ -919,6 +919,11 @@ body.cadstudio-route > main {
   font-size: 13px;
   line-height: 1.5;
 }
+.ws-welcome-status {
+  color: #9db6cd;
+  font-size: 13px;
+  margin: 14px 0 0;
+}
 .ws-welcome-popular {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

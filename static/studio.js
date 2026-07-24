@@ -186,6 +186,21 @@
     const welcome = $('bw-welcome');
     if (welcome) welcome.hidden = false;
   };
+  const markWelcomeReady = () => {
+    const welcome = $('bw-welcome');
+    if (!welcome) return;
+    welcome.setAttribute('aria-busy', 'false');
+    welcome.querySelectorAll('[data-welcome-boot-disabled]').forEach((button) => {
+      button.disabled = false;
+      button.removeAttribute('data-welcome-boot-disabled');
+    });
+    const status = $('bw-welcome-status');
+    if (status) status.hidden = true;
+    const shell = window.__bwStudioShell || {};
+    shell.welcomeReadyAt = performance.now();
+    window.__bwStudioShell = shell;
+    performance.mark?.('bw-studio-welcome-ready');
+  };
   const openHelp = () => {
     if (!helpDialog) return;
     if (typeof helpDialog.showModal === 'function') {
@@ -13116,6 +13131,8 @@
     setFlag(SEEDED);
     save();
     renderParams();
+    hideWelcome();
     rebuild();
   }
+  markWelcomeReady();
 })();

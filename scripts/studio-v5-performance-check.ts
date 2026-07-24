@@ -97,6 +97,40 @@ try {
   if (process.env.STUDIO_PERF_FORCE_SOFTWARE_WEBGL === '1') browserArgs.push('--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader');
   browser = await puppeteer.launch({ headless: true, args: browserArgs });
   const context = await browser.createBrowserContext();
+  const startupPage = await context.newPage();
+  await startupPage.setViewport({ width: 1600, height: 1000, deviceScaleFactor: 1 });
+  await startupPage.evaluateOnNewDocument(() => localStorage.clear());
+  await startupPage.setRequestInterception(true);
+  startupPage.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/static/studio.js') request.abort();
+    else request.continue();
+  });
+  const startupStart = performance.now();
+  await startupPage.goto(started.url, { waitUntil: 'domcontentloaded' });
+  const startupNavigationMs = performance.now() - startupStart;
+  const startupShell = await startupPage.evaluate(() => {
+    const welcome = document.getElementById('bw-welcome') as HTMLElement;
+    const shell = (window as any).__bwStudioShell;
+    return {
+      visible: !welcome.hidden && Boolean(welcome.getClientRects().length),
+      busy: welcome.getAttribute('aria-busy'),
+      controlsDisabled: [...welcome.querySelectorAll('button')].every((button) => (button as HTMLButtonElement).disabled),
+      applicationAbsent: !(window as any).__bwStudio,
+      visibleAtMs: shell?.welcomeVisibleAt,
+      readyAtMs: shell?.welcomeReadyAt,
+    };
+  });
+  check('cold first-run shell renders before the application bundle',
+    startupNavigationMs < 1_000 &&
+    startupShell.visible &&
+    startupShell.busy === 'true' &&
+    startupShell.controlsDisabled &&
+    startupShell.applicationAbsent &&
+    typeof startupShell.visibleAtMs === 'number' &&
+    startupShell.readyAtMs === null,
+    { navigationMs: round(startupNavigationMs), ...startupShell });
+  await startupPage.close();
+
   let page = await context.newPage();
   page.on('pageerror', (error) => pageErrors.push(String(error)));
   await prepareStudioPage(page, started.url, { width: 1600, height: 1000 });

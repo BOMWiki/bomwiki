@@ -76,6 +76,15 @@ check('public shell identifies the V6 agent-native release',
   html.includes('V6 · Agent-native CAD') &&
   html.includes('CAD Studio V6') &&
   !html.includes('CAD Studio V5'));
+const welcomeOpenTag = html.match(/<section id="bw-welcome"[^>]*>/)?.[0] ?? '';
+check('first-run launchpad is server-visible before application JavaScript',
+  welcomeOpenTag.includes('aria-busy="true"') &&
+  !welcomeOpenTag.includes(' hidden') &&
+  html.includes('bw-studio-welcome-visible'));
+check('first-run launchpad exposes an honest boot state',
+  html.includes('id="bw-welcome-status"') &&
+  html.includes('Preparing Studio tools…') &&
+  html.includes('data-welcome-boot-disabled disabled'));
 check('Help advertises the released advanced modeling and assembly surface', html.includes('Loft, Sweep, transforms, assemblies, mates, section views, inspection, and structured project operations'));
 check('Help no longer carries pre-V5 assembly or agent availability claims', !html.includes('there are no assemblies') && !html.includes('remain unavailable and are reported as disabled'));
 check('Help states the V6 engineering and interchange boundaries',
@@ -1202,7 +1211,8 @@ await page3.goto(URL_, { waitUntil: 'domcontentloaded' });
 const bootOk = await waitForStudioPage(page3, { solid: true })
   .then(() => true)
   .catch(() => false);
-check('boot survives disabled localStorage (starter part builds)', bootOk);
+check('boot survives disabled localStorage without leaving a stale launchpad',
+  bootOk && await page3.$eval('#bw-welcome', (el) => (el as HTMLElement).hidden));
 await page3.close();
 
 // --- complete storage failure is visible but modeling remains available ---
@@ -1432,6 +1442,68 @@ await pageV.close();
 // --- application shell + first run ---------------------------------------
 // Run after the legacy interaction suite: Start sketch deliberately begins
 // a kernel load, and this fresh project must not alter any earlier fixtures.
+const shellOnlyPage = await newStudioPage(true);
+await shellOnlyPage.evaluateOnNewDocument(() => localStorage.clear());
+await shellOnlyPage.setRequestInterception(true);
+shellOnlyPage.on('request', (request) => {
+  if (new URL(request.url()).pathname === '/static/studio.js') request.abort();
+  else request.continue();
+});
+await shellOnlyPage.goto(URL_, { waitUntil: 'domcontentloaded' });
+const shellOnlyWelcome = await shellOnlyPage.evaluate(() => {
+  const welcome = document.getElementById('bw-welcome') as HTMLElement;
+  const shell = window as unknown as {
+    __bwStudio?: unknown;
+    __bwStudioShell?: { welcomeVisibleAt?: number | null; welcomeReadyAt?: number | null };
+  };
+  return {
+    visible: !welcome.hidden && Boolean(welcome.getClientRects().length),
+    busy: welcome.getAttribute('aria-busy'),
+    controlsDisabled: [...welcome.querySelectorAll('button')].every((button) => (button as HTMLButtonElement).disabled),
+    statusVisible: !(document.getElementById('bw-welcome-status') as HTMLElement).hidden,
+    appAbsent: !shell.__bwStudio,
+    markedBeforeApp: typeof shell.__bwStudioShell?.welcomeVisibleAt === 'number' &&
+      shell.__bwStudioShell?.welcomeReadyAt === null,
+  };
+});
+check('first-run launchpad paints even when the application bundle is unavailable',
+  shellOnlyWelcome.visible &&
+  shellOnlyWelcome.busy === 'true' &&
+  shellOnlyWelcome.controlsDisabled &&
+  shellOnlyWelcome.statusVisible &&
+  shellOnlyWelcome.appAbsent &&
+  shellOnlyWelcome.markedBeforeApp,
+  JSON.stringify(shellOnlyWelcome));
+await shellOnlyPage.close();
+
+const returningShellPage = await newStudioPage(true);
+await returningShellPage.evaluateOnNewDocument(() => {
+  localStorage.setItem('bw-studio-welcome-v1', '1');
+});
+await returningShellPage.setRequestInterception(true);
+returningShellPage.on('request', (request) => {
+  if (new URL(request.url()).pathname === '/static/studio.js') request.abort();
+  else request.continue();
+});
+await returningShellPage.goto(URL_, { waitUntil: 'domcontentloaded' });
+const returningShell = await returningShellPage.evaluate(() => {
+  const welcome = document.getElementById('bw-welcome') as HTMLElement;
+  const shell = (window as unknown as {
+    __bwStudioShell?: { firstRun?: boolean; welcomeVisibleAt?: number | null };
+  }).__bwStudioShell;
+  return {
+    hidden: welcome.hidden && !welcome.getClientRects().length,
+    firstRun: shell?.firstRun,
+    visibleMark: shell?.welcomeVisibleAt,
+  };
+});
+check('returning projects suppress the launchpad before application boot',
+  returningShell.hidden &&
+  returningShell.firstRun === false &&
+  returningShell.visibleMark === null,
+  JSON.stringify(returningShell));
+await returningShellPage.close();
+
 const welcomePage = await newStudioPage(true);
 await welcomePage.evaluateOnNewDocument(() => localStorage.clear());
 welcomePage.on('pageerror', (e) => check('first-run page has no errors', false, String(e)));
@@ -1469,6 +1541,10 @@ check(
 );
 check('long documentation page is removed', shell.oldDocsGone);
 check('brand-new project shows the template-first launchpad', shell.welcomeVisible && (await welcomePage.$eval('#bw-welcome-title', (el) => el.textContent)) === 'Choose a starting point');
+check('first-run launchpad becomes interactive only after Studio is ready',
+  (await welcomePage.$eval('#bw-welcome', (el) => el.getAttribute('aria-busy'))) === 'false' &&
+  (await welcomePage.$$eval('#bw-welcome button', (buttons) => buttons.every((button) => !(button as HTMLButtonElement).disabled))) &&
+  (await welcomePage.$eval('#bw-welcome-status', (el) => (el as HTMLElement).hidden)));
 check('first-run launchpad shows four useful quick starters', (await welcomePage.$$('[data-welcome-template]')).length === 4);
 check('first-run screen keeps template, blank, and existing-project choices', (await welcomePage.$$('.ws-welcome-actions button')).length === 3);
 await welcomePage.click('#bw-welcome-help');

@@ -769,7 +769,7 @@ export function cadStudioPage(): string {
           <div class="ws-axis-triad" aria-label="World axes: X red, Y green, Z blue">
             <span class="axis-x">X</span><span class="axis-y">Y</span><span class="axis-z">Z</span><i aria-hidden="true"></i>
           </div>
-          <section id="bw-welcome" class="ws-welcome" aria-labelledby="bw-welcome-title" hidden>
+          <section id="bw-welcome" class="ws-welcome" aria-labelledby="bw-welcome-title" aria-busy="true">
             <div class="ws-welcome-card">
               <div class="ws-welcome-heading">
                 <div><p class="ws-welcome-kicker">New part</p><h1 id="bw-welcome-title">Choose a starting point</h1></div>
@@ -777,19 +777,38 @@ export function cadStudioPage(): string {
               </div>
               <p class="ws-welcome-lede">Open a proven feature recipe, change its dimensions, and make it yours. Every starter is normal editable CAD — never a locked mesh.</p>
               <div class="ws-welcome-popular" aria-label="Popular starter parts">
-                <button type="button" data-welcome-template="starter-plate"><span class="ws-template-mini" data-shape="plate" aria-hidden="true"></span><b>Starter plate</b><small>2 features · 3 parameters</small></button>
-                <button type="button" data-welcome-template="electronics-tray"><span class="ws-template-mini" data-shape="tray" aria-hidden="true"></span><b>Electronics tray</b><small>2 features · 5 parameters</small></button>
-                <button type="button" data-welcome-template="four-hole-plate"><span class="ws-template-mini" data-shape="mount" aria-hidden="true"></span><b>Mounting plate</b><small>2 features · 4 parameters</small></button>
-                <button type="button" data-welcome-template="turned-knob"><span class="ws-template-mini" data-shape="knob" aria-hidden="true"></span><b>Machine knob</b><small>2 features · 3 parameters</small></button>
+                <button type="button" data-welcome-template="starter-plate" data-welcome-boot-disabled disabled><span class="ws-template-mini" data-shape="plate" aria-hidden="true"></span><b>Starter plate</b><small>2 features · 3 parameters</small></button>
+                <button type="button" data-welcome-template="electronics-tray" data-welcome-boot-disabled disabled><span class="ws-template-mini" data-shape="tray" aria-hidden="true"></span><b>Electronics tray</b><small>2 features · 5 parameters</small></button>
+                <button type="button" data-welcome-template="four-hole-plate" data-welcome-boot-disabled disabled><span class="ws-template-mini" data-shape="mount" aria-hidden="true"></span><b>Mounting plate</b><small>2 features · 4 parameters</small></button>
+                <button type="button" data-welcome-template="turned-knob" data-welcome-boot-disabled disabled><span class="ws-template-mini" data-shape="knob" aria-hidden="true"></span><b>Machine knob</b><small>2 features · 3 parameters</small></button>
               </div>
               <div class="ws-welcome-actions">
-                <button type="button" class="ws-primary" id="bw-welcome-templates">Browse all templates <span aria-hidden="true">→</span></button>
-                <button type="button" id="bw-welcome-start">Blank sketch</button>
-                <button type="button" id="bw-welcome-open">Open a project</button>
+                <button type="button" class="ws-primary" id="bw-welcome-templates" data-welcome-boot-disabled disabled>Browse all templates <span aria-hidden="true">→</span></button>
+                <button type="button" id="bw-welcome-start" data-welcome-boot-disabled disabled>Blank sketch</button>
+                <button type="button" id="bw-welcome-open" data-welcome-boot-disabled disabled>Open a project</button>
               </div>
-              <button type="button" class="ws-help-link" id="bw-welcome-help">Help and keyboard reference</button>
+              <p id="bw-welcome-status" class="ws-welcome-status" role="status">Preparing Studio tools…</p>
+              <button type="button" class="ws-help-link" id="bw-welcome-help" data-welcome-boot-disabled disabled>Help and keyboard reference</button>
             </div>
           </section>
+          <script>
+            (() => {
+              const welcome = document.getElementById('bw-welcome');
+              if (!welcome) return;
+              let firstRun = true;
+              try {
+                firstRun = !localStorage.getItem('bw-studio-welcome-v1') &&
+                  !localStorage.getItem('bw-studio-v2-seeded');
+              } catch {}
+              welcome.hidden = !firstRun;
+              window.__bwStudioShell = {
+                firstRun,
+                welcomeVisibleAt: firstRun ? performance.now() : null,
+                welcomeReadyAt: null,
+              };
+              if (firstRun) performance.mark?.('bw-studio-welcome-visible');
+            })();
+          </script>
           <div id="bw-face" class="pick-bar" hidden>
             <b id="bw-face-title"></b>
             <span class="sk-note">Click a flat face of the part, or step through them</span>
