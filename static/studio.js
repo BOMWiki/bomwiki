@@ -9844,13 +9844,103 @@
     // source of truth; the solver renders solved geometry and the panel
     // edits driving dimensions. Legacy shapes stay the display fallback.
     let solverModulePromise = null;
+    let solverModule = null; // resolved module — lets post-preload work run synchronously
     let solvedConstrained = null; // last solve of the draft's constrained sketch
     let solveGeneration = 0;
     let dimBadgeHits = []; // canvas-space boxes for click-to-edit dimensions
     const isConstrained = () => Boolean(feature?.sketch?.constrained);
     function ensureSolver() {
-      if (!solverModulePromise) solverModulePromise = import('/static/studio-sketch-solver.js');
+      if (!solverModulePromise) {
+        solverModulePromise = import('/static/studio-sketch-solver.js').then((module) => (solverModule = module));
+      }
       return solverModulePromise;
+    }
+    let inferModulePromise = null;
+    let inferModule = null;
+    function ensureInfer() {
+      if (!inferModulePromise) {
+        inferModulePromise = import('/static/studio-sketch-infer.js').then((module) => (inferModule = module));
+      }
+      return inferModulePromise;
+    }
+    // Once open() has preloaded a module, callers run synchronously so the
+    // close-click -> region-recognized flow has no visible async gap.
+    function withModule(loaded, ensure, run) {
+      if (loaded()) { run(); return; }
+      ensure().then(() => run()).catch(() => {});
+    }
+    // Drawing on a blank sketch (or on an already-constrained one) builds
+    // constrained geometry with inferred constraints instead of legacy shapes.
+    const constrainedDrawing = () => isConstrained() || feature?.sketch?.shapes?.length === 0;
+    function materializeConstrainedChain(rawPts) {
+      withModule(() => inferModule && solverModule, () => Promise.all([ensureInfer(), ensureSolver()]), () => {
+        const infer = inferModule;
+        const existing = feature?.sketch?.constrained || null;
+        const prefix = 'sk' + (existing ? existing.entities.length : 0);
+        const working = { entities: existing ? [...existing.entities] : [], constraints: [] };
+        const hasFixed = working.entities.some((entity) => entity.kind === 'point' && entity.fixed);
+        const newEntities = [];
+        const newConstraints = [];
+        const anchorIds = [];
+        let pointSeq = 0;
+        let lineSeq = 0;
+        let prevId = null;
+        const snapRadiusMm = Math.max(0.75, 10 / view.pxPerMm);
+        for (let index = 0; index <= rawPts.length; index++) {
+          const isClose = index === rawPts.length;
+          const raw = isClose ? rawPts[0] : rawPts[index];
+          const placement = infer.inferLinePlacement({ sketch: working, fromPointId: prevId, at: raw, snapRadiusMm });
+          let pointId = placement.coincidentWith;
+          if (isClose && !pointId) pointId = anchorIds[0];
+          if (!pointId) {
+            pointId = prefix + '-p' + (pointSeq++);
+            const entity = { id: pointId, kind: 'point', at: [placement.at[0], placement.at[1]], ...(!hasFixed && index === 0 ? { fixed: true } : {}) };
+            working.entities.push(entity);
+            newEntities.push(entity);
+          }
+          if (prevId && prevId !== pointId) {
+            const lineId = prefix + '-l' + (lineSeq++);
+            const line = { id: lineId, kind: 'line', a: prevId, b: pointId };
+            working.entities.push(line);
+            newEntities.push(line);
+            for (const inferred of placement.constraints) newConstraints.push({ ...inferred, line: lineId });
+          }
+          if (!isClose) anchorIds.push(pointId);
+          prevId = pointId;
+        }
+        feature.sketch.constrained = {
+          entities: [...(existing?.entities || []), ...newEntities],
+          constraints: [...(existing?.constraints || []), ...newConstraints],
+        };
+        resolveConstrained();
+        syncDofPill();
+        syncShapePanel();
+        captureV6HumanCommandInput({ target: { name: 'sketch' } });
+      });
+    }
+    function materializeConstrainedRecipe(shape) {
+      withModule(() => inferModule && solverModule, () => Promise.all([ensureInfer(), ensureSolver()]), () => {
+        const infer = inferModule;
+        const existing = feature?.sketch?.constrained || null;
+        const prefix = 'sk' + (existing ? existing.entities.length : 0);
+        const recipe = shape.kind === 'rect'
+          ? infer.constrainedRectangle({ corner: [shape.ax, shape.ay], opposite: [2 * shape.x - shape.ax, 2 * shape.y - shape.ay], idPrefix: prefix })
+          : infer.constrainedCircle({ center: [shape.x, shape.y], radiusPoint: [shape.x + shape.r, shape.y], idPrefix: prefix });
+        if (!recipe) {
+          say('Click the opposite corner a little further away (1 mm minimum).');
+          return;
+        }
+        if (existing?.entities.some((entity) => entity.kind === 'point' && entity.fixed)) {
+          for (const entity of recipe.entities) delete entity.fixed;
+        }
+        feature.sketch.constrained = existing
+          ? { entities: [...existing.entities, ...recipe.entities], constraints: [...existing.constraints, ...recipe.constraints] }
+          : recipe;
+        resolveConstrained();
+        syncDofPill();
+        syncShapePanel();
+        captureV6HumanCommandInput({ target: { name: 'sketch' } });
+      });
     }
     function sampleArcPoints(segment, steps) {
       const [cx, cy] = segment.center;
@@ -9887,7 +9977,8 @@
       if (!isConstrained()) return;
       const constrained = feature.sketch.constrained;
       const ticket = ++solveGeneration;
-      ensureSolver().then((solver) => {
+      withModule(() => solverModule, ensureSolver, () => {
+        const solver = solverModule;
         if (ticket !== solveGeneration || !feature?.sketch || feature.sketch.constrained !== constrained) return;
         let result;
         try {
@@ -9903,14 +9994,16 @@
           solvedConstrained = { ...result, byId, loops: loopResult.status === 'ok' ? loopResult.loops : null };
           if (loopResult.status === 'ok') {
             feature.sketch.shapes = constrainedLoopsToShapes(loopResult.loops);
-            if (selShape && !feature.sketch.shapes.includes(selShape)) selShape = feature.sketch.shapes[feature.sketch.shapes.length - 1] || null;
+            // Constrained mode has no shape-level selection; keep the latest
+            // regenerated profile selected so Press / Pull stays reachable.
+            selShape = feature.sketch.shapes[feature.sketch.shapes.length - 1] || null;
           }
         } else {
           solvedConstrained = { ...result, byId, loops: null };
         }
         syncDofPill();
         draw2d();
-      }).catch(() => {});
+      });
     }
     function syncDofPill() {
       const pill = $('bw-sk-dof');
@@ -10008,6 +10101,10 @@
       solvedConstrained = null;
       setTool(isConstrained() ? 'select' : 'rect');
       syncDofPill();
+      // Preload the solver and inference modules so drawing and dimension
+      // edits run without a visible async gap.
+      ensureSolver();
+      ensureInfer();
       if (isConstrained()) resolveConstrained();
       resize();
       // Centre the view on what matters: the face outline (its plane origin
@@ -10761,6 +10858,14 @@
         say('A closed profile needs at least three connected lines.');
         return false;
       }
+      if (constrainedDrawing()) {
+        pending = null;
+        materializeConstrainedChain(pts);
+        setTool('select');
+        draw2d();
+        syncShapePanel();
+        return true;
+      }
       const shape = { kind: 'poly', pts, closed: true };
       feature.sketch.shapes.push(shape);
       selShape = shape;
@@ -10775,15 +10880,16 @@
 
     function clickAt(mx, my) {
       if (isConstrained()) {
-        // Constraint-driven geometry is edited through its dimensions (or an
-        // agent), not by free placement — but dimension badges are clickable.
+        // Dimension badges are click-to-edit; draw tools fall through and
+        // materialize new constrained geometry alongside the existing sketch.
         const [cpx, cpy] = toPx(mx, my);
         const hit = dimBadgeHits.find((box) => cpx >= box.x && cpx <= box.x + box.w && cpy >= box.y && cpy <= box.y + box.h);
-        if (hit) { focusConstraintDim(hit.index); return; }
-        if (tool !== 'select' && tool !== 'pan') {
-          say('This sketch is constraint-driven — edit its dimensions below, or change its geometry through the agent tools.');
+        if (hit && tool === 'select') { focusConstraintDim(hit.index); return; }
+        if (tool === 'select') return;
+        if (tool === 'poly') {
+          say('Polygon stays a free shape — use Line to draw constrained profiles.');
+          return;
         }
-        return;
       }
       if (tool === 'rect') {
         if (!pending) pending = { kind: 'rect', ax: mx, ay: my, x: mx, y: my, w: 0, h: 0 };
@@ -10851,6 +10957,12 @@
       if (s.kind === 'circle' && s.r < 0.5) {
         return say('Click the edge of the circle away from the centre (0.5 mm minimum radius).');
       }
+      if (constrainedDrawing() && (s.kind === 'rect' || s.kind === 'circle')) {
+        pending = null;
+        materializeConstrainedRecipe(s);
+        draw2d();
+        return;
+      }
       delete s.ax;
       delete s.ay;
       pending = null;
@@ -10888,6 +11000,10 @@
         '<span class="sk-note">Constrained · ' + constrained.entities.length + ' entities · ' + (constrained.constraints || []).length + ' constraints</span>' +
         dims.map(({ constraint, index }) =>
           '<label>' + escAttr(labelOf(constraint)) + ' <input type="text" inputmode="decimal" data-cdim="' + index + '" data-v6-control-id="sketch.constraint.dimension" value="' + escAttr(constraint.value) + '" /></label>').join('');
+      if (canPressPull()) {
+        p.insertAdjacentHTML('beforeend', '<button type="button" class="sk-pull" id="bw-sk-presspull">Press / Pull ↕</button>');
+        $('bw-sk-presspull')?.addEventListener('click', startPressPull);
+      }
       p.querySelectorAll('[data-cdim]').forEach((inp) =>
         inp.addEventListener('change', () => {
           const raw = inp.value.trim();

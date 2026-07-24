@@ -1762,7 +1762,10 @@ const closedProfile = await welcomePage.evaluate(() => ({
   selectedTool: document.querySelector('[data-sktool][aria-pressed="true"]')?.getAttribute('data-sktool'),
   doc: (window as unknown as { __bwStudio: { docJson(): string } }).__bwStudio.docJson(),
 }));
-check('clicking the first endpoint closes and recognizes the three-edge region', /Closed region · 3 edges/.test(closedProfile.label || '') && closedProfile.pull && closedProfile.selectedTool === 'select', JSON.stringify(closedProfile));
+// A closed pointer-drawn chain now materializes as a constrained sketch:
+// three points, three lines, and the inferred horizontal constraint on the
+// flat base segment.
+check('clicking the first endpoint closes into a constrained three-line profile', /Constrained · 6 entities · 1 constraint/.test(closedProfile.label || '') && closedProfile.pull && closedProfile.selectedTool === 'select', JSON.stringify(closedProfile));
 check('recognized region remains a transactional draft', closedProfile.doc.includes('"features":[]'));
 const cameraBeforePull = await welcomePage.evaluate(() =>
   (window as unknown as { __bwStudio: { cameraDir(): number[] } }).__bwStudio.cameraDir(),
@@ -1904,6 +1907,43 @@ await welcomePage.close();
   });
   check('editing a driving dimension re-solves the sketch geometry', resolved.spanPx > 120, JSON.stringify(resolved));
   await constrainedPage.close();
+}
+
+// --- Rect tool on a blank sketch draws a fully-defined constrained profile --
+{
+  const drawPage = await newStudioPage();
+  await drawPage.goto(URL_, { waitUntil: 'domcontentloaded' });
+  await waitForStudioPage(drawPage, { idle: true, timeout: 30_000 });
+  // The seeded starter part has a body, so Extrude offers a face first;
+  // sketch on the base plane to get a fresh blank sketch.
+  await drawPage.evaluate(() => (document.querySelector('[data-feat="extrude"]') as HTMLButtonElement).click());
+  await drawPage.waitForFunction(() => (window as any).__bwStudio.mode()?.kind === 'choose-face', { polling: 50, timeout: 10_000 });
+  await drawPage.evaluate(() => (document.getElementById('bw-face-base') as HTMLButtonElement).click());
+  await drawPage.waitForFunction(() => (window as any).__bwStudio.mode()?.kind === 'sketching', { polling: 50, timeout: 10_000 });
+  await drawPage.evaluate(() => (document.querySelector('[data-sktool="rect"]') as HTMLButtonElement).click());
+  await drawPage.evaluate(() => {
+    const canvas = document.getElementById('bw-sketch-canvas')!;
+    const r = canvas.getBoundingClientRect();
+    const move = (x: number, y: number) =>
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left + r.width / 2 + x, clientY: r.top + r.height / 2 + y, button: 0, bubbles: true }));
+    const point = (x: number, y: number) =>
+      canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: r.left + r.width / 2 + x, clientY: r.top + r.height / 2 + y, button: 0, bubbles: true }));
+    // Real placement: corner, drag to the opposite corner, click. The drag
+    // sets the rectangle's extent that the constrained recipe dimensions.
+    point(-60, 40);
+    move(60, -40);
+    point(60, -40);
+  });
+  await drawPage.waitForFunction(() => !document.getElementById('bw-sk-dof')?.hidden, { polling: 50, timeout: 10_000 });
+  const drawn = await drawPage.evaluate(() => ({
+    pill: document.getElementById('bw-sk-dof')?.textContent,
+    dims: [...document.querySelectorAll('#bw-sk-dims [data-cdim]')].map((i) => (i as HTMLInputElement).value),
+    panel: document.getElementById('bw-sk-dims')?.textContent,
+  }));
+  check('rect tool materializes a constrained sketch with driving dimensions',
+    /Constrained · 8 entities/.test(drawn.panel || '') && drawn.dims.length === 2, JSON.stringify(drawn));
+  check('pointer-drawn rectangle is born fully defined', /Fully defined/.test(drawn.pill || ''), JSON.stringify(drawn));
+  await drawPage.close();
 }
 
 await browser.close();
