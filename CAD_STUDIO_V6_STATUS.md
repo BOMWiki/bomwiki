@@ -82,8 +82,13 @@ Complete semantic UI control is the V6 release floor, not an optional layer afte
   candidate queries.
 - `npm run studio:v6:i4:contract` — 7/7 passed.
 - `npm run studio:v6:foundation` — complete I0-I4 local aggregate passed.
-- `npm run studio:v6:acceptance` — 15/15 passed, covering the exact ten-step normal-operation gate and the recording-presentation replay.
-- `npm run studio:v6:turbofan-demo` — 10/10 passed locally. It starts from an
+- `npm run studio:v6:acceptance` — the default non-recording ten-step
+  normal-operation gate. Recording is intentionally excluded from ordinary
+  local and protected CI runs.
+- `npm run studio:v6:acceptance:recording` — explicit opt-in replay only; it
+  previously passed 15/15 including the recording-presentation checks.
+- `npm run studio:v6:turbofan-demo:recording` — explicit opt-in only. Its last
+  requested run passed 10/10 locally. It starts from an
   empty document, builds the canonical editable turbofan through nine public
   preview/commit transaction groups with no import/template shortcut, proves
   the canonical hash, performs the visible rear-compressor 12 mm clearance
@@ -92,7 +97,11 @@ Complete semantic UI control is the V6 release floor, not an optional layer afte
   opens the longitudinal section, exports only the selected stage, persists and
   recovers the project, and emits one uncut recording plus matching trusted
   WebVTT/SRT and a CAD-only transcript.
-- `npm run studio:v6:release-check` — passed locally for the corrected 260-control/263-command-field candidate, including the foundation, exact-kernel, package, host-conformance, browser, ten-step acceptance/replay, and typecheck gates.
+- `npm run studio:v6:release-check` — the default non-recording release gate:
+  foundation, exact-kernel, package, host-conformance, browser, ten-step
+  acceptance, and typecheck. Viewport video capture and full demo tracks run
+  only through the explicit `:recording` commands above; the normal gate still
+  validates the small VTT/SRT export API as an agent capability.
 - Exact-head protected CI run `30064711027` passed all 31 enforced phases in
   `11m23s` for head `589329ec8b944f676b296c0d0e6d3912899f6f6c`.
   V6 evidence artifact `8585971844` has digest
@@ -222,11 +231,17 @@ The observer phase performs the required simulated-human connection and preview 
 - `npm run studio:v6:host-conformance` — 9/9 passed, including an approved-root selected-body PNG written by a second MCP host.
 - `npm run studio:v6:package:check` — 8/8 passed.
 - `npm run studio:v6:forbidden` — 4/4 passed.
-- `npm run studio:v6:acceptance` — 15/15 passed locally.
+- `npm run studio:v6:acceptance` — default non-recording ten-step gate.
+- `npm run studio:v6:acceptance:recording` — explicit opt-in recording replay.
 - `quick_validate.py engine/skills/bomwiki-cad` — passed.
 - Compatibility: `studio:agent:core` 50/50, `studio:agent:headless` 11/11, `studio:agent:parity` 28/28, and `studio:check` 282/282 passed.
 
-The local acceptance runner loads the canonical skill through MCP, uses the host-neutral CAD tools for every agent operation, records the separately labelled human approvals/edit, verifies exact normal/replay hash parity, exports selected CAD and narration artifacts, and writes a SHA-bound evidence manifest. The observer records only; it does not perform agent CAD/UI work.
+The local acceptance runner loads the canonical skill through MCP, uses the
+host-neutral CAD tools for every agent operation, captures structured evidence
+for the separately labelled human approvals/edit, exports selected CAD and
+narration artifacts, and writes a SHA-bound evidence manifest. The default
+runner does not capture video. The optional recording observer records only; it
+does not perform agent CAD/UI work.
 
 ## Deferred or awaiting production verification
 

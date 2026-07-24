@@ -1068,6 +1068,7 @@ async function runWorkflow(browser: Browser, url: string, mode: PresentationMode
 
 export async function runStudioV6Acceptance() {
 console.log('\nCAD Studio V6 ten-step normal-operation acceptance');
+const recordingRequested = process.argv.includes('--record');
 await rm(evidenceRoot, { recursive: true, force: true });
 await rm(manifestPath, { force: true });
 await mkdir(evidenceRoot, { recursive: true });
@@ -1079,12 +1080,14 @@ let normalGate: 'pass' | 'fail' | 'not-run' = 'not-run';
 let recordingGate: 'pass' | 'fail' | 'not-run' = 'not-run';
 const fatalErrors: string[] = [];
 try {
-  const requiredPrograms = [
-    [FFMPEG_PATH, ['-version']],
-    ...(RECORDING_CAPTURE_BACKEND === 'chromium-print-compositor'
-      ? [['pdftoppm', ['-v']] as [string, string[]]]
-      : []),
-  ] as Array<[string, string[]]>;
+  const requiredPrograms = recordingRequested
+    ? [
+        [FFMPEG_PATH, ['-version']],
+        ...(RECORDING_CAPTURE_BACKEND === 'chromium-print-compositor'
+          ? [['pdftoppm', ['-v']] as [string, string[]]]
+          : []),
+      ] as Array<[string, string[]]>
+    : [];
   for (const [program, args] of requiredPrograms) {
     const probe = spawnSync(program, args, { encoding: 'utf8' });
     if (probe.error || probe.status !== 0) {
@@ -1181,55 +1184,57 @@ try {
     });
   normalGate = failed === 0 ? 'pass' : 'fail';
 
-  console.log('\nCAD Studio V6 recording-presentation replay');
-  const recordingFailuresAtStart = failed;
-  recording = await runWorkflow(browser, url, 'recording');
-  check('recording replay uses the same semantic workflow and reaches exact normal-run parity',
-    recording.finalDocumentHash === normal.finalDocumentHash &&
-    recording.exactHealthSha256 === normal.exactHealthSha256 &&
-    recording.finalRevision === normal.finalRevision &&
-    recording.step6.directVisibleHashParity &&
-    recording.step8.directVisibleHashParity &&
-    recording.step9.healthExact);
-  check('recording replay produces one uncut reviewable WebM over the real Studio UI',
-    recording.artifacts.videoSegments === 1 &&
-    recording.artifacts.videoBytes > 50_000 &&
-    /^[a-f0-9]{64}$/.test(recording.artifacts.videoSha256) &&
-    Number.isFinite(recording.artifacts.videoDurationSeconds) &&
-    recording.artifacts.videoDurationSeconds > 10 &&
-    recording.artifacts.videoCodec === 'vp9' &&
-    recording.artifacts.videoWidth === 1280 &&
-    recording.artifacts.videoHeight === 800 &&
-    ['chromium-print-compositor', 'chromium-screenshot'].includes(recording.artifacts.captureBackend));
-  check('recording replay exports matching trusted visible WebVTT/SRT cues',
-    recording.step9.narrationCueCount > 10 &&
-    recording.step9.narrationParity &&
-    recording.step9.trustedNarration &&
-    /^[a-f0-9]{64}$/.test(recording.artifacts.webvttSha256) &&
-    /^[a-f0-9]{64}$/.test(recording.artifacts.srtSha256));
-  check('recording observer performs no agent CAD/UI operation outside the MCP transcript',
-    recording.transcript.every((entry: TranscriptEntry) => entry.tool.startsWith('cad_')) &&
-    recording.forbiddenTranscript.length === 0 &&
-    recording.pageErrors.length === 0 &&
-    recording.requestFailures.length === 0 &&
-    recording.humanActions.join(',') === [
-      'approve permission-scoped connection',
-      'change normal display mode to wireframe',
-      'approve exact preview commit',
-    ].join(','),
-    {
-      forbiddenTranscript: recording.forbiddenTranscript,
-      pageErrors: recording.pageErrors,
-      requestFailures: recording.requestFailures,
-      humanActions: recording.humanActions,
-    });
-  recordingGate = failed === recordingFailuresAtStart ? 'pass' : 'fail';
+  if (recordingRequested) {
+    console.log('\nCAD Studio V6 recording-presentation replay');
+    const recordingFailuresAtStart = failed;
+    recording = await runWorkflow(browser, url, 'recording');
+    check('recording replay uses the same semantic workflow and reaches exact normal-run parity',
+      recording.finalDocumentHash === normal.finalDocumentHash &&
+      recording.exactHealthSha256 === normal.exactHealthSha256 &&
+      recording.finalRevision === normal.finalRevision &&
+      recording.step6.directVisibleHashParity &&
+      recording.step8.directVisibleHashParity &&
+      recording.step9.healthExact);
+    check('recording replay produces one uncut reviewable WebM over the real Studio UI',
+      recording.artifacts.videoSegments === 1 &&
+      recording.artifacts.videoBytes > 50_000 &&
+      /^[a-f0-9]{64}$/.test(recording.artifacts.videoSha256) &&
+      Number.isFinite(recording.artifacts.videoDurationSeconds) &&
+      recording.artifacts.videoDurationSeconds > 10 &&
+      recording.artifacts.videoCodec === 'vp9' &&
+      recording.artifacts.videoWidth === 1280 &&
+      recording.artifacts.videoHeight === 800 &&
+      ['chromium-print-compositor', 'chromium-screenshot'].includes(recording.artifacts.captureBackend));
+    check('recording replay exports matching trusted visible WebVTT/SRT cues',
+      recording.step9.narrationCueCount > 10 &&
+      recording.step9.narrationParity &&
+      recording.step9.trustedNarration &&
+      /^[a-f0-9]{64}$/.test(recording.artifacts.webvttSha256) &&
+      /^[a-f0-9]{64}$/.test(recording.artifacts.srtSha256));
+    check('recording observer performs no agent CAD/UI operation outside the MCP transcript',
+      recording.transcript.every((entry: TranscriptEntry) => entry.tool.startsWith('cad_')) &&
+      recording.forbiddenTranscript.length === 0 &&
+      recording.pageErrors.length === 0 &&
+      recording.requestFailures.length === 0 &&
+      recording.humanActions.join(',') === [
+        'approve permission-scoped connection',
+        'change normal display mode to wireframe',
+        'approve exact preview commit',
+      ].join(','),
+      {
+        forbiddenTranscript: recording.forbiddenTranscript,
+        pageErrors: recording.pageErrors,
+        requestFailures: recording.requestFailures,
+        humanActions: recording.humanActions,
+      });
+    recordingGate = failed === recordingFailuresAtStart ? 'pass' : 'fail';
+  }
 } catch (error) {
   failed++;
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   fatalErrors.push(message);
   if (normalGate === 'not-run') normalGate = 'fail';
-  if (recordingGate === 'not-run') recordingGate = 'fail';
+  if (recordingRequested && recordingGate === 'not-run') recordingGate = 'fail';
   console.error('  FAIL fatal acceptance runtime error', message);
 } finally {
   await browser?.close().catch((error) => {
